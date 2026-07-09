@@ -1,0 +1,37 @@
+{
+  "version": "0.2.0",
+  "configurations": [
+    {
+      "name": "Backend 8018",
+      "type": "node-terminal",
+      "request": "launch",
+      "command": "npm run dev:backend",
+      "cwd": "${workspaceFolder}",
+      "presentation": {
+        "group": "LazyPerson",
+        "order": 1
+      }
+    },
+    {
+      "name": "Frontend 5175",
+      "type": "node-terminal",
+      "request": "launch",
+      "command": "npm run dev:frontend",
+      "cwd": "${workspaceFolder}",
+      "presentation": {
+        "group": "LazyPerson",
+        "order": 2
+      }
+    }
+  ],
+  "compounds": [
+    {
+      "name": "LazyPerson Dev",
+      "configurations": [
+        "Backend 8018",
+        "Frontend 5175"
+      ],
+      "stopAll": true
+    }
+  ]
+}

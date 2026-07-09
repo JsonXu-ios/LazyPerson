@@ -1,0 +1,10 @@
+fastapi>=0.115.0
+uvicorn[standard]>=0.30.0
+pandas>=2.2.0
+numpy>=2.0.0
+pyarrow>=16.0.0
+python-dotenv>=1.0.1
+requests>=2.31.0
+efinance>=0.5.3
+akshare>=1.14.0
+baostock>=0.8.9

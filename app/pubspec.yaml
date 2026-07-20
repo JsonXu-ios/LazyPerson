@@ -1,0 +1,38 @@
+name: lazyperson
+description: "LazyPerson A 股走势分析 Android 应用"
+publish_to: 'none'
+
+version: 0.1.0+1
+
+environment:
+  sdk: ^3.11.0
+
+dependencies:
+  flutter:
+    sdk: flutter
+
+  cupertino_icons: ^1.0.8
+  dio: ^5.7.0
+  sqflite: ^2.4.1
+  path: ^1.9.0
+  shared_preferences: ^2.3.4
+  lpinyin: ^2.0.3
+  fast_gbk: ^1.0.0
+
+dev_dependencies:
+  flutter_test:
+    sdk: flutter
+
+  flutter_lints: ^6.0.0
+  sqflite_common_ffi: ^2.3.4
+  flutter_launcher_icons: ^0.14.2
+
+flutter_launcher_icons:
+  android: true
+  ios: false
+  image_path: assets/icon/icon.png
+  adaptive_icon_background: "#080d16"
+  adaptive_icon_foreground: assets/icon/icon_foreground.png
+
+flutter:
+  uses-material-design: true

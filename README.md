@@ -34,6 +34,7 @@
 - [V3.7 数据缓存与自选股切换性能修正](docs/V3_7_DATA_CACHE_AND_SWITCH_PERFORMANCE.md)
 - [V3.8 开发服务启动治理与 VSCode Launch 方案](docs/V3_8_DEV_STARTUP_AND_VSCODE_LAUNCH.md)
 - [V3.9 后端端口迁移到 8018](docs/V3_9_BACKEND_PORT_MIGRATION.md)
+- [V4 Flutter 安卓应用实现方案](docs/V4_FLUTTER_APP_PLAN.md)
 - [项目更新记录](docs/UPDATES.md)
 - [文档落地规则](docs/DOCUMENTATION_POLICY.md)
 
@@ -71,12 +72,24 @@ npm run build
 ## 目录结构
 
 ```text
+app/              Flutter Android 应用（独立数据层，直连数据源）
 backend/          FastAPI 后端、数据源适配、缓存、指标
 frontend/         React + Vite 前端
 data/cache/       本地运行时缓存，默认不需要手动创建
 docs/             实现方案和阶段文档
+scripts/          golden 对拍数据与 logo 生成脚本
 tests/            后端单元测试
 ```
+
+## Flutter 安卓应用
+
+```powershell
+cd app
+flutter test          # 单测（含与后端/网页版算法的 golden 对拍）
+flutter build apk --release
+```
+
+产物：`app/build/app/outputs/flutter-apk/app-release.apk`。首次启动会全量同步沪深 90 天日 K（可断点续传），详见 [V4 方案](docs/V4_FLUTTER_APP_PLAN.md)。
 
 ## 外部资料
 

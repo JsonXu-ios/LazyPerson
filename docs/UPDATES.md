@@ -614,3 +614,30 @@
 
 - 后续固定使用 `8018`，不要再切回 `8018`。
 - 优先使用 VSCode `LazyPerson Dev` 启动。
+
+## 2026-07-20：V4 Flutter 安卓应用（M1-M4）落地
+
+类型：实现更新
+
+完成内容：
+
+- 新增 `app/` Flutter 工程（包名 `com.jsonxu.lazyperson`，仅 Android）。
+- Dart 直连数据源：腾讯（A 股行情/日K/分钟K，GBK 解析）、东方财富（clist 全市场快照 + 单只 K 线兜底，push2 不通时自动切 push2delay）、Yahoo（美股/黄金/比特币）。
+- 数据本地化：沪深全量清单（约 5540 只，不含北交所）+ 90 天日 K 落 sqlite；首次启动初始化页带分段进度与断点续传；每日增量用约 55 页快照批量写当日 bar；超 90 天自动裁剪；搜索纯本地（代码/名称/拼音首字母）。
+- 算法移植并对拍：indicators.py（MA/EMA/MACD/RSI/LON）、autoDrawing.ts、calendarWindow.ts、watch 信号，用 4 只真实股票的 golden 数据逐值比对（`scripts/generate_golden.py` + `scripts/generate_golden_drawing.mjs`）。
+- UI：初始化进度页、四市场面板、周期切换、信号条、K 线 CustomPaint（蜡烛/成交量/水平位含主线加粗与标签避让/趋势通道/长按十字线/对数坐标）、MACD/LON 副图、自选与资产信息弹层、线位颜色设置（存储 key 与网页版一致）。
+- Logo：AI 生成"慵懒小人靠 K 线打盹"扁平图标（`scripts/generate_logo.py`），flutter_launcher_icons 出全套自适应图标，启动页深色底。
+- Android release 补 INTERNET 权限，应用名 LazyPerson。
+
+验证：
+
+- `flutter analyze` 无告警。
+- `flutter test` 28 项全部通过（含指标与自动画线 golden 对拍）。
+- `dart run tool/smoke_providers.dart` 联网冒烟 8 项全部通过（四个市场行情与 K 线）。
+- `flutter build apk --release` 构建成功（约 55MB）。
+
+遗留问题：
+
+- 真机验收未做：全量初始化实际耗时与接口限速需实测调优并发；002138 画线位置与网页版截图比对待真机完成。
+- 手动画线/趋势线拖拽编辑、资金流图为二期范围。
+- Yahoo 接口在大陆移动网络下可能不通，仅影响非 A 股面板（有缓存兜底与提示）。

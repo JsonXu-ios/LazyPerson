@@ -2,6 +2,7 @@ import type {
   ApiResponse,
   KlinePayload,
   MoneyFlowPayload,
+  MoneyGrabStatus,
   Quote,
   SymbolItem,
   WatchlistItem,
@@ -47,4 +48,7 @@ export const api = {
     ),
   moneyFlow: (symbol: string, refresh = false) =>
     request<MoneyFlowPayload>(`/api/money-flow/${encodeURIComponent(symbol)}?refresh=${refresh}`),
+  startMoneyGrabScan: (refresh = false) =>
+    request<MoneyGrabStatus>(`/api/moneygrab/scan?refresh=${refresh}`, { method: "POST" }),
+  getMoneyGrabScanStatus: () => request<MoneyGrabStatus>("/api/moneygrab/scan/status"),
 };

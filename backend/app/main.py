@@ -7,6 +7,7 @@ from backend.app.cache import CacheStore
 from backend.app.config import Settings, get_settings
 from backend.app.errors import ProviderError
 from backend.app.models import ApiResponse, WatchlistCreate
+from backend.app.scanner import get_scanner
 from backend.app.services import MarketService
 
 
@@ -137,6 +138,14 @@ def create_app() -> FastAPI:
     ) -> ApiResponse:
         service.remove_watchlist(symbol, group_name)
         return ApiResponse(data={"ok": True})
+
+    @app.post("/api/moneygrab/scan", response_model=ApiResponse)
+    def start_moneygrab_scan(refresh: bool = False) -> ApiResponse:
+        return ApiResponse(data=get_scanner().start(refresh=refresh))
+
+    @app.get("/api/moneygrab/scan/status", response_model=ApiResponse)
+    def moneygrab_scan_status() -> ApiResponse:
+        return ApiResponse(data=get_scanner().status())
 
     @app.post("/api/cache/refresh", response_model=ApiResponse)
     def refresh_cache() -> ApiResponse:

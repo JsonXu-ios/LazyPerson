@@ -52,11 +52,20 @@ class TestClassifyGroup:
         assert classify_group(-3.0) is None
         assert classify_group(None) is None
 
-    def test_group1_zone_20_to_40(self):
-        assert classify_group(20.0) == 1
+    def test_group1_zone_30_to_40(self):
+        # "在20%~40%之间且大于30%"：一档有效区 [30,40)
+        assert classify_group(30.0) == 1
         assert classify_group(31.0) == 1
         assert classify_group(39.9) == 1
         assert group_threshold(1) == 20.0
+
+    def test_just_over_mainline_not_grouped(self):
+        # 振江场景：过了20主线但没过30 → 不入档
+        assert classify_group(25.37) is None
+        assert classify_group(20.0) is None
+        assert classify_group(29.9) is None
+        assert classify_group(55.0) is None  # 过了50没过60
+        assert classify_group(85.0) is None  # 过了80没过90
 
     def test_transition_zone_not_grouped(self):
         # 600617 场景：47.4% 已过40（第二档先过线）但没过50 → 过渡区不入档
@@ -66,20 +75,20 @@ class TestClassifyGroup:
         assert classify_group(75.0) is None   # 70~80 过渡区
         assert classify_group(105.0) is None  # 100~110 过渡区
 
-    def test_group2_zone_50_to_70(self):
-        assert classify_group(50.0) == 2
+    def test_group2_zone_60_to_70(self):
+        assert classify_group(60.0) == 2
         assert classify_group(69.9) == 2
         assert group_threshold(2) == 50.0
 
-    def test_group_thresholds_step_30(self):
-        # 第三档80、第四档110、第五档140、第六档170、第七档200、第八档230
+    def test_group_zones_step_30(self):
+        # 三档[90,100)、四档[120,130)、五档[150,160)、六档[180,190)、七档[210,220)、八档[240,250)
         assert [group_threshold(k) for k in range(1, 9)] == [20.0, 50.0, 80.0, 110.0, 140.0, 170.0, 200.0, 230.0]
-        assert classify_group(80.0) == 3
-        assert classify_group(115.0) == 4
+        assert classify_group(90.0) == 3
+        assert classify_group(125.0) == 4
         assert classify_group(150.0) == 5
-        assert classify_group(171.0) == 6
-        assert classify_group(205.0) == 7
-        assert classify_group(231.0) == 8
+        assert classify_group(181.0) == 6
+        assert classify_group(215.0) == 7
+        assert classify_group(241.0) == 8
 
     def test_beyond_group8_zone_not_grouped(self):
         assert classify_group(249.9) == 8
@@ -149,17 +158,22 @@ class TestEvaluateStock:
     today = date(2026, 7, 24)
 
     def test_group1_hit_with_dates(self):
-        # 低点10 → 收盘依次 5%、12%（先过10%线）、18%，今日现价 12.2 → pct=22% ≥20 → 第一档
+        # 低点10 → 收盘依次 5%、12%（先过10%线）、18%，今日现价 13.5 → pct=35% ∈ [30,40) → 第一档
         bars = make_wave_bars(self.today, 10.0, [5, 12, 18])
-        row = evaluate_stock("600001", "测试股", 12.2, bars, today=self.today)
+        row = evaluate_stock("600001", "测试股", 13.5, bars, today=self.today)
         assert row is not None
         assert row["group"] == 1
         assert row["threshold"] == 20.0
         assert row["low90"] == 10.0
-        assert round(row["pct"], 1) == 22.0
+        assert round(row["pct"], 1) == 35.0
         assert row["low_date"] < row["cross_date"]  # 低点在先，过线在后
         # 首次收盘过 10% 线的是 12% 那天（倒数第2根）
         assert row["cross_date"] == bars[-2]["time"]
+
+    def test_just_over_mainline_not_hit(self):
+        # 振江场景：现价 12.54 → pct=25.4%，过了20没过30 → 不入档
+        bars = make_wave_bars(self.today, 10.0, [5, 12, 18])
+        assert evaluate_stock("603507", "振江场景", 12.54, bars, today=self.today) is None
 
     def test_below_20_not_hit(self):
         # 000408 场景：现价只到 15%，不入任何档
@@ -167,9 +181,9 @@ class TestEvaluateStock:
         assert evaluate_stock("000408", "测试股", 11.5, bars, today=self.today) is None
 
     def test_group2_hit(self):
-        # 现价 pct=55% → 第二档（阈值50，先过40）
+        # 现价 pct=65% ∈ [60,70) → 第二档（阈值50，先过40）
         bars = make_wave_bars(self.today, 10.0, [20, 42, 52])
-        row = evaluate_stock("600001", "测试股", 15.5, bars, today=self.today)
+        row = evaluate_stock("600001", "测试股", 16.5, bars, today=self.today)
         assert row is not None
         assert row["group"] == 2
         assert row["threshold"] == 50.0
@@ -429,9 +443,9 @@ class TestFallingFromTop:
         assert evaluate_stock("000938", "紫光场景", 16.5, bars, today=self.today) is None
 
     def test_evaluate_keeps_holding_stock(self):
-        # 峰值 85%，今日现价 18.2（82%）≥ 80 → 第三档保留
-        bars = make_wave_bars(self.today, 10.0, [40, 85, 82])
-        row = evaluate_stock("600001", "持稳股", 18.2, bars, today=self.today)
+        # 峰值 90%，今日现价 19.2（92% ∈ [90,100)）仍站在 80 上方 → 第三档保留
+        bars = make_wave_bars(self.today, 10.0, [40, 85, 90])
+        row = evaluate_stock("600001", "持稳股", 19.2, bars, today=self.today)
         assert row is not None
         assert row["group"] == 3
-        assert row["max_pct"] >= 85.0
+        assert row["max_pct"] >= 90.0

@@ -23,15 +23,18 @@ ALLOWED_PREFIXES = ("60", "00")  # 仅沪深主板，排除创业板(30)/科创�
 
 
 def classify_group(pct: float | None) -> int | None:
-    """按最新涨幅归档：第 k 档有效区间 [20+30(k-1), 40+30(k-1))，即 [20,40)、[50,70)、[80,100)…
-    过渡区（已过下一档先过线但今天没过其主线，如 [40,50)、[70,80)）不入档。超出第八档区间上沿(250%)不入档。"""
+    """按最新涨幅归档：第 k 档有效区间 [主线+10, 主线+20)，主线 = 20+30(k-1)。
+    即一档[30,40)、二档[60,70)、三档[90,100)…（"在20%~40%之间且大于30%"的推广）。
+    刚过主线不足10个点（如[20,30)）与下一档过渡区（如[40,50)）都不入档；超250%不入档。"""
     if pct is None or pct < GROUP_FINAL_BASE:
         return None
     k = int(math.floor((pct - GROUP_FINAL_BASE) / GROUP_STEP)) + 1
     if k > MAX_GROUPS:
         return None
     offset = pct - group_threshold(k)
-    if offset >= GROUP_STEP - GROUP_PRE_OFFSET:  # 过了下一档先过线（阈值+20）→ 过渡区
+    if offset < GROUP_PRE_OFFSET:  # 过了主线但没高出10个点（振江 25% 场景）
+        return None
+    if offset >= GROUP_STEP - GROUP_PRE_OFFSET:  # 过了下一档先过线（主线+20）→ 过渡区（600617 47% 场景）
         return None
     return k
 

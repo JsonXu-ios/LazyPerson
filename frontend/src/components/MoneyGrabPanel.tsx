@@ -80,8 +80,8 @@ export function MoneyGrabPanel({ onSelect }: { onSelect: (symbol: string) => voi
     <div className="moneygrab-panel">
       <h3>八档局 · A股档位扫描</h3>
       <p className="moneygrab-desc">
-        沪深主板（60/00）。90 日波段（低点→高点）分档：先过（阈值−10）%，最后一天至少过阈值%。
-        阈值 20%~230% 每 30% 一档，与图上粗线一致。
+        沪深主板（60/00）。90 日波段（低点→高点）分档：过主线（20/50/80/…）后再站上 10 个点才入档，
+        有效区一档 30~40%、二档 60~70%、三档 90~100%…；刚过主线不足10点、档间过渡区、从顶部跌破已站上线的都不要。
       </p>
       <div className="moneygrab-actions">
         <button className="terminal-button" disabled={running} onClick={startScan}>
@@ -136,9 +136,9 @@ export function MoneyGrabPanel({ onSelect }: { onSelect: (symbol: string) => voi
                   key={group}
                   className={activeGroup === group ? "active" : ""}
                   onClick={() => setActiveGroup(group)}
-                  title={`先过${groupThreshold(group) - 10}%，现至少过${groupThreshold(group)}%`}
+                  title={`过${groupThreshold(group)}%主线后站上10个点：有效区 ${groupThreshold(group) + 10}~${groupThreshold(group) + 20}%`}
                 >
-                  {cn}档 ≥{groupThreshold(group)}%<em>{count}</em>
+                  {cn}档 {groupThreshold(group) + 10}~{groupThreshold(group) + 20}%<em>{count}</em>
                 </button>
               );
             })}

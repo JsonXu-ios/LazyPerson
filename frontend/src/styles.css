@@ -1158,3 +1158,94 @@ button:disabled {
     font-size: 11px;
   }
 }
+
+/* 抢钱流面板 */
+.moneygrab-panel {
+  display: flex;
+  flex-direction: column;
+  gap: 12px;
+  height: 100%;
+  overflow: hidden;
+}
+
+.moneygrab-panel h3 {
+  margin: 0;
+}
+
+.moneygrab-desc {
+  margin: 0;
+  font-size: 12px;
+  opacity: 0.75;
+}
+
+.moneygrab-actions {
+  display: flex;
+  align-items: center;
+  gap: 10px;
+}
+
+.moneygrab-meta {
+  font-size: 12px;
+  opacity: 0.75;
+}
+
+.moneygrab-error {
+  margin: 0;
+  color: #f24d4d;
+  font-size: 12px;
+}
+
+.moneygrab-progress {
+  position: relative;
+  height: 18px;
+  border: 1px solid rgba(255, 255, 255, 0.2);
+  border-radius: 4px;
+  overflow: hidden;
+  font-size: 11px;
+}
+
+.moneygrab-progress-bar {
+  position: absolute;
+  inset: 0 auto 0 0;
+  background: rgba(31, 111, 235, 0.55);
+  transition: width 0.4s ease;
+}
+
+.moneygrab-progress span {
+  position: relative;
+  display: block;
+  text-align: center;
+  line-height: 18px;
+}
+
+.moneygrab-table-wrap {
+  flex: 1;
+  overflow-y: auto;
+}
+
+.moneygrab-table {
+  width: 100%;
+  border-collapse: collapse;
+  font-size: 12px;
+}
+
+.moneygrab-table th,
+.moneygrab-table td {
+  padding: 6px 8px;
+  text-align: right;
+  border-bottom: 1px solid rgba(255, 255, 255, 0.08);
+  white-space: nowrap;
+}
+
+.moneygrab-table th:nth-child(-n + 2),
+.moneygrab-table td:nth-child(-n + 2) {
+  text-align: left;
+}
+
+.moneygrab-table tbody tr {
+  cursor: pointer;
+}
+
+.moneygrab-table tbody tr:hover {
+  background: rgba(255, 255, 255, 0.06);
+}

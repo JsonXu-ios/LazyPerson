@@ -12,4 +12,5 @@ declare module "lucide-react" {
   export const Clock: ComponentType<IconProps>;
   export const Database: ComponentType<IconProps>;
   export const Plus: ComponentType<IconProps>;
+  export const Zap: ComponentType<IconProps>;
 }

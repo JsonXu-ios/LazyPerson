@@ -35,7 +35,7 @@ K 线图 A 股面板已有基于 90 自然日最低价的档位线（每 10% 一
 新增 `backend/app/scanner.py`：
 
 - `MoneyGrabScanner`（模块级单例任务状态）：
-  - **股票清单+最新价**：一次全市场实时快照（efinance `stock.get_realtime_quotes()`，akshare `stock_zh_a_spot_em` 兜底），经 `normalize_quote_frame` 得到 symbol/name/price。
+  - **股票清单+最新价**：一次全市场实时快照（efinance `stock.get_realtime_quotes()`，akshare `stock_zh_a_spot_em` 次之）；两者都依赖东方财富接口，在东财不可达的环境下用第三级兜底：本地 symbols 表的沪深A股清单 + 腾讯行情按 80 只/批分批拉取。
   - **90 日低点**：复用 `MarketService.kline(symbol, period="day", limit=140)`（多数据源 + SQLite 缓存），按自然日切出近 90 天窗口取最低 low。
   - 线程池并发（约 8 workers，避免 SQLite 写锁竞争），逐只计算并累计进度。
   - 任务状态：`idle / running / done / failed`，含 `total / done / hits / started_at / finished_at / error`。

@@ -210,3 +210,26 @@ class TestMoneyGrabScanner:
         state = self._wait_done(scanner)
         assert state["status"] == "failed"
         assert "snapshot down" in state["error"]
+
+
+class TestLocalSymbolsFallback:
+    def test_local_a_symbols_filters_prefixes(self, tmp_path):
+        from backend.app.cache import CacheStore
+        from backend.app.scanner import _chunk, _local_a_symbols
+
+        cache = CacheStore(DummySettings(tmp_path))
+        cache.upsert_symbols(
+            [
+                {"symbol": "600519", "market": "SH", "name": "贵州茅台", "pinyin": "", "listed_at": None},
+                {"symbol": "300750", "market": "SZ", "name": "宁德时代", "pinyin": "", "listed_at": None},
+                {"symbol": "430047", "market": "BJ", "name": "北交所股", "pinyin": "", "listed_at": None},
+                {"symbol": "SPY", "market": "US", "name": "标普ETF", "pinyin": "", "listed_at": None},
+            ]
+        )
+        symbols = _local_a_symbols(cache)
+        assert sorted(symbols) == ["300750", "600519"]
+
+    def test_chunk_splits_evenly(self):
+        from backend.app.scanner import _chunk
+
+        assert list(_chunk([1, 2, 3, 4, 5], 2)) == [[1, 2], [3, 4], [5]]

@@ -121,8 +121,43 @@ class ScanState:
     trade_date: str | None = None
 
 
-def _fetch_all_a_quotes() -> list[dict]:
-    """全市场A股快照：efinance 优先，akshare 兜底。传空列表 = 不过滤，返回全部。"""
+def _chunk(items: list, size: int) -> list[list]:
+    return [items[index : index + size] for index in range(0, len(items), size)]
+
+
+def _local_a_symbols(cache: CacheStore) -> list[str]:
+    """本地 symbols 表中的沪深A股代码（东方财富不可达时的清单来源）。"""
+    rows = cache.search_symbols("", limit=20000)
+    return [
+        row["symbol"]
+        for row in rows
+        if str(row.get("symbol", "")).isdigit() and str(row["symbol"]).startswith(ALLOWED_PREFIXES)
+    ]
+
+
+def _fetch_a_quotes_via_tencent(settings: Settings, batch_size: int = 80) -> list[dict]:
+    """腾讯行情兜底：本地清单分批拉全市场快照。"""
+    from backend.app.providers.tencent_adapter import TencentAdapter
+
+    symbols = _local_a_symbols(CacheStore(settings))
+    if not symbols:
+        raise RuntimeError("local symbol list is empty; refresh /api/symbols/search first")
+    adapter = TencentAdapter()
+    records: list[dict] = []
+    for batch in _chunk(symbols, batch_size):
+        try:
+            frame = adapter.realtime_quotes(batch)
+            if frame is not None and not frame.empty:
+                records.extend(frame.to_dict("records"))
+        except Exception:
+            continue
+    if not records:
+        raise RuntimeError("tencent quotes returned no rows")
+    return records
+
+
+def _fetch_all_a_quotes(settings: Settings) -> list[dict]:
+    """全市场A股快照：efinance 优先，akshare 次之，腾讯分批兜底。传空列表 = 不过滤，返回全部。"""
     from backend.app.providers.akshare_adapter import AKShareAdapter
     from backend.app.providers.efinance_adapter import EFinanceAdapter
 
@@ -134,6 +169,10 @@ def _fetch_all_a_quotes() -> list[dict]:
                 return frame.to_dict("records")
         except Exception as exc:
             errors.append(f"{adapter_cls.__name__}:{exc}")
+    try:
+        return _fetch_a_quotes_via_tencent(settings)
+    except Exception as exc:
+        errors.append(f"tencent:{exc}")
     raise RuntimeError("; ".join(errors) or "no quote source available")
 
 
@@ -147,7 +186,7 @@ class MoneyGrabScanner:
     ):
         self.settings = settings
         self.max_workers = max_workers
-        self._quote_fetcher = quote_fetcher or _fetch_all_a_quotes
+        self._quote_fetcher = quote_fetcher or (lambda: _fetch_all_a_quotes(self.settings))
         self._kline_fetcher = kline_fetcher  # None 时在 _run 内用 MarketService
         self._lock = threading.Lock()
         self._state = ScanState()

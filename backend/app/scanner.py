@@ -3,6 +3,7 @@ from __future__ import annotations
 import json
 import math
 import threading
+import time
 from concurrent.futures import ThreadPoolExecutor
 from dataclasses import asdict, dataclass, field
 from datetime import date, timedelta
@@ -31,6 +32,24 @@ def classify_group(pct: float | None) -> int | None:
 
 def group_threshold(group: int) -> float:
     return GROUP_FINAL_BASE + GROUP_STEP * (group - 1)
+
+
+def pre_line(group: int) -> float:
+    """第 k 档的先过线：10/40/70/100/…"""
+    return group_threshold(group) - GROUP_PRE_OFFSET
+
+
+def is_falling_from_top(pct: float, max_pct: float) -> bool:
+    """从顶部下来判定：波段最高点(max_pct)曾站上的最高档位线（先过线 10/40/70/… 与主线 20/50/80/… 都算），
+    现价已跌破 → 排除。例：曾到 80% 上方，现跌破 80 → True；回踩但仍站在最高已站上线的上方 → False。"""
+    highest_crossed = None
+    for j in range(1, MAX_GROUPS + 2):  # 允许越过第八档之上的线
+        for line in (pre_line(j), group_threshold(j)):
+            if max_pct >= line:
+                highest_crossed = line
+    if highest_crossed is None:
+        return False
+    return pct < highest_crossed
 
 
 def is_limit_up(price: float | None, pre_close: float | None, ratio: float = 1.1) -> bool:
@@ -111,6 +130,12 @@ def evaluate_stock(
     group = classify_group(pct)
     if group is None:
         return None
+
+    closes_after_low = [float(bar["close"]) for bar in window[low_index:] if bar.get("close") is not None]
+    max_pct = max([(c / low90 - 1) * 100 for c in closes_after_low] + [pct])
+    if is_falling_from_top(pct, max_pct):
+        return None  # 从顶部下来（跌破曾站上的先过线）的不要
+
     threshold = group_threshold(group)
     pre_level = low90 * (1 + (threshold - GROUP_PRE_OFFSET) / 100)
 
@@ -132,6 +157,7 @@ def evaluate_stock(
         "group": group,
         "threshold": threshold,
         "over": round(pct - threshold, 2),
+        "max_pct": round(max_pct, 2),
         "low_date": str(window[low_index]["time"])[:10],
         "cross_date": cross_date,
     }
@@ -179,20 +205,22 @@ def _fetch_a_quotes_via_tencent(settings: Settings, batch_size: int = 80, worker
     adapter = TencentAdapter()
 
     def fetch_batch(batch: list[str]) -> list[dict]:
-        try:
-            frame = adapter.realtime_quotes(batch)
-            if frame is not None and not frame.empty:
-                return frame.to_dict("records")
-        except Exception:
-            pass
+        for attempt in range(3):  # 瞬时限流重试，静默丢批会导致残缺名单
+            try:
+                frame = adapter.realtime_quotes(batch)
+                if frame is not None and not frame.empty:
+                    return frame.to_dict("records")
+            except Exception:
+                pass
+            time.sleep(0.5 * (attempt + 1))
         return []
 
     records: list[dict] = []
     with ThreadPoolExecutor(max_workers=workers) as pool:
         for rows in pool.map(fetch_batch, _chunk(symbols, batch_size)):
             records.extend(rows)
-    if not records:
-        raise RuntimeError("tencent quotes returned no rows")
+    if len(records) < len(symbols) * 0.5:
+        raise RuntimeError(f"tencent quotes incomplete: {len(records)}/{len(symbols)}")
     return records
 
 

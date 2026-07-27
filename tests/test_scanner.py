@@ -385,3 +385,38 @@ class TestLimitUp:
         assert state["limit_up_only"] is True
         assert state["total"] == 1
         assert [hit["symbol"] for hit in state["hits"]] == ["600001"]
+
+
+class TestFallingFromTop:
+    today = date(2026, 7, 24)
+
+    def test_is_falling_from_top(self):
+        from backend.app.scanner import is_falling_from_top
+
+        # 紫光场景：曾到 85%（站上80主线），现价 65% 跌破 → 排除
+        assert is_falling_from_top(65.0, 85.0)
+        # 峰值 85% 跌到 75%：跌破曾站上的 80 主线 → 排除
+        assert is_falling_from_top(75.0, 85.0)
+        # 峰值 85% 回踩到 82%：仍站在 80 上方 → 保留
+        assert not is_falling_from_top(82.0, 85.0)
+        # 上行途中：现价即峰值 45%（刚过40先过线）→ 保留
+        assert not is_falling_from_top(45.0, 45.0)
+        # 曾过 40 先过线又跌回 31% → 排除
+        assert is_falling_from_top(31.0, 45.0)
+        # 曾过 50 主线（峰值66）又跌回 49.7% → 排除（002774 场景）
+        assert is_falling_from_top(49.7, 66.3)
+        # 峰值 35%（站上20主线），现价 22% ≥ 20 → 保留
+        assert not is_falling_from_top(22.0, 35.0)
+
+    def test_evaluate_rejects_falling_stock(self):
+        # 收盘走出 40% → 85% → 65%：现价 16.5（65%）满足第二档阈值，但从 80 档跌破 70 → 排除
+        bars = make_wave_bars(self.today, 10.0, [40, 85, 65])
+        assert evaluate_stock("000938", "紫光场景", 16.5, bars, today=self.today) is None
+
+    def test_evaluate_keeps_holding_stock(self):
+        # 峰值 85%，今日现价 18.2（82%）≥ 80 → 第三档保留
+        bars = make_wave_bars(self.today, 10.0, [40, 85, 82])
+        row = evaluate_stock("600001", "持稳股", 18.2, bars, today=self.today)
+        assert row is not None
+        assert row["group"] == 3
+        assert row["max_pct"] >= 85.0

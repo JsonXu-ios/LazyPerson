@@ -151,6 +151,7 @@ export function MoneyGrabPanel({ onSelect }: { onSelect: (symbol: string) => voi
                   <th>最新价</th>
                   <th>90日低点</th>
                   <th>涨幅</th>
+                  <th>波段高</th>
                   <th>低点日</th>
                   <th>过线日</th>
                   <th>超出</th>
@@ -164,6 +165,7 @@ export function MoneyGrabPanel({ onSelect }: { onSelect: (symbol: string) => voi
                     <td>{hit.price.toFixed(2)}</td>
                     <td>{hit.low90.toFixed(2)}</td>
                     <td className="moneygrab-pct">{hit.pct.toFixed(1)}%</td>
+                    <td>{hit.max_pct.toFixed(1)}%</td>
                     <td>{hit.low_date.slice(5)}</td>
                     <td>{hit.cross_date.slice(5)}</td>
                     <td className="moneygrab-over">+{hit.over.toFixed(1)}%</td>
@@ -171,7 +173,7 @@ export function MoneyGrabPanel({ onSelect }: { onSelect: (symbol: string) => voi
                 ))}
                 {!activeHits.length && (
                   <tr>
-                    <td colSpan={8}>{running ? "本档暂无命中（扫描中…）" : "本档无命中"}</td>
+                    <td colSpan={9}>{running ? "本档暂无命中（扫描中…）" : "本档无命中"}</td>
                   </tr>
                 )}
               </tbody>

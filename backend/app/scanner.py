@@ -112,6 +112,7 @@ STATE_KEY = "moneygrab:last_scan"
 @dataclass
 class ScanState:
     status: str = "idle"  # idle | running | done | failed
+    stage: str = ""  # snapshot | kline | ""
     total: int = 0
     done: int = 0
     hits: list[dict] = field(default_factory=list)
@@ -156,23 +157,42 @@ def _fetch_a_quotes_via_tencent(settings: Settings, batch_size: int = 80) -> lis
     return records
 
 
-def _fetch_all_a_quotes(settings: Settings) -> list[dict]:
-    """全市场A股快照：efinance 优先，akshare 次之，腾讯分批兜底。传空列表 = 不过滤，返回全部。"""
-    from backend.app.providers.akshare_adapter import AKShareAdapter
-    from backend.app.providers.efinance_adapter import EFinanceAdapter
+QUOTE_SOURCE_KEY = "moneygrab:quote_source"
 
-    errors: list[str] = []
-    for adapter_cls in (EFinanceAdapter, AKShareAdapter):
-        try:
-            frame = adapter_cls().realtime_quotes([])
-            if frame is not None and not frame.empty:
-                return frame.to_dict("records")
-        except Exception as exc:
-            errors.append(f"{adapter_cls.__name__}:{exc}")
-    try:
+
+def _fetch_quotes_from(source: str, settings: Settings) -> list[dict]:
+    if source == "tencent":
         return _fetch_a_quotes_via_tencent(settings)
-    except Exception as exc:
-        errors.append(f"tencent:{exc}")
+    if source == "efinance":
+        from backend.app.providers.efinance_adapter import EFinanceAdapter
+
+        frame = EFinanceAdapter().realtime_quotes([])
+    else:
+        from backend.app.providers.akshare_adapter import AKShareAdapter
+
+        frame = AKShareAdapter().realtime_quotes([])
+    if frame is None or frame.empty:
+        raise RuntimeError("empty snapshot")
+    return frame.to_dict("records")
+
+
+def _fetch_all_a_quotes(settings: Settings) -> list[dict]:
+    """全市场A股快照：efinance / akshare / 腾讯分批。记住上次成功的源，下次优先用它（东财超时很贵）。"""
+    cache = CacheStore(settings)
+    order = ["efinance", "akshare", "tencent"]
+    preferred = cache.get_state(QUOTE_SOURCE_KEY)
+    if preferred in order:
+        order.remove(preferred)
+        order.insert(0, preferred)
+    errors: list[str] = []
+    for source in order:
+        try:
+            records = _fetch_quotes_from(source, settings)
+            if records:
+                cache.set_state(QUOTE_SOURCE_KEY, source)
+                return records
+        except Exception as exc:
+            errors.append(f"{source}:{exc}")
     raise RuntimeError("; ".join(errors) or "no quote source available")
 
 
@@ -182,7 +202,7 @@ class MoneyGrabScanner:
         settings: Settings,
         quote_fetcher=None,
         kline_fetcher=None,
-        max_workers: int = 8,
+        max_workers: int = 16,
     ):
         self.settings = settings
         self.max_workers = max_workers
@@ -206,6 +226,7 @@ class MoneyGrabScanner:
                 return asdict(self._state)
             self._state = ScanState(
                 status="running",
+                stage="snapshot",
                 started_at=now_utc().isoformat(),
                 trade_date=now_utc().date().isoformat(),
             )
@@ -238,15 +259,18 @@ class MoneyGrabScanner:
             ]
             with self._lock:
                 self._state.total = len(candidates)
+                self._state.stage = "kline"
 
             def work(quote: dict) -> dict | None:
-                try:
-                    bars = fetch_bars(str(quote["symbol"]))
-                    return evaluate_stock(
-                        str(quote["symbol"]), str(quote.get("name", "")), quote.get("price"), bars
-                    )
-                except Exception:
-                    return None
+                for _ in range(2):  # 缓存写锁等瞬时失败重试一次
+                    try:
+                        bars = fetch_bars(str(quote["symbol"]))
+                        return evaluate_stock(
+                            str(quote["symbol"]), str(quote.get("name", "")), quote.get("price"), bars
+                        )
+                    except Exception:
+                        continue
+                return None
 
             with ThreadPoolExecutor(max_workers=self.max_workers) as pool:
                 for row in pool.map(work, candidates):
@@ -258,6 +282,7 @@ class MoneyGrabScanner:
             with self._lock:
                 self._state.hits.sort(key=lambda item: item["over"], reverse=True)
                 self._state.status = "done"
+                self._state.stage = ""
                 self._state.finished_at = now_utc().isoformat()
                 cache.set_state(STATE_KEY, json.dumps(asdict(self._state), ensure_ascii=False))
         except Exception as exc:

@@ -92,6 +92,7 @@ export type MoneyGrabHit = {
 
 export type MoneyGrabStatus = {
   status: "idle" | "running" | "done" | "failed";
+  stage?: "snapshot" | "kline" | "";
   total: number;
   done: number;
   hits: MoneyGrabHit[];

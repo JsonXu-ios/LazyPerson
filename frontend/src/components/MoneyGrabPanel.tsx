@@ -77,7 +77,9 @@ export function MoneyGrabPanel({ onSelect }: { onSelect: (symbol: string) => voi
         <div className="moneygrab-progress">
           <div className="moneygrab-progress-bar" style={{ width: `${progress}%` }} />
           <span>
-            {status?.done ?? 0} / {status?.total ?? 0}
+            {status?.stage === "snapshot" || !status?.total
+              ? "正在拉取全市场行情快照…"
+              : `拉取日线并计算档位 ${status.done} / ${status.total}（首次扫描需建立本地缓存，之后会快很多）`}
           </span>
         </div>
       )}
@@ -102,11 +104,11 @@ export function MoneyGrabPanel({ onSelect }: { onSelect: (symbol: string) => voi
                   <td>{hit.name}</td>
                   <td>{hit.price.toFixed(2)}</td>
                   <td>{hit.low90.toFixed(2)}</td>
-                  <td>{hit.pct.toFixed(1)}%</td>
+                  <td className="moneygrab-pct">{hit.pct.toFixed(1)}%</td>
                   <td>
                     {hit.band}%~{hit.band + 20}%
                   </td>
-                  <td>+{hit.over.toFixed(1)}%</td>
+                  <td className="moneygrab-over">+{hit.over.toFixed(1)}%</td>
                 </tr>
               ))}
               {!status.hits.length && (

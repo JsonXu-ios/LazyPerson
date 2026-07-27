@@ -136,22 +136,28 @@ def _local_a_symbols(cache: CacheStore) -> list[str]:
     ]
 
 
-def _fetch_a_quotes_via_tencent(settings: Settings, batch_size: int = 80) -> list[dict]:
-    """腾讯行情兜底：本地清单分批拉全市场快照。"""
+def _fetch_a_quotes_via_tencent(settings: Settings, batch_size: int = 80, workers: int = 6) -> list[dict]:
+    """腾讯行情兜底：本地清单分批并发拉全市场快照。"""
     from backend.app.providers.tencent_adapter import TencentAdapter
 
     symbols = _local_a_symbols(CacheStore(settings))
     if not symbols:
         raise RuntimeError("local symbol list is empty; refresh /api/symbols/search first")
     adapter = TencentAdapter()
-    records: list[dict] = []
-    for batch in _chunk(symbols, batch_size):
+
+    def fetch_batch(batch: list[str]) -> list[dict]:
         try:
             frame = adapter.realtime_quotes(batch)
             if frame is not None and not frame.empty:
-                records.extend(frame.to_dict("records"))
+                return frame.to_dict("records")
         except Exception:
-            continue
+            pass
+        return []
+
+    records: list[dict] = []
+    with ThreadPoolExecutor(max_workers=workers) as pool:
+        for rows in pool.map(fetch_batch, _chunk(symbols, batch_size)):
+            records.extend(rows)
     if not records:
         raise RuntimeError("tencent quotes returned no rows")
     return records

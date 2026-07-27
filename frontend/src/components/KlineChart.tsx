@@ -23,6 +23,7 @@ type Props = {
   windowMode: "calendar" | "bars";
   majorLineStep?: number;
   majorLineMinPercent?: number;
+  majorLineAnchor?: number;
   showLevelPrices?: boolean;
 };
 
@@ -71,6 +72,7 @@ export function KlineChart({
   windowMode,
   majorLineStep,
   majorLineMinPercent,
+  majorLineAnchor,
   showLevelPrices,
 }: Props) {
   const containerRef = useRef<HTMLDivElement | null>(null);
@@ -223,10 +225,10 @@ export function KlineChart({
 
     if (payload?.period === "day" && autoDrawing) {
       autoDrawing.levels.forEach((level, index) => {
-        const highlight = isHighlightLevel(level, majorLineStep, majorLineMinPercent);
+        const highlight = isHighlightLevel(level, majorLineStep, majorLineMinPercent, majorLineAnchor);
         candle.createPriceLine({
           price: level.price,
-          color: lineColor(level, colorForLevel(level, lineColors, index), majorLineStep, majorLineMinPercent),
+          color: lineColor(level, colorForLevel(level, lineColors, index), majorLineStep, majorLineMinPercent, majorLineAnchor),
           lineWidth: highlight ? 3 : 1,
           lineStyle: LineStyle.Solid,
           axisLabelVisible: false,
@@ -322,7 +324,7 @@ export function KlineChart({
       updateLevelLabelPositions();
       updateTrendPointPositions();
     }, 60);
-  }, [autoDrawing, candleData, customLines, customTrendLines, lineColors, majorLineMinPercent, majorLineStep, payload, useLogPriceScale, volumeData]);
+  }, [autoDrawing, candleData, customLines, customTrendLines, lineColors, majorLineAnchor, majorLineMinPercent, majorLineStep, payload, useLogPriceScale, volumeData]);
 
   useEffect(() => {
     const resize = () => {
@@ -331,7 +333,7 @@ export function KlineChart({
     };
     window.addEventListener("resize", resize);
     return () => window.removeEventListener("resize", resize);
-  }, [autoDrawing, lineColors, majorLineMinPercent, majorLineStep]);
+  }, [autoDrawing, lineColors, majorLineAnchor, majorLineMinPercent, majorLineStep]);
 
   useEffect(() => {
     window.setTimeout(updateTrendPointPositions, 30);
@@ -383,12 +385,12 @@ export function KlineChart({
         return {
           key: `auto-${level.label}`,
           label: showLevelPrices ? `${level.label} ${formatFullPrice(level.price)}` : level.label,
-          color: lineColor(level, colorForLevel(level, lineColors, index), majorLineStep, majorLineMinPercent),
-          textColor: labelTextColor(level, majorLineStep, majorLineMinPercent),
+          color: lineColor(level, colorForLevel(level, lineColors, index), majorLineStep, majorLineMinPercent, majorLineAnchor),
+          textColor: labelTextColor(level, majorLineStep, majorLineMinPercent, majorLineAnchor),
           top: Number(coordinate),
-          highlight: isHighlightLevel(level, majorLineStep, majorLineMinPercent),
+          highlight: isHighlightLevel(level, majorLineStep, majorLineMinPercent, majorLineAnchor),
           custom: false,
-          priority: levelLabelPriority(level, majorLineStep, majorLineMinPercent),
+          priority: levelLabelPriority(level, majorLineStep, majorLineMinPercent, majorLineAnchor),
         };
       })
       .filter(Boolean) as LevelLabel[];
@@ -828,9 +830,9 @@ function avoidCrowdedLevelLabels(rows: LevelLabel[]) {
   return selected.sort((a, b) => a.top - b.top);
 }
 
-function levelLabelPriority(level: AutoLineLevel, majorLineStep?: number, majorLineMinPercent = 0) {
+function levelLabelPriority(level: AutoLineLevel, majorLineStep?: number, majorLineMinPercent = 0, majorLineAnchor = 0) {
   if (level.percent === 0) return 90;
-  if (isMajorLevel(level, majorLineStep, majorLineMinPercent)) return 80 + Math.min(level.percent, 200) / 100;
+  if (isMajorLevel(level, majorLineStep, majorLineMinPercent, majorLineAnchor)) return 80 + Math.min(level.percent, 200) / 100;
   if (level.percent % 50 === 0) return 70;
   if (level.percent % 20 === 0) return 60;
   if (level.percent % 10 === 0) return 50;
@@ -844,35 +846,36 @@ function formatFullPrice(value: number | null | undefined) {
   return value.toFixed(6);
 }
 
-function isHighlightLevel(level: AutoLineLevel, majorLineStep?: number, majorLineMinPercent = 0) {
-  return isMajorLevel(level, majorLineStep, majorLineMinPercent)
+function isHighlightLevel(level: AutoLineLevel, majorLineStep?: number, majorLineMinPercent = 0, majorLineAnchor = 0) {
+  return isMajorLevel(level, majorLineStep, majorLineMinPercent, majorLineAnchor)
+    || level.percent === 0
     || level.label === "+20%"
     || level.label === "+50%"
     || level.label === "+80%";
 }
 
-function lineColor(level: AutoLineLevel, fallback: string, majorLineStep?: number, majorLineMinPercent = 0) {
-  if (isMajorLevel(level, majorLineStep, majorLineMinPercent)) return majorLevelColor(level.percent);
+function lineColor(level: AutoLineLevel, fallback: string, majorLineStep?: number, majorLineMinPercent = 0, majorLineAnchor = 0) {
   if (level.label === "+20%") return "#f24d4d";
   if (level.label === "+50%") return "#1f6feb";
   if (level.label === "+80%") return "#ffffff";
+  if (isMajorLevel(level, majorLineStep, majorLineMinPercent, majorLineAnchor)) return majorLevelColor(level.percent);
   return fallback;
 }
 
-function labelTextColor(levelOrLabel: AutoLineLevel | string, majorLineStep?: number, majorLineMinPercent = 0) {
-  if (typeof levelOrLabel !== "string" && isMajorLevel(levelOrLabel, majorLineStep, majorLineMinPercent)) {
-    return majorLevelTextColor(levelOrLabel.percent);
-  }
+function labelTextColor(levelOrLabel: AutoLineLevel | string, majorLineStep?: number, majorLineMinPercent = 0, majorLineAnchor = 0) {
   const label = typeof levelOrLabel === "string" ? levelOrLabel : levelOrLabel.label;
   if (label === "+20%" || label === "+50%") return "#ffffff";
+  if (label === "+80%") return "#07111f";
+  if (typeof levelOrLabel !== "string" && isMajorLevel(levelOrLabel, majorLineStep, majorLineMinPercent, majorLineAnchor)) {
+    return majorLevelTextColor(levelOrLabel.percent);
+  }
   return "#07111f";
 }
 
-function isMajorLevel(level: AutoLineLevel, majorLineStep?: number, majorLineMinPercent = 0) {
-  return !!majorLineStep
-    && level.percent >= majorLineMinPercent
-    && level.percent > 0
-    && level.percent % majorLineStep === 0;
+function isMajorLevel(level: AutoLineLevel, majorLineStep?: number, majorLineMinPercent = 0, majorLineAnchor = 0) {
+  if (!majorLineStep || level.percent <= 0) return false;
+  if (level.percent < Math.max(majorLineMinPercent, majorLineAnchor)) return false;
+  return (level.percent - majorLineAnchor) % majorLineStep === 0;
 }
 
 function majorLevelColor(percent: number) {

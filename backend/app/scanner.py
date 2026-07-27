@@ -11,23 +11,26 @@ from backend.app.cache import CacheStore
 from backend.app.config import Settings, get_settings
 from backend.app.utils import now_utc
 
-BAND_STEP = 20.0
-BAND_MARGIN = 10.0
+GROUP_STEP = 30.0  # 相邻两档间隔
+GROUP_FINAL_BASE = 20.0  # 第 k 档"最后一天至少过"阈值 = 20 + 30*(k-1)
+GROUP_PRE_OFFSET = 10.0  # "先过"线 = 阈值 - 10（第一档先过10%、第二档先过40%…）
+MAX_GROUPS = 8
 WINDOW_DAYS = 90
 MIN_BARS = 20
 OHLC_KEYS = ("open", "high", "low", "close")
 ALLOWED_PREFIXES = ("60", "00", "30", "68")
 
 
-def band_position(pct: float | None) -> tuple[float, float] | None:
-    """返回 (档位下沿, 超出中线幅度)；不命中返回 None。命中条件：pct - band > BAND_MARGIN。"""
-    if pct is None or pct < 0:
+def classify_group(pct: float | None) -> int | None:
+    """按最新涨幅归档：第 k 档要求 pct >= 20 + 30*(k-1)，取满足的最高档（1..8）。"""
+    if pct is None or pct < GROUP_FINAL_BASE:
         return None
-    band = math.floor(pct / BAND_STEP) * BAND_STEP
-    over = pct - band - BAND_MARGIN
-    if over <= 0:
-        return None
-    return band, over
+    k = int(math.floor((pct - GROUP_FINAL_BASE) / GROUP_STEP)) + 1
+    return min(k, MAX_GROUPS)
+
+
+def group_threshold(group: int) -> float:
+    return GROUP_FINAL_BASE + GROUP_STEP * (group - 1)
 
 
 def eligible_symbol(symbol: str, name: str) -> bool:
@@ -75,6 +78,8 @@ def evaluate_stock(
     bars: list[dict],
     today: date | None = None,
 ) -> dict | None:
+    """90日波段（低点→现在，时间顺序）分档：
+    第 k 档 = 波段内先过 (阈值-10)%，最后一天（可为今日）至少过阈值%，阈值 = 20+30*(k-1)。"""
     if price is None:
         return None
     today = today or date.today()
@@ -87,26 +92,45 @@ def evaluate_stock(
     window = slice_calendar_window(valid, WINDOW_DAYS)
     if not window:
         return None
-    low90 = min(float(bar["low"]) for bar in window)
+
+    low_index = min(range(len(window)), key=lambda i: float(window[i]["low"]))
+    low90 = float(window[low_index]["low"])
     if low90 <= 0:
         return None
+    if low_index >= len(window) - 1:
+        return None  # 低点就是最后一天，没有"低点→高点"的波段
+
     pct = (float(price) / low90 - 1) * 100
-    position = band_position(pct)
-    if position is None:
+    group = classify_group(pct)
+    if group is None:
         return None
-    band, over = position
+    threshold = group_threshold(group)
+    pre_level = low90 * (1 + (threshold - GROUP_PRE_OFFSET) / 100)
+
+    cross_date = None
+    for bar in window[low_index + 1 :]:
+        close = bar.get("close")
+        if close is not None and float(close) >= pre_level:
+            cross_date = str(bar["time"])[:10]
+            break
+    if cross_date is None:
+        cross_date = str(window[-1]["time"])[:10]  # 只有今日盘中价过线
+
     return {
         "symbol": symbol,
         "name": name,
         "price": float(price),
         "low90": round(low90, 3),
         "pct": round(pct, 2),
-        "band": band,
-        "over": round(over, 2),
+        "group": group,
+        "threshold": threshold,
+        "over": round(pct - threshold, 2),
+        "low_date": str(window[low_index]["time"])[:10],
+        "cross_date": cross_date,
     }
 
 
-STATE_KEY = "moneygrab:last_scan"
+STATE_KEY = "moneygrab:last_scan:v2"  # v2: 分档规则，旧结果结构不兼容
 
 
 @dataclass
@@ -339,7 +363,7 @@ class MoneyGrabScanner:
                             self._state.hits.append(row)
 
             with self._lock:
-                self._state.hits.sort(key=lambda item: item["over"], reverse=True)
+                self._state.hits.sort(key=lambda item: (item["group"], -item["over"]))
                 self._state.status = "done"
                 self._state.stage = ""
                 self._state.finished_at = now_utc().isoformat()

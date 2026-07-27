@@ -1,9 +1,15 @@
 import { useCallback, useEffect, useRef, useState } from "react";
 import { api } from "../api";
-import type { MoneyGrabStatus } from "../types";
+import type { MoneyGrabHit, MoneyGrabStatus } from "../types";
 import { normalizeError } from "../utils/format";
 
 const POLL_MS = 2000;
+const GROUP_NAMES = ["一", "二", "三", "四", "五", "六", "七", "八"];
+
+function groupTitle(group: number, threshold: number) {
+  const pre = threshold - 10;
+  return `第${GROUP_NAMES[group - 1] || group}档 · 先过${pre}%，现至少过${threshold}%`;
+}
 
 export function MoneyGrabPanel({ onSelect }: { onSelect: (symbol: string) => void }) {
   const [status, setStatus] = useState<MoneyGrabStatus | null>(null);
@@ -54,14 +60,21 @@ export function MoneyGrabPanel({ onSelect }: { onSelect: (symbol: string) => voi
 
   const running = status?.status === "running";
   const progress = status && status.total > 0 ? Math.round((status.done / status.total) * 100) : 0;
-  const hits = status ? [...status.hits].sort((a, b) => b.over - a.over) : [];
-  const showTable = status ? hits.length > 0 || status.status === "done" : false;
+  const groups = new Map<number, MoneyGrabHit[]>();
+  (status?.hits || []).forEach((hit) => {
+    const list = groups.get(hit.group) || [];
+    list.push(hit);
+    groups.set(hit.group, list);
+  });
+  const orderedGroups = [...groups.entries()].sort((a, b) => a[0] - b[0]);
+  orderedGroups.forEach(([, list]) => list.sort((a, b) => b.over - a.over));
 
   return (
     <div className="moneygrab-panel">
       <h3>抢钱流 · A股档位扫描</h3>
       <p className="moneygrab-desc">
-        筛选：现价超过所在 20% 档位区间下沿 10% 以上（如 20%~40% 档中高于 +30%）。基准为 90 自然日最低价。
+        90 日波段（低点→高点，时间顺序）分档：第 k 档 = 波段内先过 (阈值−10)%，最后一天至少过阈值%。
+        阈值：20% / 50% / 80% / 110% / 140% / 170% / 200% / 230%，与图上粗线一致。
       </p>
       <div className="moneygrab-actions">
         <button className="terminal-button" disabled={running} onClick={startScan}>
@@ -86,42 +99,47 @@ export function MoneyGrabPanel({ onSelect }: { onSelect: (symbol: string) => voi
           </span>
         </div>
       )}
-      {showTable && (
+      {orderedGroups.length > 0 && (
         <div className="moneygrab-table-wrap">
-          <table className="moneygrab-table">
-            <thead>
-              <tr>
-                <th>代码</th>
-                <th>名称</th>
-                <th>最新价</th>
-                <th>90日低点</th>
-                <th>涨幅</th>
-                <th>档位</th>
-                <th>超出</th>
-              </tr>
-            </thead>
-            <tbody>
-              {hits.map((hit) => (
-                <tr key={hit.symbol} onClick={() => onSelect(hit.symbol)}>
-                  <td>{hit.symbol}</td>
-                  <td>{hit.name}</td>
-                  <td>{hit.price.toFixed(2)}</td>
-                  <td>{hit.low90.toFixed(2)}</td>
-                  <td className="moneygrab-pct">{hit.pct.toFixed(1)}%</td>
-                  <td>
-                    {hit.band}%~{hit.band + 20}%
-                  </td>
-                  <td className="moneygrab-over">+{hit.over.toFixed(1)}%</td>
-                </tr>
-              ))}
-              {!hits.length && status?.status === "done" && (
-                <tr>
-                  <td colSpan={7}>今日无命中</td>
-                </tr>
-              )}
-            </tbody>
-          </table>
+          {orderedGroups.map(([group, hits]) => (
+            <section key={group}>
+              <h4 className="moneygrab-group-title">
+                {groupTitle(group, hits[0].threshold)} · {hits.length} 只
+              </h4>
+              <table className="moneygrab-table">
+                <thead>
+                  <tr>
+                    <th>代码</th>
+                    <th>名称</th>
+                    <th>最新价</th>
+                    <th>90日低点</th>
+                    <th>涨幅</th>
+                    <th>低点日</th>
+                    <th>过线日</th>
+                    <th>超出</th>
+                  </tr>
+                </thead>
+                <tbody>
+                  {hits.map((hit) => (
+                    <tr key={hit.symbol} onClick={() => onSelect(hit.symbol)}>
+                      <td>{hit.symbol}</td>
+                      <td>{hit.name}</td>
+                      <td>{hit.price.toFixed(2)}</td>
+                      <td>{hit.low90.toFixed(2)}</td>
+                      <td className="moneygrab-pct">{hit.pct.toFixed(1)}%</td>
+                      <td>{hit.low_date.slice(5)}</td>
+                      <td>{hit.cross_date.slice(5)}</td>
+                      <td className="moneygrab-over">+{hit.over.toFixed(1)}%</td>
+                    </tr>
+                  ))}
+                </tbody>
+              </table>
+            </section>
+          ))}
         </div>
+      )}
+      {status?.status === "done" && !status.hits.length && (
+        <p className="moneygrab-meta">今日无命中</p>
       )}
     </div>
   );

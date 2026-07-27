@@ -4,9 +4,10 @@ from pathlib import Path
 
 from backend.app.scanner import (
     MoneyGrabScanner,
-    band_position,
+    classify_group,
     eligible_symbol,
     evaluate_stock,
+    group_threshold,
     slice_calendar_window,
 )
 
@@ -44,33 +45,36 @@ def make_bars(days: int, low: float, today: date | None = None) -> list[dict]:
     return bars
 
 
-class TestBandPosition:
-    def test_pct_10_not_hit(self):
-        assert band_position(10.0) is None
+class TestClassifyGroup:
+    def test_below_20_no_group(self):
+        assert classify_group(19.9) is None
+        assert classify_group(15.0) is None  # 000408 场景：区间刚过20%但现价没站上20%
+        assert classify_group(-3.0) is None
+        assert classify_group(None) is None
 
-    def test_pct_just_above_10_hits_band_0(self):
-        band, over = band_position(10.5)
-        assert band == 0
-        assert round(over, 2) == 0.5
+    def test_group1_from_20(self):
+        assert classify_group(20.0) == 1
+        assert classify_group(31.0) == 1
+        assert classify_group(49.9) == 1
+        assert group_threshold(1) == 20.0
 
-    def test_pct_30_boundary_not_hit(self):
-        assert band_position(30.0) is None
+    def test_group2_from_50(self):
+        assert classify_group(50.0) == 2
+        assert classify_group(79.9) == 2
+        assert group_threshold(2) == 50.0
 
-    def test_pct_31_hits_band_20(self):
-        band, over = band_position(31.0)
-        assert band == 20
-        assert round(over, 2) == 1.0
+    def test_group_thresholds_step_30(self):
+        # 第三档80、第四档110、第五档140、第六档170、第七档200、第八档230
+        assert [group_threshold(k) for k in range(1, 9)] == [20.0, 50.0, 80.0, 110.0, 140.0, 170.0, 200.0, 230.0]
+        assert classify_group(80.0) == 3
+        assert classify_group(115.0) == 4
+        assert classify_group(150.0) == 5
+        assert classify_group(171.0) == 6
+        assert classify_group(205.0) == 7
+        assert classify_group(231.0) == 8
 
-    def test_pct_155_hits_band_140(self):
-        band, over = band_position(155.0)
-        assert band == 140
-        assert round(over, 2) == 5.0
-
-    def test_negative_pct_not_hit(self):
-        assert band_position(-3.0) is None
-
-    def test_none_not_hit(self):
-        assert band_position(None) is None
+    def test_group_capped_at_8(self):
+        assert classify_group(500.0) == 8
 
 
 class TestEligibleSymbol:
@@ -104,23 +108,65 @@ class TestSliceCalendarWindow:
         assert all(bar["close"] is not None for bar in window)
 
 
+def make_wave_bars(today: date, low: float = 10.0, closes_pct: list[float] | None = None) -> list[dict]:
+    """构造 200 天日线：前段平台 low*1.05，波段低点在倒数第 len(closes_pct)+1 根，
+    之后每日收盘按 closes_pct 相对低点的涨幅走（低点→高点，时间顺序）。"""
+    closes_pct = closes_pct or []
+    bars = make_bars(200, low * 1.02, today)
+    for bar in bars:
+        bar["low"] = low * 1.05
+        bar["close"] = low * 1.06
+        bar["high"] = low * 1.08
+        bar["open"] = low * 1.05
+    tail = len(closes_pct)
+    bars[-(tail + 1)]["low"] = low  # 波段低点
+    for offset, pct in enumerate(closes_pct):
+        bar = bars[-(tail - offset)]
+        price = low * (1 + pct / 100)
+        bar["close"] = price
+        bar["high"] = price * 1.01
+        bar["low"] = min(bar["low"], price)
+        bar["open"] = price * 0.99
+    return bars
+
+
 class TestEvaluateStock:
     today = date(2026, 7, 24)
 
-    def test_hit_returns_row(self):
-        # 窗口内最低 10.0，价格 13.1 → pct=31% → band=20，over=1
-        bars = make_bars(200, 10.0, self.today)
-        bars[-3]["low"] = 10.0
-        row = evaluate_stock("600001", "测试股", 13.1, bars, today=self.today)
+    def test_group1_hit_with_dates(self):
+        # 低点10 → 收盘依次 5%、12%（先过10%线）、18%，今日现价 12.2 → pct=22% ≥20 → 第一档
+        bars = make_wave_bars(self.today, 10.0, [5, 12, 18])
+        row = evaluate_stock("600001", "测试股", 12.2, bars, today=self.today)
         assert row is not None
-        assert row["band"] == 20.0
+        assert row["group"] == 1
+        assert row["threshold"] == 20.0
         assert row["low90"] == 10.0
-        assert round(row["pct"], 1) == 31.0
+        assert round(row["pct"], 1) == 22.0
+        assert row["low_date"] < row["cross_date"]  # 低点在先，过线在后
+        # 首次收盘过 10% 线的是 12% 那天（倒数第2根）
+        assert row["cross_date"] == bars[-2]["time"]
 
-    def test_not_hit_returns_none(self):
+    def test_below_20_not_hit(self):
+        # 000408 场景：现价只到 15%，不入任何档
+        bars = make_wave_bars(self.today, 10.0, [5, 12, 14])
+        assert evaluate_stock("000408", "测试股", 11.5, bars, today=self.today) is None
+
+    def test_group2_hit(self):
+        # 现价 pct=55% → 第二档（阈值50，先过40）
+        bars = make_wave_bars(self.today, 10.0, [20, 42, 52])
+        row = evaluate_stock("600001", "测试股", 15.5, bars, today=self.today)
+        assert row is not None
+        assert row["group"] == 2
+        assert row["threshold"] == 50.0
+        # 首次收盘过 40% 线的是 42% 那天
+        assert row["cross_date"] == bars[-2]["time"]
+
+    def test_low_on_last_day_not_hit(self):
+        # 低点若是最后一天，没有低点→高点的波段
         bars = make_bars(200, 10.0, self.today)
-        bars[-3]["low"] = 10.0
-        # 价格 12.5 → pct=25% → 区间下半段，不命中
+        for bar in bars:
+            bar["low"] = 12.0
+        bars[-1]["low"] = 10.0  # 今日砸出新低
         assert evaluate_stock("600001", "测试股", 12.5, bars, today=self.today) is None
 
     def test_new_stock_excluded(self):
@@ -141,8 +187,8 @@ class TestMoneyGrabScanner:
 
     def _fetchers(self):
         quotes = [
-            {"symbol": "600001", "name": "命中股", "price": 13.1},   # pct=31% 命中
-            {"symbol": "600002", "name": "未中股", "price": 12.5},   # pct=25% 不命中
+            {"symbol": "600001", "name": "命中股", "price": 13.1},   # pct=31% → 第一档
+            {"symbol": "600002", "name": "未中股", "price": 11.5},   # pct=15% 不入档
             {"symbol": "430047", "name": "北交所", "price": 13.1},   # 排除
             {"symbol": "600003", "name": "ST某某", "price": 13.1},  # 排除
         ]
@@ -171,7 +217,8 @@ class TestMoneyGrabScanner:
         assert state["total"] == 2  # 北交所与 ST 在候选阶段就被排除
         assert state["done"] == 2
         assert [hit["symbol"] for hit in state["hits"]] == ["600001"]
-        assert state["hits"][0]["band"] == 20.0
+        assert state["hits"][0]["group"] == 1
+        assert state["hits"][0]["threshold"] == 20.0
 
     def test_start_is_idempotent_while_running(self, tmp_path):
         quote_fetcher, kline_fetcher = self._fetchers()

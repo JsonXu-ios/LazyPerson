@@ -86,8 +86,11 @@ export type MoneyGrabHit = {
   price: number;
   low90: number;
   pct: number;
-  band: number;
+  group: number;
+  threshold: number;
   over: number;
+  low_date: string;
+  cross_date: string;
 };
 
 export type MoneyGrabStatus = {

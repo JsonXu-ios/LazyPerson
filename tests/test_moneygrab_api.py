@@ -11,7 +11,18 @@ class FakeScanner:
             "total": 2,
             "done": 2,
             "hits": [
-                {"symbol": "600001", "name": "命中股", "price": 13.1, "low90": 10.0, "pct": 31.0, "band": 20.0, "over": 1.0}
+                {
+                    "symbol": "600001",
+                    "name": "命中股",
+                    "price": 13.1,
+                    "low90": 10.0,
+                    "pct": 31.0,
+                    "group": 1,
+                    "threshold": 20.0,
+                    "over": 11.0,
+                    "low_date": "2026-05-12",
+                    "cross_date": "2026-07-20",
+                }
             ],
             "started_at": "2026-07-27T01:00:00+00:00",
             "finished_at": "2026-07-27T01:05:00+00:00",

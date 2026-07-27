@@ -1242,6 +1242,19 @@ button:disabled {
   border-radius: 4px;
 }
 
+.moneygrab-group-title {
+  margin: 0;
+  padding: 8px 10px;
+  font-size: 12px;
+  font-weight: 600;
+  color: var(--blue);
+  background: var(--panel-soft);
+  border-bottom: 1px solid var(--line);
+  position: sticky;
+  top: 0;
+  z-index: 2;
+}
+
 .moneygrab-table {
   width: 100%;
   border-collapse: collapse;

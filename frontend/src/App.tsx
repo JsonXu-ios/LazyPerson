@@ -29,6 +29,7 @@ const marketPanels: Array<{
   lineStep: number;
   majorLineStep?: number;
   majorLineMinPercent?: number;
+  majorLineAnchor?: number;
   showLevelPrices?: boolean;
   extendLevelsBeyond100?: boolean;
 }> = [
@@ -39,8 +40,8 @@ const marketPanels: Array<{
     windowDays: 90,
     windowMode: "calendar",
     lineStep: 10,
-    majorLineStep: 20,
-    majorLineMinPercent: 100,
+    majorLineStep: 30,
+    majorLineAnchor: 20,
     showLevelPrices: true,
     extendLevelsBeyond100: true,
   },
@@ -414,6 +415,7 @@ export function App() {
             windowMode={activePanelConfig.windowMode || "calendar"}
             majorLineStep={activePanelConfig.majorLineStep}
             majorLineMinPercent={activePanelConfig.majorLineMinPercent}
+            majorLineAnchor={activePanelConfig.majorLineAnchor}
             showLevelPrices={Boolean(activePanelConfig.showLevelPrices)}
           />
           <IndicatorTabs kline={displayKline} />

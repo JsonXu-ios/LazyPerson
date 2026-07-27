@@ -23,11 +23,17 @@ ALLOWED_PREFIXES = ("60", "00")  # 仅沪深主板，排除创业板(30)/科创�
 
 
 def classify_group(pct: float | None) -> int | None:
-    """按最新涨幅归档：第 k 档要求 pct >= 20 + 30*(k-1)，取满足的最高档（1..8）。"""
+    """按最新涨幅归档：第 k 档有效区间 [20+30(k-1), 40+30(k-1))，即 [20,40)、[50,70)、[80,100)…
+    过渡区（已过下一档先过线但今天没过其主线，如 [40,50)、[70,80)）不入档。超出第八档区间上沿(250%)不入档。"""
     if pct is None or pct < GROUP_FINAL_BASE:
         return None
     k = int(math.floor((pct - GROUP_FINAL_BASE) / GROUP_STEP)) + 1
-    return min(k, MAX_GROUPS)
+    if k > MAX_GROUPS:
+        return None
+    offset = pct - group_threshold(k)
+    if offset >= GROUP_STEP - GROUP_PRE_OFFSET:  # 过了下一档先过线（阈值+20）→ 过渡区
+        return None
+    return k
 
 
 def group_threshold(group: int) -> float:

@@ -124,7 +124,11 @@ export function App() {
   const activePanelConfig = panelConfig(activePanel);
   const activePanelLabel = activePanelConfig.label;
   const symbols = useMemo(() => panelWatchlist.map((item) => item.symbol), [panelWatchlist]);
-  const quoteTargets = useMemo(() => (symbols.length ? symbols : selected ? [selected] : []), [selected, symbols]);
+  const quoteTargets = useMemo(() => {
+    const targets = new Set(symbols);
+    if (selected) targets.add(selected);  // 非自选股（如八档局点入）也要拉行情，否则没有名称
+    return [...targets];
+  }, [selected, symbols]);
   const selectedQuote = quotes.find((quote) => quote.symbol === selected);
   const displayKline = useMemo(
     () => sliceDailyPayloadByCalendarDays(kline, activePanelConfig.windowDays, activePanelConfig.windowMode || "calendar"),

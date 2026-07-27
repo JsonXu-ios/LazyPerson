@@ -52,15 +52,23 @@ class TestClassifyGroup:
         assert classify_group(-3.0) is None
         assert classify_group(None) is None
 
-    def test_group1_from_20(self):
+    def test_group1_zone_20_to_40(self):
         assert classify_group(20.0) == 1
         assert classify_group(31.0) == 1
-        assert classify_group(49.9) == 1
+        assert classify_group(39.9) == 1
         assert group_threshold(1) == 20.0
 
-    def test_group2_from_50(self):
+    def test_transition_zone_not_grouped(self):
+        # 600617 场景：47.4% 已过40（第二档先过线）但没过50 → 过渡区不入档
+        assert classify_group(47.43) is None
+        assert classify_group(40.0) is None
+        assert classify_group(49.9) is None
+        assert classify_group(75.0) is None   # 70~80 过渡区
+        assert classify_group(105.0) is None  # 100~110 过渡区
+
+    def test_group2_zone_50_to_70(self):
         assert classify_group(50.0) == 2
-        assert classify_group(79.9) == 2
+        assert classify_group(69.9) == 2
         assert group_threshold(2) == 50.0
 
     def test_group_thresholds_step_30(self):
@@ -73,8 +81,10 @@ class TestClassifyGroup:
         assert classify_group(205.0) == 7
         assert classify_group(231.0) == 8
 
-    def test_group_capped_at_8(self):
-        assert classify_group(500.0) == 8
+    def test_beyond_group8_zone_not_grouped(self):
+        assert classify_group(249.9) == 8
+        assert classify_group(250.0) is None
+        assert classify_group(500.0) is None
 
 
 class TestEligibleSymbol:

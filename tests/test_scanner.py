@@ -345,3 +345,43 @@ class TestCachedDailyBars:
         bars = _cached_daily_bars(cache, "600001", "qfq", 1800, False, remote)
         assert len(calls) == 1  # 缓存滞后超14天，强制重拉
         assert bars[-1]["time"] == date.today().isoformat() or len(bars) > 0
+
+
+class TestLimitUp:
+    def test_limit_up_exact_price(self):
+        from backend.app.scanner import is_limit_up
+
+        assert is_limit_up(11.0, 10.0)        # 10.00 → 11.00
+        assert is_limit_up(13.42, 12.20)      # 12.20 → 13.42
+        assert not is_limit_up(10.99, 10.0)   # 差一分不算
+        assert not is_limit_up(None, 10.0)
+        assert not is_limit_up(11.0, None)
+        assert not is_limit_up(11.0, 0)
+
+    def test_scanner_limit_up_filter(self, tmp_path):
+        today = date(2026, 7, 24)
+        bars = make_bars(200, 10.0, today)
+        bars[-3]["low"] = 10.0
+        quotes = [
+            # 13.1 = round(11.91*1.1,2) → 涨停且 pct=31% 第一档
+            {"symbol": "600001", "name": "涨停命中", "price": 13.1, "pre_close": 11.91},
+            # 同样 pct=31% 但非涨停
+            {"symbol": "600002", "name": "非涨停命中", "price": 13.1, "pre_close": 12.5},
+        ]
+        scanner = MoneyGrabScanner(
+            DummySettings(tmp_path),
+            quote_fetcher=lambda: quotes,
+            kline_fetcher=lambda symbol: bars,
+            max_workers=2,
+        )
+        scanner.start(limit_up_only=True)
+        deadline = time.time() + 5
+        while time.time() < deadline:
+            state = scanner.status()
+            if state["status"] in ("done", "failed"):
+                break
+            time.sleep(0.05)
+        assert state["status"] == "done"
+        assert state["limit_up_only"] is True
+        assert state["total"] == 1
+        assert [hit["symbol"] for hit in state["hits"]] == ["600001"]

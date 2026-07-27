@@ -33,6 +33,13 @@ def group_threshold(group: int) -> float:
     return GROUP_FINAL_BASE + GROUP_STEP * (group - 1)
 
 
+def is_limit_up(price: float | None, pre_close: float | None, ratio: float = 1.1) -> bool:
+    """主板涨停判定：现价（收盘后即收盘价）等于 round(昨收×1.1, 2)。ST 已被排除，不考虑 5% 档。"""
+    if price is None or pre_close is None or pre_close <= 0:
+        return False
+    return abs(float(price) - round(float(pre_close) * ratio, 2)) < 0.001
+
+
 def eligible_symbol(symbol: str, name: str) -> bool:
     clean = (symbol or "").strip()
     if not clean.startswith(ALLOWED_PREFIXES):
@@ -145,6 +152,7 @@ class ScanState:
     error: str | None = None
     trade_date: str | None = None
     min_market_cap: float | None = None  # 亿元；None = 不过滤
+    limit_up_only: bool = False  # True = 只要最后一天（今日）涨停的
 
 
 def _chunk(items: list, size: int) -> list[list]:
@@ -296,7 +304,12 @@ class MoneyGrabScanner:
                     self._state = restored
             return asdict(self._state)
 
-    def start(self, refresh: bool = False, min_market_cap: float | None = None) -> dict:
+    def start(
+        self,
+        refresh: bool = False,
+        min_market_cap: float | None = None,
+        limit_up_only: bool = False,
+    ) -> dict:
         with self._lock:
             if self._state.status == "running":
                 return asdict(self._state)
@@ -306,8 +319,11 @@ class MoneyGrabScanner:
                 started_at=now_utc().isoformat(),
                 trade_date=now_utc().date().isoformat(),
                 min_market_cap=min_market_cap,
+                limit_up_only=limit_up_only,
             )
-            self._thread = threading.Thread(target=self._run, args=(refresh, min_market_cap), daemon=True)
+            self._thread = threading.Thread(
+                target=self._run, args=(refresh, min_market_cap, limit_up_only), daemon=True
+            )
             self._thread.start()
             return asdict(self._state)
 
@@ -328,7 +344,7 @@ class MoneyGrabScanner:
 
         return fetch
 
-    def _run(self, refresh: bool, min_market_cap: float | None = None) -> None:
+    def _run(self, refresh: bool, min_market_cap: float | None = None, limit_up_only: bool = False) -> None:
         try:
             cache = CacheStore(self.settings)
             fetch_bars = self._kline_fetcher
@@ -345,6 +361,7 @@ class MoneyGrabScanner:
                     min_market_cap is None
                     or (quote.get("market_cap") is not None and float(quote["market_cap"]) >= min_market_cap)
                 )
+                and (not limit_up_only or is_limit_up(quote.get("price"), quote.get("pre_close")))
             ]
             with self._lock:
                 self._state.total = len(candidates)

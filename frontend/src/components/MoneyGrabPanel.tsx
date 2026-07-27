@@ -16,6 +16,7 @@ export function MoneyGrabPanel({ onSelect }: { onSelect: (symbol: string) => voi
   const [error, setError] = useState("");
   const [activeGroup, setActiveGroup] = useState(1);
   const [capFilter, setCapFilter] = useState(true);
+  const [limitUpFilter, setLimitUpFilter] = useState(false);
   const timerRef = useRef<number | null>(null);
 
   const loadStatus = useCallback(async () => {
@@ -52,7 +53,7 @@ export function MoneyGrabPanel({ onSelect }: { onSelect: (symbol: string) => voi
 
   async function startScan() {
     try {
-      const response = await api.startMoneyGrabScan(false, capFilter ? MARKET_CAP_MIN : undefined);
+      const response = await api.startMoneyGrabScan(false, capFilter ? MARKET_CAP_MIN : undefined, limitUpFilter);
       setStatus(response.data);
       setError("");
     } catch (exc) {
@@ -75,7 +76,7 @@ export function MoneyGrabPanel({ onSelect }: { onSelect: (symbol: string) => voi
 
   return (
     <div className="moneygrab-panel">
-      <h3>抢钱流 · A股档位扫描</h3>
+      <h3>八档局 · A股档位扫描</h3>
       <p className="moneygrab-desc">
         沪深主板（60/00）。90 日波段（低点→高点）分档：先过（阈值−10）%，最后一天至少过阈值%。
         阈值 20%~230% 每 30% 一档，与图上粗线一致。
@@ -93,11 +94,21 @@ export function MoneyGrabPanel({ onSelect }: { onSelect: (symbol: string) => voi
           />
           总市值 &gt; {MARKET_CAP_MIN} 亿
         </label>
+        <label className="moneygrab-filter">
+          <input
+            type="checkbox"
+            checked={limitUpFilter}
+            disabled={running}
+            onChange={(event) => setLimitUpFilter(event.target.checked)}
+          />
+          今日涨停
+        </label>
         {status && (running || status.status === "done") && (
           <span className="moneygrab-meta">
             {status.trade_date} · 命中 {status.hits.length}
             {status.status === "done" ? ` / 扫描 ${status.total}` : "（边扫边出）"}
             {status.min_market_cap != null ? ` · 市值>${status.min_market_cap}亿` : " · 未过滤市值"}
+            {status.limit_up_only ? " · 仅今日涨停" : ""}
           </span>
         )}
       </div>

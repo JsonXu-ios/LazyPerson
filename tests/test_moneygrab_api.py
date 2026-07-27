@@ -30,9 +30,10 @@ class FakeScanner:
             "trade_date": "2026-07-27",
         }
 
-    def start(self, refresh=False, min_market_cap=None):
+    def start(self, refresh=False, min_market_cap=None, limit_up_only=False):
         self.started_with = refresh
         self.min_market_cap = min_market_cap
+        self.limit_up_only = limit_up_only
         return {**self.state, "status": "running"}
 
     def status(self):
@@ -47,11 +48,12 @@ def make_client(monkeypatch) -> tuple[TestClient, FakeScanner]:
 
 def test_start_scan(monkeypatch):
     client, fake = make_client(monkeypatch)
-    response = client.post("/api/moneygrab/scan?refresh=true&min_market_cap=40")
+    response = client.post("/api/moneygrab/scan?refresh=true&min_market_cap=40&limit_up=true")
     assert response.status_code == 200
     assert response.json()["data"]["status"] == "running"
     assert fake.started_with is True
     assert fake.min_market_cap == 40.0
+    assert fake.limit_up_only is True
 
 
 def test_scan_status(monkeypatch):

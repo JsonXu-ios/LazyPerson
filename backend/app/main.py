@@ -143,8 +143,11 @@ def create_app() -> FastAPI:
     def start_moneygrab_scan(
         refresh: bool = False,
         min_market_cap: float | None = Query(default=None, ge=0, description="总市值下限，亿元"),
+        limit_up: bool = Query(default=False, description="只要最后一天（今日）涨停的"),
     ) -> ApiResponse:
-        return ApiResponse(data=get_scanner().start(refresh=refresh, min_market_cap=min_market_cap))
+        return ApiResponse(
+            data=get_scanner().start(refresh=refresh, min_market_cap=min_market_cap, limit_up_only=limit_up)
+        )
 
     @app.get("/api/moneygrab/scan/status", response_model=ApiResponse)
     def moneygrab_scan_status() -> ApiResponse:

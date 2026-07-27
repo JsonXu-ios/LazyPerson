@@ -382,7 +382,7 @@ export function App() {
               {activePanel === "a_share" && (
                 <button className="terminal-button" onClick={() => setDrawer("moneygrab")}>
                   <Zap size={15} />
-                  抢钱流
+                  八档局
                 </button>
               )}
               <div className="period-switch">

@@ -48,7 +48,10 @@ export const api = {
     ),
   moneyFlow: (symbol: string, refresh = false) =>
     request<MoneyFlowPayload>(`/api/money-flow/${encodeURIComponent(symbol)}?refresh=${refresh}`),
-  startMoneyGrabScan: (refresh = false) =>
-    request<MoneyGrabStatus>(`/api/moneygrab/scan?refresh=${refresh}`, { method: "POST" }),
+  startMoneyGrabScan: (refresh = false, minMarketCap?: number) =>
+    request<MoneyGrabStatus>(
+      `/api/moneygrab/scan?refresh=${refresh}${minMarketCap != null ? `&min_market_cap=${minMarketCap}` : ""}`,
+      { method: "POST" },
+    ),
   getMoneyGrabScanStatus: () => request<MoneyGrabStatus>("/api/moneygrab/scan/status"),
 };

@@ -35,9 +35,17 @@ def normalize_quote_frame(frame: pd.DataFrame) -> pd.DataFrame:
                 "volume": safe_float(first_value(row, ["成交量", "volume"])),
                 "amount": safe_float(first_value(row, ["成交额", "amount"])),
                 "turnover": safe_float(first_value(row, ["换手率", "turnover"])),
+                "market_cap": _market_cap_yi(safe_float(first_value(row, ["总市值", "market_cap"]))),
             }
         )
     return pd.DataFrame(rows)
+
+
+def _market_cap_yi(value: float | None) -> float | None:
+    """总市值统一为亿元。东财口径是元（>1e6 必为元），腾讯口径已是亿元。"""
+    if value is None:
+        return None
+    return value / 1e8 if value > 1e6 else value
 
 
 def normalize_kline_frame(frame: pd.DataFrame) -> pd.DataFrame:

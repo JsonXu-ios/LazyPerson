@@ -5,15 +5,17 @@ import { normalizeError } from "../utils/format";
 
 const POLL_MS = 2000;
 const GROUP_NAMES = ["一", "二", "三", "四", "五", "六", "七", "八"];
+const MARKET_CAP_MIN = 40; // 亿元
 
-function groupTitle(group: number, threshold: number) {
-  const pre = threshold - 10;
-  return `第${GROUP_NAMES[group - 1] || group}档 · 先过${pre}%，现至少过${threshold}%`;
+function groupThreshold(group: number) {
+  return 20 + 30 * (group - 1);
 }
 
 export function MoneyGrabPanel({ onSelect }: { onSelect: (symbol: string) => void }) {
   const [status, setStatus] = useState<MoneyGrabStatus | null>(null);
   const [error, setError] = useState("");
+  const [activeGroup, setActiveGroup] = useState(1);
+  const [capFilter, setCapFilter] = useState(true);
   const timerRef = useRef<number | null>(null);
 
   const loadStatus = useCallback(async () => {
@@ -50,7 +52,7 @@ export function MoneyGrabPanel({ onSelect }: { onSelect: (symbol: string) => voi
 
   async function startScan() {
     try {
-      const response = await api.startMoneyGrabScan();
+      const response = await api.startMoneyGrabScan(false, capFilter ? MARKET_CAP_MIN : undefined);
       setStatus(response.data);
       setError("");
     } catch (exc) {
@@ -60,30 +62,42 @@ export function MoneyGrabPanel({ onSelect }: { onSelect: (symbol: string) => voi
 
   const running = status?.status === "running";
   const progress = status && status.total > 0 ? Math.round((status.done / status.total) * 100) : 0;
-  const groups = new Map<number, MoneyGrabHit[]>();
+  const groupCounts = new Map<number, number>();
+  const groupHits = new Map<number, MoneyGrabHit[]>();
   (status?.hits || []).forEach((hit) => {
-    const list = groups.get(hit.group) || [];
+    groupCounts.set(hit.group, (groupCounts.get(hit.group) || 0) + 1);
+    const list = groupHits.get(hit.group) || [];
     list.push(hit);
-    groups.set(hit.group, list);
+    groupHits.set(hit.group, list);
   });
-  const orderedGroups = [...groups.entries()].sort((a, b) => a[0] - b[0]);
-  orderedGroups.forEach(([, list]) => list.sort((a, b) => b.over - a.over));
+  const activeHits = (groupHits.get(activeGroup) || []).slice().sort((a, b) => b.over - a.over);
+  const hasAnyHits = (status?.hits.length || 0) > 0;
 
   return (
     <div className="moneygrab-panel">
       <h3>抢钱流 · A股档位扫描</h3>
       <p className="moneygrab-desc">
-        90 日波段（低点→高点，时间顺序）分档：第 k 档 = 波段内先过 (阈值−10)%，最后一天至少过阈值%。
-        阈值：20% / 50% / 80% / 110% / 140% / 170% / 200% / 230%，与图上粗线一致。
+        沪深主板（60/00）。90 日波段（低点→高点）分档：先过（阈值−10）%，最后一天至少过阈值%。
+        阈值 20%~230% 每 30% 一档，与图上粗线一致。
       </p>
       <div className="moneygrab-actions">
         <button className="terminal-button" disabled={running} onClick={startScan}>
           {running ? "扫描中…" : status?.status === "done" ? "重新扫描" : "开始扫描"}
         </button>
+        <label className="moneygrab-filter">
+          <input
+            type="checkbox"
+            checked={capFilter}
+            disabled={running}
+            onChange={(event) => setCapFilter(event.target.checked)}
+          />
+          总市值 &gt; {MARKET_CAP_MIN} 亿
+        </label>
         {status && (running || status.status === "done") && (
           <span className="moneygrab-meta">
             {status.trade_date} · 命中 {status.hits.length}
-            {status.status === "done" ? ` / 扫描 ${status.total}` : "（边扫边出，实时更新）"}
+            {status.status === "done" ? ` / 扫描 ${status.total}` : "（边扫边出）"}
+            {status.min_market_cap != null ? ` · 市值>${status.min_market_cap}亿` : " · 未过滤市值"}
           </span>
         )}
       </div>
@@ -99,47 +113,60 @@ export function MoneyGrabPanel({ onSelect }: { onSelect: (symbol: string) => voi
           </span>
         </div>
       )}
-      {orderedGroups.length > 0 && (
-        <div className="moneygrab-table-wrap">
-          {orderedGroups.map(([group, hits]) => (
-            <section key={group}>
-              <h4 className="moneygrab-group-title">
-                {groupTitle(group, hits[0].threshold)} · {hits.length} 只
-              </h4>
-              <table className="moneygrab-table">
-                <thead>
-                  <tr>
-                    <th>代码</th>
-                    <th>名称</th>
-                    <th>最新价</th>
-                    <th>90日低点</th>
-                    <th>涨幅</th>
-                    <th>低点日</th>
-                    <th>过线日</th>
-                    <th>超出</th>
+      {(hasAnyHits || status?.status === "done") && (
+        <>
+          <div className="moneygrab-tabs">
+            {GROUP_NAMES.map((cn, index) => {
+              const group = index + 1;
+              const count = groupCounts.get(group) || 0;
+              return (
+                <button
+                  key={group}
+                  className={activeGroup === group ? "active" : ""}
+                  onClick={() => setActiveGroup(group)}
+                  title={`先过${groupThreshold(group) - 10}%，现至少过${groupThreshold(group)}%`}
+                >
+                  {cn}档 ≥{groupThreshold(group)}%<em>{count}</em>
+                </button>
+              );
+            })}
+          </div>
+          <div className="moneygrab-table-wrap">
+            <table className="moneygrab-table">
+              <thead>
+                <tr>
+                  <th>代码</th>
+                  <th>名称</th>
+                  <th>最新价</th>
+                  <th>90日低点</th>
+                  <th>涨幅</th>
+                  <th>低点日</th>
+                  <th>过线日</th>
+                  <th>超出</th>
+                </tr>
+              </thead>
+              <tbody>
+                {activeHits.map((hit) => (
+                  <tr key={hit.symbol} onClick={() => onSelect(hit.symbol)}>
+                    <td>{hit.symbol}</td>
+                    <td>{hit.name}</td>
+                    <td>{hit.price.toFixed(2)}</td>
+                    <td>{hit.low90.toFixed(2)}</td>
+                    <td className="moneygrab-pct">{hit.pct.toFixed(1)}%</td>
+                    <td>{hit.low_date.slice(5)}</td>
+                    <td>{hit.cross_date.slice(5)}</td>
+                    <td className="moneygrab-over">+{hit.over.toFixed(1)}%</td>
                   </tr>
-                </thead>
-                <tbody>
-                  {hits.map((hit) => (
-                    <tr key={hit.symbol} onClick={() => onSelect(hit.symbol)}>
-                      <td>{hit.symbol}</td>
-                      <td>{hit.name}</td>
-                      <td>{hit.price.toFixed(2)}</td>
-                      <td>{hit.low90.toFixed(2)}</td>
-                      <td className="moneygrab-pct">{hit.pct.toFixed(1)}%</td>
-                      <td>{hit.low_date.slice(5)}</td>
-                      <td>{hit.cross_date.slice(5)}</td>
-                      <td className="moneygrab-over">+{hit.over.toFixed(1)}%</td>
-                    </tr>
-                  ))}
-                </tbody>
-              </table>
-            </section>
-          ))}
-        </div>
-      )}
-      {status?.status === "done" && !status.hits.length && (
-        <p className="moneygrab-meta">今日无命中</p>
+                ))}
+                {!activeHits.length && (
+                  <tr>
+                    <td colSpan={8}>{running ? "本档暂无命中（扫描中…）" : "本档无命中"}</td>
+                  </tr>
+                )}
+              </tbody>
+            </table>
+          </div>
+        </>
       )}
     </div>
   );

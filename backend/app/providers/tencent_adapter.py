@@ -119,6 +119,7 @@ def _parse_realtime_text(text: str) -> pd.DataFrame:
                 "volume": safe_float(fields[36]),
                 "amount": _slash_value(fields[35], 2) or safe_float(fields[37]),
                 "turnover": safe_float(fields[38]),
+                "market_cap": safe_float(fields[45]) if len(fields) > 45 else None,  # 总市值，亿元
             }
         )
         if prefixed.startswith("bj"):

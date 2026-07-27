@@ -140,8 +140,11 @@ def create_app() -> FastAPI:
         return ApiResponse(data={"ok": True})
 
     @app.post("/api/moneygrab/scan", response_model=ApiResponse)
-    def start_moneygrab_scan(refresh: bool = False) -> ApiResponse:
-        return ApiResponse(data=get_scanner().start(refresh=refresh))
+    def start_moneygrab_scan(
+        refresh: bool = False,
+        min_market_cap: float | None = Query(default=None, ge=0, description="总市值下限，亿元"),
+    ) -> ApiResponse:
+        return ApiResponse(data=get_scanner().start(refresh=refresh, min_market_cap=min_market_cap))
 
     @app.get("/api/moneygrab/scan/status", response_model=ApiResponse)
     def moneygrab_scan_status() -> ApiResponse:

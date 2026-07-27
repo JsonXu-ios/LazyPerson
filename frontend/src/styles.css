@@ -1242,17 +1242,57 @@ button:disabled {
   border-radius: 4px;
 }
 
-.moneygrab-group-title {
-  margin: 0;
-  padding: 8px 10px;
+.moneygrab-filter {
+  display: inline-flex;
+  align-items: center;
+  gap: 6px;
   font-size: 12px;
-  font-weight: 600;
-  color: var(--blue);
+  color: var(--text);
+  cursor: pointer;
+  user-select: none;
+}
+
+.moneygrab-filter input {
+  accent-color: var(--blue);
+}
+
+.moneygrab-tabs {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 4px;
+}
+
+.moneygrab-tabs button {
+  border: 1px solid var(--line);
+  border-radius: 4px;
   background: var(--panel-soft);
-  border-bottom: 1px solid var(--line);
-  position: sticky;
-  top: 0;
-  z-index: 2;
+  color: var(--muted);
+  font-size: 11px;
+  padding: 4px 8px;
+  cursor: pointer;
+  display: inline-flex;
+  align-items: center;
+  gap: 5px;
+}
+
+.moneygrab-tabs button em {
+  font-style: normal;
+  font-size: 10px;
+  padding: 0 5px;
+  border-radius: 8px;
+  background: rgba(56, 189, 248, 0.14);
+  color: var(--blue);
+}
+
+.moneygrab-tabs button.active {
+  color: #061016;
+  background: var(--blue);
+  border-color: var(--blue);
+}
+
+.moneygrab-tabs button.active em {
+  background: rgba(6, 16, 22, 0.25);
+  color: #061016;
 }
 
 .moneygrab-table {

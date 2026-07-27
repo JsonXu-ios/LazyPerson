@@ -18,7 +18,7 @@ MAX_GROUPS = 8
 WINDOW_DAYS = 90
 MIN_BARS = 20
 OHLC_KEYS = ("open", "high", "low", "close")
-ALLOWED_PREFIXES = ("60", "00", "30", "68")
+ALLOWED_PREFIXES = ("60", "00")  # 仅沪深主板，排除创业板(30)/科创板(68)/北交所
 
 
 def classify_group(pct: float | None) -> int | None:
@@ -144,6 +144,7 @@ class ScanState:
     finished_at: str | None = None
     error: str | None = None
     trade_date: str | None = None
+    min_market_cap: float | None = None  # 亿元；None = 不过滤
 
 
 def _chunk(items: list, size: int) -> list[list]:
@@ -295,7 +296,7 @@ class MoneyGrabScanner:
                     self._state = restored
             return asdict(self._state)
 
-    def start(self, refresh: bool = False) -> dict:
+    def start(self, refresh: bool = False, min_market_cap: float | None = None) -> dict:
         with self._lock:
             if self._state.status == "running":
                 return asdict(self._state)
@@ -304,8 +305,9 @@ class MoneyGrabScanner:
                 stage="snapshot",
                 started_at=now_utc().isoformat(),
                 trade_date=now_utc().date().isoformat(),
+                min_market_cap=min_market_cap,
             )
-            self._thread = threading.Thread(target=self._run, args=(refresh,), daemon=True)
+            self._thread = threading.Thread(target=self._run, args=(refresh, min_market_cap), daemon=True)
             self._thread.start()
             return asdict(self._state)
 
@@ -326,7 +328,7 @@ class MoneyGrabScanner:
 
         return fetch
 
-    def _run(self, refresh: bool) -> None:
+    def _run(self, refresh: bool, min_market_cap: float | None = None) -> None:
         try:
             cache = CacheStore(self.settings)
             fetch_bars = self._kline_fetcher
@@ -339,6 +341,10 @@ class MoneyGrabScanner:
                 for quote in quotes
                 if eligible_symbol(str(quote.get("symbol", "")), str(quote.get("name", "")))
                 and quote.get("price") is not None
+                and (
+                    min_market_cap is None
+                    or (quote.get("market_cap") is not None and float(quote["market_cap"]) >= min_market_cap)
+                )
             ]
             with self._lock:
                 self._state.total = len(candidates)

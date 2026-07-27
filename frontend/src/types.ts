@@ -103,4 +103,5 @@ export type MoneyGrabStatus = {
   finished_at: string | null;
   error: string | null;
   trade_date: string | null;
+  min_market_cap: number | null;
 };

@@ -79,3 +79,25 @@ export type MoneyFlowPayload = {
   symbol: string;
   items: MoneyFlowItem[];
 };
+
+export type MoneyGrabHit = {
+  symbol: string;
+  name: string;
+  price: number;
+  low90: number;
+  pct: number;
+  band: number;
+  over: number;
+};
+
+export type MoneyGrabStatus = {
+  status: "idle" | "running" | "done" | "failed";
+  stage?: "snapshot" | "kline" | "";
+  total: number;
+  done: number;
+  hits: MoneyGrabHit[];
+  started_at: string | null;
+  finished_at: string | null;
+  error: string | null;
+  trade_date: string | null;
+};

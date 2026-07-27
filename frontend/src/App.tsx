@@ -1,9 +1,10 @@
 import { useCallback, useEffect, useMemo, useRef, useState } from "react";
-import { Search, Star } from "lucide-react";
+import { Search, Star, Zap } from "lucide-react";
 import { api } from "./api";
 import { IndicatorTabs } from "./components/IndicatorTabs";
 import { KlineChart } from "./components/KlineChart";
 import { StatusBar } from "./components/StatusBar";
+import { MoneyGrabPanel } from "./components/MoneyGrabPanel";
 import { StockSummary } from "./components/StockSummary";
 import { WatchlistPanel } from "./components/WatchlistPanel";
 import type { DataQuality, KlinePayload, Quote, SymbolItem, WatchlistItem } from "./types";
@@ -101,7 +102,7 @@ export function App() {
   const [notice, setNotice] = useState("");
   const [loading, setLoading] = useState(false);
   const [lineColors, setLineColors] = useState<AutoLineColorMap>(() => loadLineColors());
-  const [drawer, setDrawer] = useState<"watchlist" | "summary" | null>(null);
+  const [drawer, setDrawer] = useState<"watchlist" | "summary" | "moneygrab" | null>(null);
   const [watchSignals, setWatchSignals] = useState<{ drawdown: WatchSignal[]; uptrend: WatchSignal[] }>({
     drawdown: [],
     uptrend: [],
@@ -377,6 +378,12 @@ export function App() {
                 <Star size={15} />
                 资产信息
               </button>
+              {activePanel === "a_share" && (
+                <button className="terminal-button" onClick={() => setDrawer("moneygrab")}>
+                  <Zap size={15} />
+                  抢钱流
+                </button>
+              )}
               <div className="period-switch">
                 {periods.map((item) => (
                   <button className={period === item ? "active" : ""} key={item} onClick={() => setPeriod(item)}>
@@ -432,6 +439,14 @@ export function App() {
                 onSortChange={setSortKey}
                 onAdd={addSymbol}
                 onRemove={removeSymbol}
+                onSelect={(symbol) => {
+                  selectPanelSymbol(symbol);
+                  setPeriod("day");
+                  setDrawer(null);
+                }}
+              />
+            ) : drawer === "moneygrab" ? (
+              <MoneyGrabPanel
                 onSelect={(symbol) => {
                   selectPanelSymbol(symbol);
                   setPeriod("day");

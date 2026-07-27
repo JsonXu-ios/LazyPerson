@@ -872,6 +872,11 @@ button:disabled {
   right: 14px;
 }
 
+.side-drawer.moneygrab {
+  right: 14px;
+  width: min(620px, calc(100vw - 28px));
+}
+
 .side-drawer .watch-panel,
 .side-drawer .summary-panel {
   width: 100%;
@@ -1157,4 +1162,128 @@ button:disabled {
     min-width: 54px;
     font-size: 11px;
   }
+}
+
+/* 抢钱流面板 */
+.moneygrab-panel {
+  display: flex;
+  flex-direction: column;
+  gap: 12px;
+  height: 100%;
+  overflow: hidden;
+  background: linear-gradient(180deg, var(--panel-strong), var(--panel));
+  border: 1px solid var(--line);
+  border-radius: 6px;
+  box-shadow: inset 0 1px 0 rgba(255, 255, 255, 0.03), 0 10px 28px rgba(0, 0, 0, 0.22);
+  padding: 14px 16px 12px;
+}
+
+.moneygrab-panel h3 {
+  margin: 0;
+  padding-right: 40px;
+  font-size: 15px;
+  letter-spacing: 0.02em;
+}
+
+.moneygrab-desc {
+  margin: 0;
+  font-size: 12px;
+  line-height: 1.6;
+  color: var(--muted);
+}
+
+.moneygrab-actions {
+  display: flex;
+  align-items: center;
+  gap: 10px;
+  flex-wrap: wrap;
+}
+
+.moneygrab-meta {
+  font-size: 12px;
+  color: var(--muted);
+}
+
+.moneygrab-error {
+  margin: 0;
+  color: var(--red);
+  font-size: 12px;
+}
+
+.moneygrab-progress {
+  position: relative;
+  height: 22px;
+  border: 1px solid var(--line);
+  border-radius: 4px;
+  overflow: hidden;
+  font-size: 11px;
+  background: var(--panel-soft);
+}
+
+.moneygrab-progress-bar {
+  position: absolute;
+  inset: 0 auto 0 0;
+  background: rgba(56, 189, 248, 0.35);
+  transition: width 0.4s ease;
+}
+
+.moneygrab-progress span {
+  position: relative;
+  display: block;
+  text-align: center;
+  line-height: 22px;
+  color: var(--text);
+}
+
+.moneygrab-table-wrap {
+  flex: 1;
+  overflow: auto;
+  border: 1px solid var(--line-soft);
+  border-radius: 4px;
+}
+
+.moneygrab-table {
+  width: 100%;
+  border-collapse: collapse;
+  font-size: 12px;
+  font-variant-numeric: tabular-nums;
+}
+
+.moneygrab-table thead th {
+  position: sticky;
+  top: 0;
+  z-index: 1;
+  background: var(--panel-strong);
+  color: var(--muted);
+  font-weight: 500;
+  border-bottom: 1px solid var(--line);
+}
+
+.moneygrab-table th,
+.moneygrab-table td {
+  padding: 7px 10px;
+  text-align: right;
+  border-bottom: 1px solid var(--line-soft);
+  white-space: nowrap;
+}
+
+.moneygrab-table th:nth-child(-n + 2),
+.moneygrab-table td:nth-child(-n + 2) {
+  text-align: left;
+}
+
+.moneygrab-table td.moneygrab-pct {
+  color: var(--red);
+}
+
+.moneygrab-table td.moneygrab-over {
+  color: var(--amber);
+}
+
+.moneygrab-table tbody tr {
+  cursor: pointer;
+}
+
+.moneygrab-table tbody tr:hover {
+  background: rgba(56, 189, 248, 0.08);
 }

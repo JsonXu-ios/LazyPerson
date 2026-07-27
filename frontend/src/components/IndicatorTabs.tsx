@@ -31,7 +31,8 @@ export function IndicatorTabs({ kline }: Props) {
     color: ["#f2c94c", "#38bdf8"],
     legend: legendOption(["LON", "LONMA"]),
     series: [
-      { name: "LON", type: "bar", barWidth: "60%", data: coloredBars(lon.lon || []) },
+      // 龙系长线画法与东财/通达信一致：LON、LONMA 均为曲线
+      { name: "LON", type: "line", showSymbol: false, data: lon.lon || [] },
       { name: "LONMA", type: "line", showSymbol: false, data: lon.lonma || [] },
     ],
   }), [times, lon]);

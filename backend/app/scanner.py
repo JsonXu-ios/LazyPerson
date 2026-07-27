@@ -1,7 +1,15 @@
 from __future__ import annotations
 
+import json
 import math
+import threading
+from concurrent.futures import ThreadPoolExecutor
+from dataclasses import asdict, dataclass, field
 from datetime import date, timedelta
+
+from backend.app.cache import CacheStore
+from backend.app.config import Settings, get_settings
+from backend.app.utils import now_utc
 
 BAND_STEP = 20.0
 BAND_MARGIN = 10.0
@@ -96,3 +104,149 @@ def evaluate_stock(
         "band": band,
         "over": round(over, 2),
     }
+
+
+STATE_KEY = "moneygrab:last_scan"
+
+
+@dataclass
+class ScanState:
+    status: str = "idle"  # idle | running | done | failed
+    total: int = 0
+    done: int = 0
+    hits: list[dict] = field(default_factory=list)
+    started_at: str | None = None
+    finished_at: str | None = None
+    error: str | None = None
+    trade_date: str | None = None
+
+
+def _fetch_all_a_quotes() -> list[dict]:
+    """全市场A股快照：efinance 优先，akshare 兜底。传空列表 = 不过滤，返回全部。"""
+    from backend.app.providers.akshare_adapter import AKShareAdapter
+    from backend.app.providers.efinance_adapter import EFinanceAdapter
+
+    errors: list[str] = []
+    for adapter_cls in (EFinanceAdapter, AKShareAdapter):
+        try:
+            frame = adapter_cls().realtime_quotes([])
+            if frame is not None and not frame.empty:
+                return frame.to_dict("records")
+        except Exception as exc:
+            errors.append(f"{adapter_cls.__name__}:{exc}")
+    raise RuntimeError("; ".join(errors) or "no quote source available")
+
+
+class MoneyGrabScanner:
+    def __init__(
+        self,
+        settings: Settings,
+        quote_fetcher=None,
+        kline_fetcher=None,
+        max_workers: int = 8,
+    ):
+        self.settings = settings
+        self.max_workers = max_workers
+        self._quote_fetcher = quote_fetcher or _fetch_all_a_quotes
+        self._kline_fetcher = kline_fetcher  # None 时在 _run 内用 MarketService
+        self._lock = threading.Lock()
+        self._state = ScanState()
+        self._thread: threading.Thread | None = None
+
+    def status(self) -> dict:
+        with self._lock:
+            if self._state.status == "idle":
+                restored = self._load_persisted()
+                if restored is not None:
+                    self._state = restored
+            return asdict(self._state)
+
+    def start(self, refresh: bool = False) -> dict:
+        with self._lock:
+            if self._state.status == "running":
+                return asdict(self._state)
+            self._state = ScanState(
+                status="running",
+                started_at=now_utc().isoformat(),
+                trade_date=now_utc().date().isoformat(),
+            )
+            self._thread = threading.Thread(target=self._run, args=(refresh,), daemon=True)
+            self._thread.start()
+            return asdict(self._state)
+
+    def _default_kline_fetcher(self, service, refresh: bool):
+        def fetch(symbol: str) -> list[dict]:
+            payload, _ = service.kline(symbol, period="day", indicators=[], limit=140, refresh=refresh)
+            return payload["bars"]
+
+        return fetch
+
+    def _run(self, refresh: bool) -> None:
+        try:
+            cache = CacheStore(self.settings)
+            fetch_bars = self._kline_fetcher
+            if fetch_bars is None:
+                from backend.app.services import MarketService
+
+                fetch_bars = self._default_kline_fetcher(MarketService(self.settings, cache), refresh)
+
+            quotes = self._quote_fetcher()
+            candidates = [
+                quote
+                for quote in quotes
+                if eligible_symbol(str(quote.get("symbol", "")), str(quote.get("name", "")))
+                and quote.get("price") is not None
+            ]
+            with self._lock:
+                self._state.total = len(candidates)
+
+            def work(quote: dict) -> dict | None:
+                try:
+                    bars = fetch_bars(str(quote["symbol"]))
+                    return evaluate_stock(
+                        str(quote["symbol"]), str(quote.get("name", "")), quote.get("price"), bars
+                    )
+                except Exception:
+                    return None
+
+            with ThreadPoolExecutor(max_workers=self.max_workers) as pool:
+                for row in pool.map(work, candidates):
+                    with self._lock:
+                        self._state.done += 1
+                        if row is not None:
+                            self._state.hits.append(row)
+
+            with self._lock:
+                self._state.hits.sort(key=lambda item: item["over"], reverse=True)
+                self._state.status = "done"
+                self._state.finished_at = now_utc().isoformat()
+                cache.set_state(STATE_KEY, json.dumps(asdict(self._state), ensure_ascii=False))
+        except Exception as exc:
+            with self._lock:
+                self._state.status = "failed"
+                self._state.error = str(exc)
+                self._state.finished_at = now_utc().isoformat()
+
+    def _load_persisted(self) -> ScanState | None:
+        try:
+            raw = CacheStore(self.settings).get_state(STATE_KEY)
+            if not raw:
+                return None
+            data = json.loads(raw)
+            if data.get("trade_date") != now_utc().date().isoformat():
+                return None
+            return ScanState(**data)
+        except Exception:
+            return None
+
+
+_scanner: MoneyGrabScanner | None = None
+_scanner_guard = threading.Lock()
+
+
+def get_scanner() -> MoneyGrabScanner:
+    global _scanner
+    with _scanner_guard:
+        if _scanner is None:
+            _scanner = MoneyGrabScanner(get_settings())
+        return _scanner

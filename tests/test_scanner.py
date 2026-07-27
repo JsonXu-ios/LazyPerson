@@ -1,11 +1,26 @@
+import time
 from datetime import date, timedelta
+from pathlib import Path
 
 from backend.app.scanner import (
+    MoneyGrabScanner,
     band_position,
     eligible_symbol,
     evaluate_stock,
     slice_calendar_window,
 )
+
+
+class DummySettings:
+    def __init__(self, root: Path):
+        self.cache_dir = root
+        self.sqlite_path = root / "lazy_person.sqlite"
+        self.default_adjust = "qfq"
+        self.quote_ttl_seconds = 5
+        self.minute_ttl_seconds = 30
+        self.day_ttl_seconds = 1800
+        self.symbols_ttl_seconds = 86400
+        self.money_flow_ttl_seconds = 60
 
 
 def make_bars(days: int, low: float, today: date | None = None) -> list[dict]:
@@ -119,3 +134,79 @@ class TestEvaluateStock:
     def test_too_few_bars_excluded(self):
         bars = make_bars(200, 10.0, self.today)[:10]
         assert evaluate_stock("600001", "测试股", 13.1, bars, today=self.today) is None
+
+
+class TestMoneyGrabScanner:
+    today = date(2026, 7, 24)
+
+    def _fetchers(self):
+        quotes = [
+            {"symbol": "600001", "name": "命中股", "price": 13.1},   # pct=31% 命中
+            {"symbol": "600002", "name": "未中股", "price": 12.5},   # pct=25% 不命中
+            {"symbol": "430047", "name": "北交所", "price": 13.1},   # 排除
+            {"symbol": "600003", "name": "ST某某", "price": 13.1},  # 排除
+        ]
+        bars = make_bars(200, 10.0, self.today)
+        bars[-3]["low"] = 10.0
+        return (lambda: quotes), (lambda symbol: bars)
+
+    def _wait_done(self, scanner, timeout=5.0):
+        deadline = time.time() + timeout
+        while time.time() < deadline:
+            state = scanner.status()
+            if state["status"] in ("done", "failed"):
+                return state
+            time.sleep(0.05)
+        raise AssertionError("scan did not finish in time")
+
+    def test_scan_filters_and_reports_progress(self, tmp_path):
+        quote_fetcher, kline_fetcher = self._fetchers()
+        scanner = MoneyGrabScanner(
+            DummySettings(tmp_path), quote_fetcher=quote_fetcher, kline_fetcher=kline_fetcher, max_workers=2
+        )
+        state = scanner.start()
+        assert state["status"] in ("running", "done")  # 小数据集可能瞬间扫完
+        state = self._wait_done(scanner)
+        assert state["status"] == "done"
+        assert state["total"] == 2  # 北交所与 ST 在候选阶段就被排除
+        assert state["done"] == 2
+        assert [hit["symbol"] for hit in state["hits"]] == ["600001"]
+        assert state["hits"][0]["band"] == 20.0
+
+    def test_start_is_idempotent_while_running(self, tmp_path):
+        quote_fetcher, kline_fetcher = self._fetchers()
+
+        def slow_kline(symbol):
+            time.sleep(0.3)
+            return kline_fetcher(symbol)
+
+        scanner = MoneyGrabScanner(
+            DummySettings(tmp_path), quote_fetcher=quote_fetcher, kline_fetcher=slow_kline, max_workers=1
+        )
+        scanner.start()
+        second = scanner.start()
+        assert second["status"] == "running"
+        self._wait_done(scanner)
+
+    def test_result_persisted_and_restored(self, tmp_path):
+        quote_fetcher, kline_fetcher = self._fetchers()
+        settings = DummySettings(tmp_path)
+        scanner = MoneyGrabScanner(settings, quote_fetcher=quote_fetcher, kline_fetcher=kline_fetcher)
+        scanner.start()
+        self._wait_done(scanner)
+
+        fresh = MoneyGrabScanner(settings, quote_fetcher=quote_fetcher, kline_fetcher=kline_fetcher)
+        state = fresh.status()
+        # 持久化的 trade_date 是真实运行日，与结果一同恢复
+        assert state["status"] == "done"
+        assert [hit["symbol"] for hit in state["hits"]] == ["600001"]
+
+    def test_quote_fetcher_failure_sets_failed(self, tmp_path):
+        def broken():
+            raise RuntimeError("snapshot down")
+
+        scanner = MoneyGrabScanner(DummySettings(tmp_path), quote_fetcher=broken, kline_fetcher=lambda s: [])
+        scanner.start()
+        state = self._wait_done(scanner)
+        assert state["status"] == "failed"
+        assert "snapshot down" in state["error"]

@@ -90,6 +90,7 @@ export type MoneyGrabHit = {
   threshold: number;
   over: number;
   max_pct: number;
+  limit_up: boolean;
   low_date: string;
   cross_date: string;
 };

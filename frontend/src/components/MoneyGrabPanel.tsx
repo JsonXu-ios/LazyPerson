@@ -16,7 +16,7 @@ export function MoneyGrabPanel({ onSelect }: { onSelect: (symbol: string) => voi
   const [error, setError] = useState("");
   const [activeGroup, setActiveGroup] = useState(1);
   const [capFilter, setCapFilter] = useState(true);
-  const [limitUpFilter, setLimitUpFilter] = useState(false);
+  const [limitUpFilter, setLimitUpFilter] = useState(true);
   const timerRef = useRef<number | null>(null);
 
   const loadStatus = useCallback(async () => {
@@ -53,7 +53,8 @@ export function MoneyGrabPanel({ onSelect }: { onSelect: (symbol: string) => voi
 
   async function startScan() {
     try {
-      const response = await api.startMoneyGrabScan(false, capFilter ? MARKET_CAP_MIN : undefined, limitUpFilter);
+      // 涨停是展示层过滤（每条命中带 limit_up 标记），扫描本身不过滤，勾选切换即时生效
+      const response = await api.startMoneyGrabScan(false, capFilter ? MARKET_CAP_MIN : undefined);
       setStatus(response.data);
       setError("");
     } catch (exc) {
@@ -63,9 +64,10 @@ export function MoneyGrabPanel({ onSelect }: { onSelect: (symbol: string) => voi
 
   const running = status?.status === "running";
   const progress = status && status.total > 0 ? Math.round((status.done / status.total) * 100) : 0;
+  const visibleHits = (status?.hits || []).filter((hit) => !limitUpFilter || hit.limit_up);
   const groupCounts = new Map<number, number>();
   const groupHits = new Map<number, MoneyGrabHit[]>();
-  (status?.hits || []).forEach((hit) => {
+  visibleHits.forEach((hit) => {
     groupCounts.set(hit.group, (groupCounts.get(hit.group) || 0) + 1);
     const list = groupHits.get(hit.group) || [];
     list.push(hit);
@@ -94,21 +96,20 @@ export function MoneyGrabPanel({ onSelect }: { onSelect: (symbol: string) => voi
           />
           总市值 &gt; {MARKET_CAP_MIN} 亿
         </label>
-        <label className="moneygrab-filter">
+        <label className="moneygrab-filter" title="展示过滤：勾选只看最后一天（今日）涨停的，取消显示全部，无需重扫">
           <input
             type="checkbox"
             checked={limitUpFilter}
-            disabled={running}
             onChange={(event) => setLimitUpFilter(event.target.checked)}
           />
           今日涨停
         </label>
         {status && (running || status.status === "done") && (
           <span className="moneygrab-meta">
-            {status.trade_date} · 命中 {status.hits.length}
-            {status.status === "done" ? ` / 扫描 ${status.total}` : "（边扫边出）"}
+            {status.trade_date} · 命中 {visibleHits.length}
+            {limitUpFilter ? `（涨停）/ 全部 ${status.hits.length}` : ""}
+            {status.status === "done" ? ` · 扫描 ${status.total}` : "（边扫边出）"}
             {status.min_market_cap != null ? ` · 市值>${status.min_market_cap}亿` : " · 未过滤市值"}
-            {status.limit_up_only ? " · 仅今日涨停" : ""}
           </span>
         )}
       </div>

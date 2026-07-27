@@ -192,11 +192,13 @@ class TestMoneyGrabScanner:
 
     def _fetchers(self):
         quotes = [
-            {"symbol": "600001", "name": "命中股", "price": 13.1, "market_cap": 120.0},  # pct=31% → 第一档
-            {"symbol": "600002", "name": "未中股", "price": 11.5, "market_cap": 80.0},   # pct=15% 不入档
-            {"symbol": "430047", "name": "北交所", "price": 13.1, "market_cap": 100.0},  # 排除
-            {"symbol": "600003", "name": "ST某某", "price": 13.1, "market_cap": 100.0},  # 排除
-            {"symbol": "600004", "name": "小市值命中", "price": 13.1, "market_cap": 30.0},  # 市值过滤用
+            # 13.1 = round(11.91*1.1, 2) → 今日涨停
+            {"symbol": "600001", "name": "命中股", "price": 13.1, "market_cap": 120.0, "pre_close": 11.91},
+            {"symbol": "600002", "name": "未中股", "price": 11.5, "market_cap": 80.0, "pre_close": 11.2},
+            {"symbol": "430047", "name": "北交所", "price": 13.1, "market_cap": 100.0, "pre_close": 12.0},
+            {"symbol": "600003", "name": "ST某某", "price": 13.1, "market_cap": 100.0, "pre_close": 12.0},
+            # 非涨停命中，市值过滤用
+            {"symbol": "600004", "name": "小市值命中", "price": 13.1, "market_cap": 30.0, "pre_close": 12.5},
         ]
         bars = make_bars(200, 10.0, self.today)
         bars[-3]["low"] = 10.0
@@ -225,6 +227,9 @@ class TestMoneyGrabScanner:
         assert sorted(hit["symbol"] for hit in state["hits"]) == ["600001", "600004"]
         assert state["hits"][0]["group"] == 1
         assert state["hits"][0]["threshold"] == 20.0
+        by_symbol = {hit["symbol"]: hit for hit in state["hits"]}
+        assert by_symbol["600001"]["limit_up"] is True   # 13.1 = 11.91×1.1
+        assert by_symbol["600004"]["limit_up"] is False
 
     def test_min_market_cap_filter(self, tmp_path):
         quote_fetcher, kline_fetcher = self._fetchers()

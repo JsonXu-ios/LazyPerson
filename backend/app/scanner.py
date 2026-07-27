@@ -163,7 +163,7 @@ def evaluate_stock(
     }
 
 
-STATE_KEY = "moneygrab:last_scan:v2"  # v2: 分档规则，旧结果结构不兼容
+STATE_KEY = "moneygrab:last_scan:v3"  # v3: 命中行含 limit_up 字段，旧结果结构不兼容
 
 
 @dataclass
@@ -265,7 +265,8 @@ def _cached_daily_bars(
     return frame.to_dict("records")
 
 
-def _daily_bars_too_old(bars: list[dict], max_lag_days: int = 14) -> bool:
+def _daily_bars_too_old(bars: list[dict], max_lag_days: int = 4) -> bool:
+    """缓存最新一根K线距今超过 max_lag_days 自然日则重拉该股（覆盖周末+小长假内的滞后）。"""
     last = _bar_date(bars[-1])
     if last is None:
         return True
@@ -399,9 +400,12 @@ class MoneyGrabScanner:
                 for _ in range(2):  # 缓存写锁等瞬时失败重试一次
                     try:
                         bars = fetch_bars(str(quote["symbol"]))
-                        return evaluate_stock(
+                        row = evaluate_stock(
                             str(quote["symbol"]), str(quote.get("name", "")), quote.get("price"), bars
                         )
+                        if row is not None:
+                            row["limit_up"] = is_limit_up(quote.get("price"), quote.get("pre_close"))
+                        return row
                     except Exception:
                         continue
                 return None

@@ -28,12 +28,13 @@ export function IndicatorTabs({ kline }: Props) {
 
   useIndicatorChart(lonRef, () => ({
     ...baseOption(times),
-    color: ["#f2c94c", "#38bdf8"],
+    color: ["#e8eef7", "#f2a93b"],
     legend: legendOption(["LON", "LONMA"]),
     series: [
-      // 龙系长线画法与东财/通达信一致：LON、LONMA 均为曲线
-      { name: "LON", type: "line", showSymbol: false, data: lon.lon || [] },
-      { name: "LONMA", type: "line", showSymbol: false, data: lon.lonma || [] },
+      // 东财龙系长线画法：对零轴的红绿柱 + LON 线 + LONMA 均线
+      { name: "LON柱", type: "bar", barWidth: "60%", data: coloredBars(lon.lon || []), silent: true },
+      { name: "LON", type: "line", showSymbol: false, lineStyle: { width: 1.5 }, data: lon.lon || [] },
+      { name: "LONMA", type: "line", showSymbol: false, lineStyle: { width: 1.5 }, data: lon.lonma || [] },
     ],
   }), [times, lon]);
 

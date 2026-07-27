@@ -166,6 +166,51 @@ def _fetch_a_quotes_via_tencent(settings: Settings, batch_size: int = 80, worker
 QUOTE_SOURCE_KEY = "moneygrab:quote_source"
 
 
+def _daily_cache_key(symbol: str, adjust: str) -> str:
+    """与 MarketService.kline 的 day 缓存键完全一致（start/end 为空）。"""
+    return f"kline_day:{symbol}:day:{adjust}::"
+
+
+def _cached_daily_bars(
+    cache: CacheStore,
+    symbol: str,
+    adjust: str,
+    ttl_seconds: int,
+    refresh: bool,
+    fetch_remote,
+) -> list[dict]:
+    cache_key = _daily_cache_key(symbol, adjust)
+    if not refresh:
+        cached = cache.read_frame(cache_key, allow_stale=True)
+        if cached:
+            frame, _meta = cached
+            bars = frame.to_dict("records")
+            if bars and not _daily_bars_too_old(bars):
+                return bars
+    frame = fetch_remote(symbol)
+    if frame is None or frame.empty:
+        return []
+    cache.write_frame(
+        cache_key=cache_key,
+        data_type="kline_day",
+        frame=frame,
+        source="tencent",
+        symbol=symbol,
+        period="day",
+        ttl_seconds=ttl_seconds,
+        start_at=str(frame.iloc[0].get("time", "")),
+        end_at=str(frame.iloc[-1].get("time", "")),
+    )
+    return frame.to_dict("records")
+
+
+def _daily_bars_too_old(bars: list[dict], max_lag_days: int = 14) -> bool:
+    last = _bar_date(bars[-1])
+    if last is None:
+        return True
+    return (date.today() - last).days > max_lag_days
+
+
 def _fetch_quotes_from(source: str, settings: Settings) -> list[dict]:
     if source == "tencent":
         return _fetch_a_quotes_via_tencent(settings)
@@ -240,10 +285,20 @@ class MoneyGrabScanner:
             self._thread.start()
             return asdict(self._state)
 
-    def _default_kline_fetcher(self, service, refresh: bool):
+    def _default_kline_fetcher(self, cache: CacheStore, refresh: bool):
+        """扫描专用：本地缓存 → 腾讯（15s 超时）。不走 efinance/akshare 降级链，
+        东财不可达时它们的内部长超时会把工作线程全部拖死。缓存键与 MarketService 一致，互相复用。"""
+        from backend.app.providers.tencent_adapter import TencentAdapter
+
+        adjust = self.settings.default_adjust
+        adapter = TencentAdapter()
+
+        def fetch_remote(symbol: str):
+            start = (now_utc().date() - timedelta(days=420)).isoformat()
+            return adapter.kline(symbol, "day", start, None, adjust)
+
         def fetch(symbol: str) -> list[dict]:
-            payload, _ = service.kline(symbol, period="day", indicators=[], limit=140, refresh=refresh)
-            return payload["bars"]
+            return _cached_daily_bars(cache, symbol, adjust, self.settings.day_ttl_seconds, refresh, fetch_remote)
 
         return fetch
 
@@ -252,9 +307,7 @@ class MoneyGrabScanner:
             cache = CacheStore(self.settings)
             fetch_bars = self._kline_fetcher
             if fetch_bars is None:
-                from backend.app.services import MarketService
-
-                fetch_bars = self._default_kline_fetcher(MarketService(self.settings, cache), refresh)
+                fetch_bars = self._default_kline_fetcher(cache, refresh)
 
             quotes = self._quote_fetcher()
             candidates = [

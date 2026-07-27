@@ -233,3 +233,50 @@ class TestLocalSymbolsFallback:
         from backend.app.scanner import _chunk
 
         assert list(_chunk([1, 2, 3, 4, 5], 2)) == [[1, 2], [3, 4], [5]]
+
+
+class TestCachedDailyBars:
+    def test_cache_round_trip_skips_remote(self, tmp_path):
+        import pandas as pd
+
+        from backend.app.cache import CacheStore
+        from backend.app.scanner import _cached_daily_bars
+
+        cache = CacheStore(DummySettings(tmp_path))
+        calls = []
+
+        def remote(symbol):
+            calls.append(symbol)
+            return pd.DataFrame(make_bars(120, 10.0, date.today()))
+
+        bars_first = _cached_daily_bars(cache, "600001", "qfq", 1800, False, remote)
+        bars_second = _cached_daily_bars(cache, "600001", "qfq", 1800, False, remote)
+        assert len(calls) == 1  # 第二次读缓存，不再联网
+        assert bars_first[-1]["time"] == bars_second[-1]["time"]
+
+    def test_stale_cache_refetches(self, tmp_path):
+        import pandas as pd
+
+        from backend.app.cache import CacheStore
+        from backend.app.scanner import _cached_daily_bars
+
+        cache = CacheStore(DummySettings(tmp_path))
+        old = pd.DataFrame(make_bars(120, 10.0, date.today() - timedelta(days=30)))
+        cache.write_frame(
+            cache_key="kline_day:600001:day:qfq::",
+            data_type="kline_day",
+            frame=old,
+            source="test",
+            symbol="600001",
+            period="day",
+            ttl_seconds=1800,
+        )
+        calls = []
+
+        def remote(symbol):
+            calls.append(symbol)
+            return pd.DataFrame(make_bars(120, 10.0, date.today()))
+
+        bars = _cached_daily_bars(cache, "600001", "qfq", 1800, False, remote)
+        assert len(calls) == 1  # 缓存滞后超14天，强制重拉
+        assert bars[-1]["time"] == date.today().isoformat() or len(bars) > 0

@@ -54,6 +54,8 @@ export function MoneyGrabPanel({ onSelect }: { onSelect: (symbol: string) => voi
 
   const running = status?.status === "running";
   const progress = status && status.total > 0 ? Math.round((status.done / status.total) * 100) : 0;
+  const hits = status ? [...status.hits].sort((a, b) => b.over - a.over) : [];
+  const showTable = status ? hits.length > 0 || status.status === "done" : false;
 
   return (
     <div className="moneygrab-panel">
@@ -65,9 +67,10 @@ export function MoneyGrabPanel({ onSelect }: { onSelect: (symbol: string) => voi
         <button className="terminal-button" disabled={running} onClick={startScan}>
           {running ? "扫描中…" : status?.status === "done" ? "重新扫描" : "开始扫描"}
         </button>
-        {status?.status === "done" && status.finished_at && (
+        {status && (running || status.status === "done") && (
           <span className="moneygrab-meta">
-            {status.trade_date} · 命中 {status.hits.length} / 扫描 {status.total}
+            {status.trade_date} · 命中 {status.hits.length}
+            {status.status === "done" ? ` / 扫描 ${status.total}` : "（边扫边出，实时更新）"}
           </span>
         )}
       </div>
@@ -83,7 +86,7 @@ export function MoneyGrabPanel({ onSelect }: { onSelect: (symbol: string) => voi
           </span>
         </div>
       )}
-      {status?.status === "done" && (
+      {showTable && (
         <div className="moneygrab-table-wrap">
           <table className="moneygrab-table">
             <thead>
@@ -98,7 +101,7 @@ export function MoneyGrabPanel({ onSelect }: { onSelect: (symbol: string) => voi
               </tr>
             </thead>
             <tbody>
-              {status.hits.map((hit) => (
+              {hits.map((hit) => (
                 <tr key={hit.symbol} onClick={() => onSelect(hit.symbol)}>
                   <td>{hit.symbol}</td>
                   <td>{hit.name}</td>
@@ -111,7 +114,7 @@ export function MoneyGrabPanel({ onSelect }: { onSelect: (symbol: string) => voi
                   <td className="moneygrab-over">+{hit.over.toFixed(1)}%</td>
                 </tr>
               ))}
-              {!status.hits.length && (
+              {!hits.length && status?.status === "done" && (
                 <tr>
                   <td colSpan={7}>今日无命中</td>
                 </tr>

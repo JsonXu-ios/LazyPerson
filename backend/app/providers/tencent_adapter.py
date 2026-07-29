@@ -52,7 +52,7 @@ class TencentAdapter:
 
     def kline(self, symbol: str, period: str, start: str | None, end: str | None, adjust: str) -> pd.DataFrame:
         clean = self._market_symbol(symbol)
-        if period != "day":
+        if period not in ("day", "week", "month"):
             period_key = _minute_period_key(period)
             response = self._get(
                 self.minute_kline_url,
@@ -69,12 +69,12 @@ class TencentAdapter:
         adjust_key = {"none": "", "qfq": "qfq", "hfq": "hfq"}.get(adjust, "qfq")
         response = self._get(
             self.fq_kline_url,
-            params={"param": f"{clean},day,{start_date},{end_date},{count},{adjust_key}"},
+            params={"param": f"{clean},{period},{start_date},{end_date},{count},{adjust_key}"},
         )
         payload = response.json()
         if payload.get("code") != 0:
             raise ProviderError(str(payload.get("msg") or payload), self.source)
-        return _parse_kline_payload(payload, clean, adjust_key)
+        return _parse_kline_payload(payload, clean, adjust_key, period)
 
 
 def _format_trade_time(value: str) -> str:
@@ -167,10 +167,10 @@ def _format_minute_time(value: str) -> str:
         return value
 
 
-def _parse_kline_payload(payload: dict, market_symbol: str, adjust_key: str) -> pd.DataFrame:
+def _parse_kline_payload(payload: dict, market_symbol: str, adjust_key: str, period: str = "day") -> pd.DataFrame:
     data = payload.get("data", {}).get(market_symbol, {})
-    key = f"{adjust_key}day" if adjust_key else "day"
-    rows = data.get(key) or data.get("qfqday") or data.get("day") or []
+    key = f"{adjust_key}{period}" if adjust_key else period
+    rows = data.get(key) or data.get(f"qfq{period}") or data.get(period) or []
     normalized: list[dict] = []
     previous_close: float | None = None
     for row in rows:

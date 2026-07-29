@@ -64,6 +64,8 @@ class YahooFinanceAdapter:
     def kline(self, symbol: str, period: str, start: str | None, end: str | None, _adjust: str) -> pd.DataFrame:
         interval = {
             "day": "1d",
+            "week": "1wk",
+            "month": "1mo",
             "1m": "1m",
             "5m": "5m",
             "15m": "15m",
@@ -76,6 +78,10 @@ class YahooFinanceAdapter:
         params: dict[str, Any] = {"interval": interval}
         if period == "day":
             params.update(_period_params(start, end, default_days=900))
+        elif period == "week":
+            params.update(_period_params(start, end, default_days=365 * 4))
+        elif period == "month":
+            params.update(_period_params(start, end, default_days=365 * 12))
         else:
             params["range"] = "5d" if period == "1m" else "60d"
 
@@ -116,7 +122,7 @@ def _format_time(timestamp: int | float | None, meta: dict, period: str) -> str:
     if timestamp is None:
         return ""
     dt = datetime.fromtimestamp(timestamp, tz=_exchange_timezone(meta))
-    if period == "day":
+    if period in ("day", "week", "month"):
         return dt.date().isoformat()
     return dt.strftime("%Y-%m-%d %H:%M:%S")
 

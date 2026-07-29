@@ -367,33 +367,35 @@ class MarketService:
         adjust = adjust or self.settings.default_adjust
         if not is_a_share_symbol(clean):
             adjust = "none"
-        data_type = "kline_day" if period == "day" else "kline_minute"
-        ttl = self.settings.day_ttl_seconds if period == "day" else self.settings.minute_ttl_seconds
+        bar_periods = ("day", "week", "month")
+        data_type = f"kline_{period}" if period in bar_periods else "kline_minute"
+        ttl = self.settings.day_ttl_seconds if period in bar_periods else self.settings.minute_ttl_seconds
         cache_key = f"{data_type}:{clean}:{period}:{adjust}:{start or ''}:{end or ''}"
         request_start = start
         request_end = end
-        if period == "day" and not start and not end:
-            days_back = max(365, (limit or 140) * 3)
+        if period in bar_periods and not start and not end:
+            days_per_bar = {"day": 3, "week": 10, "month": 40}[period]
+            days_back = max(365, (limit or 140) * days_per_bar)
             request_start = (now_utc().date() - timedelta(days=days_back)).isoformat()
         fetchers: list[tuple[str, callable]] = []
         if not is_a_share_symbol(clean):
             fetchers = [("yahoo", lambda: YahooFinanceAdapter().kline(clean, period, request_start, request_end, adjust))]
-        elif period == "day":
+        elif period in bar_periods:
             fetchers = (
                 [
                     ("tencent", lambda: TencentAdapter().kline(clean, period, request_start, request_end, adjust)),
                     ("efinance", lambda: EFinanceAdapter().kline(clean, period, request_start, request_end, adjust)),
                     ("akshare", lambda: AKShareAdapter().kline(clean, period, request_start, request_end, adjust)),
-                    ("baostock", lambda: BaoStockAdapter().kline(clean, request_start, request_end, adjust)),
                 ]
                 if not start and not end
                 else [
                     ("akshare", lambda: AKShareAdapter().kline(clean, period, request_start, request_end, adjust)),
-                    ("baostock", lambda: BaoStockAdapter().kline(clean, request_start, request_end, adjust)),
                     ("efinance", lambda: EFinanceAdapter().kline(clean, period, request_start, request_end, adjust)),
                     ("tencent", lambda: TencentAdapter().kline(clean, period, request_start, request_end, adjust)),
                 ]
             )
+            if period == "day":  # baostock 仅支持日线
+                fetchers.append(("baostock", lambda: BaoStockAdapter().kline(clean, request_start, request_end, adjust)))
         else:
             fetchers = [
                 ("tencent", lambda: TencentAdapter().kline(clean, period, start, end, adjust)),
@@ -409,9 +411,9 @@ class MarketService:
             period=period,
             refresh=refresh,
             cache_validator=self._validate_recent_daily_cache if period == "day" and not end else None,
-            prefer_stale_cache=period == "day",
+            prefer_stale_cache=period in bar_periods,
         )
-        if period == "day" and is_a_share_symbol(clean):
+        if period in bar_periods and is_a_share_symbol(clean):
             frame = self._filter_daily_trading_rows(frame)
         full_indicator_payload = compute_indicators(frame, indicators or []) if indicators else {}
         if limit and limit > 0:

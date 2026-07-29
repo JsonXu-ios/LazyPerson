@@ -43,10 +43,10 @@ class AKShareAdapter:
             "30m": "30",
             "60m": "60",
         }
-        if period == "day":
+        if period in ("day", "week", "month"):
             frame = self.ak.stock_zh_a_hist(
                 symbol=normalize_symbol(symbol),
-                period="daily",
+                period={"day": "daily", "week": "weekly", "month": "monthly"}[period],
                 start_date=(start or "19900101").replace("-", ""),
                 end_date=(end or "20500101").replace("-", ""),
                 adjust=adjust if adjust != "none" else "",

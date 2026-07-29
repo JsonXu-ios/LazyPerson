@@ -12,7 +12,8 @@ import { computeAutoDrawing, loadLineColors, saveLineColors, type AutoLineColorM
 import { sliceDailyPayloadByCalendarDays } from "./utils/calendarWindow";
 import { normalizeError, qualityText } from "./utils/format";
 
-const periods = ["day", "1m", "5m", "15m", "30m", "60m"];
+const periods = ["day", "week", "month"];
+const periodLabels: Record<string, string> = { day: "日 K", week: "周 K", month: "月 K" };
 type SortKey = "custom" | "pct" | "amount" | "price";
 type PanelKey = "a_share" | "us" | "gold" | "crypto";
 type WatchSignal = {
@@ -392,7 +393,7 @@ export function App() {
               <div className="period-switch">
                 {periods.map((item) => (
                   <button className={period === item ? "active" : ""} key={item} onClick={() => setPeriod(item)}>
-                    {item === "day" ? "日 K" : item}
+                    {periodLabels[item] || item}
                   </button>
                 ))}
               </div>

@@ -37,6 +37,8 @@ class EFinanceAdapter:
             "30m": 30,
             "60m": 60,
             "day": 101,
+            "week": 102,
+            "month": 103,
         }
         fqt_map = {"none": 0, "qfq": 1, "hfq": 2}
         frame = self.ef.stock.get_quote_history(

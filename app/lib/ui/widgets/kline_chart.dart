@@ -18,6 +18,7 @@ class KlineChart extends StatefulWidget {
   final Map<String, String> lineColors;
   final int? majorLineStep;
   final double majorLineMinPercent;
+  final int majorLineAnchor;
   final bool showLevelPrices;
   final ValueChanged<int?>? onHoverIndexChanged;
   final int? hoverIndex;
@@ -29,6 +30,7 @@ class KlineChart extends StatefulWidget {
     required this.lineColors,
     this.majorLineStep,
     this.majorLineMinPercent = 0,
+    this.majorLineAnchor = 0,
     this.showLevelPrices = false,
     this.onHoverIndexChanged,
     this.hoverIndex,
@@ -87,6 +89,7 @@ class _KlineChartState extends State<KlineChart> {
                         lineColors: widget.lineColors,
                         majorLineStep: widget.majorLineStep,
                         majorLineMinPercent: widget.majorLineMinPercent,
+                        majorLineAnchor: widget.majorLineAnchor,
                         showLevelPrices: widget.showLevelPrices,
                         hoverIndex: widget.hoverIndex,
                       ),
@@ -140,6 +143,7 @@ class _KlinePainter extends CustomPainter {
   final Map<String, String> lineColors;
   final int? majorLineStep;
   final double majorLineMinPercent;
+  final int majorLineAnchor;
   final bool showLevelPrices;
   final int? hoverIndex;
 
@@ -154,6 +158,7 @@ class _KlinePainter extends CustomPainter {
     required this.lineColors,
     required this.majorLineStep,
     required this.majorLineMinPercent,
+    required this.majorLineAnchor,
     required this.showLevelPrices,
     required this.hoverIndex,
   }) {
@@ -300,7 +305,8 @@ class _KlinePainter extends CustomPainter {
       if (y < 0 || y > plotHeight) continue;
       final highlight = isHighlightLevel(level,
           majorLineStep: majorLineStep,
-          majorLineMinPercent: majorLineMinPercent);
+          majorLineMinPercent: majorLineMinPercent,
+          majorLineAnchor: majorLineAnchor);
       final colorHex = levelLineColor(
         level,
         lineColors[level.label] ??
@@ -308,6 +314,7 @@ class _KlinePainter extends CustomPainter {
             defaultYellow,
         majorLineStep: majorLineStep,
         majorLineMinPercent: majorLineMinPercent,
+        majorLineAnchor: majorLineAnchor,
       );
       canvas.drawLine(
         Offset(0, y),
@@ -316,9 +323,8 @@ class _KlinePainter extends CustomPainter {
           ..color = colorFromHex(colorHex)
           ..strokeWidth = highlight ? 3 : 1,
       );
-      // 只有 majorLineStep 整数倍（A 股 0/20/40/…%）显示数值标签，其余只画线
-      final labelStep = majorLineStep ?? 20;
-      if (level.percent % labelStep != 0) continue;
+      // 只有 0% 与高亮线（主线/特殊位）显示数值标签，其余细线只画线
+      if (!highlight && level.percent != 0) continue;
       labelRows.add(LevelLabelRow(
         key: 'auto-${level.label}',
         label: showLevelPrices
@@ -327,12 +333,14 @@ class _KlinePainter extends CustomPainter {
         color: colorHex,
         textColor: levelLabelTextColor(level,
             majorLineStep: majorLineStep,
-            majorLineMinPercent: majorLineMinPercent),
+            majorLineMinPercent: majorLineMinPercent,
+            majorLineAnchor: majorLineAnchor),
         top: y,
         highlight: highlight,
         priority: levelLabelPriority(level,
             majorLineStep: majorLineStep,
-            majorLineMinPercent: majorLineMinPercent),
+            majorLineMinPercent: majorLineMinPercent,
+            majorLineAnchor: majorLineAnchor),
       ));
     }
 

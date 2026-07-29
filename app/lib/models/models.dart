@@ -87,6 +87,9 @@ class Quote {
   final double? amount;
   final double? turnover;
 
+  /// 总市值（亿元），八档局市值过滤用；行情源无该字段时为 null
+  final double? marketCap;
+
   const Quote({
     required this.symbol,
     this.market = '',
@@ -102,6 +105,7 @@ class Quote {
     this.volume,
     this.amount,
     this.turnover,
+    this.marketCap,
   });
 
   Map<String, Object?> toJson() => {
@@ -119,6 +123,7 @@ class Quote {
         'volume': volume,
         'amount': amount,
         'turnover': turnover,
+        'market_cap': marketCap,
       };
 
   factory Quote.fromJson(Map<String, Object?> json) => Quote(
@@ -136,6 +141,7 @@ class Quote {
         volume: _num(json['volume']),
         amount: _num(json['amount']),
         turnover: _num(json['turnover']),
+        marketCap: _num(json['market_cap']),
       );
 }
 

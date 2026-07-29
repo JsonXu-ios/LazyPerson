@@ -153,6 +153,21 @@ class LocalStore {
     return rows.map(SymbolItem.fromRow).toList();
   }
 
+  /// 本地清单中的沪深主板代码（60/00 开头），八档局腾讯行情兜底用
+  Future<List<String>> mainBoardASymbols() async {
+    final rows = await db.query(
+      'symbols',
+      columns: ['symbol'],
+      where: "symbol LIKE '60%' OR symbol LIKE '00%'",
+      orderBy: 'symbol',
+    );
+    final digits = RegExp(r'^\d{6}$');
+    return [
+      for (final row in rows)
+        if (digits.hasMatch(row['symbol'] as String)) row['symbol'] as String,
+    ];
+  }
+
   // ---------- watchlist ----------
 
   Future<List<WatchlistItem>> listWatchlist() async {

@@ -8,47 +8,73 @@ AutoLineLevel _level(int percent) => AutoLineLevel(
 
 void main() {
   group('isMajorLevel / isHighlightLevel（A 股面板参数）', () {
-    // A 股：majorLineStep 20, majorLineMinPercent 100
-    test('低于 minPercent 的整数倍不算主线', () {
-      expect(
-          isMajorLevel(_level(40),
-              majorLineStep: 20, majorLineMinPercent: 100),
-          isFalse);
-      expect(
-          isMajorLevel(_level(100),
-              majorLineStep: 20, majorLineMinPercent: 100),
-          isTrue);
-      expect(
-          isMajorLevel(_level(120),
-              majorLineStep: 20, majorLineMinPercent: 100),
-          isTrue);
-      expect(
-          isMajorLevel(_level(130),
-              majorLineStep: 20, majorLineMinPercent: 100),
+    // A 股：majorLineStep 30, majorLineAnchor 20 → 主线 20/50/80/110/…/230
+    test('20 起每 30 一档为主线', () {
+      for (final percent in [20, 50, 80, 110, 140, 170, 200, 230]) {
+        expect(
+            isMajorLevel(_level(percent),
+                majorLineStep: 30, majorLineAnchor: 20),
+            isTrue,
+            reason: '+$percent%');
+      }
+      for (final percent in [10, 30, 40, 60, 70, 90, 100, 120, 130]) {
+        expect(
+            isMajorLevel(_level(percent),
+                majorLineStep: 30, majorLineAnchor: 20),
+            isFalse,
+            reason: '+$percent%');
+      }
+      expect(isMajorLevel(_level(0), majorLineStep: 30, majorLineAnchor: 20),
           isFalse);
     });
 
-    test('+20/+50/+80 固定高亮', () {
-      for (final percent in [20, 50, 80]) {
+    test('anchor 以下不算主线', () {
+      expect(isMajorLevel(_level(10), majorLineStep: 30, majorLineAnchor: 20),
+          isFalse);
+      expect(
+          isMajorLevel(_level(110),
+              majorLineStep: 30, majorLineMinPercent: 120, majorLineAnchor: 20),
+          isFalse);
+    });
+
+    test('+20/+50/+80 与 0% 固定高亮', () {
+      for (final percent in [0, 20, 50, 80]) {
         expect(
             isHighlightLevel(_level(percent),
-                majorLineStep: 20, majorLineMinPercent: 100),
+                majorLineStep: 30, majorLineAnchor: 20),
             isTrue,
             reason: '+$percent%');
       }
       expect(
           isHighlightLevel(_level(30),
-              majorLineStep: 20, majorLineMinPercent: 100),
+              majorLineStep: 30, majorLineAnchor: 20),
           isFalse);
     });
   });
 
   group('线条颜色', () {
-    test('特殊位固定色，其余用配置色', () {
-      expect(levelLineColor(_level(20), '#f6d36b'), '#f24d4d');
-      expect(levelLineColor(_level(50), '#f6d36b'), '#1f6feb');
-      expect(levelLineColor(_level(80), '#f6d36b'), '#ffffff');
-      expect(levelLineColor(_level(30), '#abcdef'), '#abcdef');
+    test('+20红/+50蓝/+80白固定色优先于主线调色板', () {
+      expect(
+          levelLineColor(_level(20), '#f6d36b',
+              majorLineStep: 30, majorLineAnchor: 20),
+          '#f24d4d');
+      expect(
+          levelLineColor(_level(50), '#f6d36b',
+              majorLineStep: 30, majorLineAnchor: 20),
+          '#1f6feb');
+      expect(
+          levelLineColor(_level(80), '#f6d36b',
+              majorLineStep: 30, majorLineAnchor: 20),
+          '#ffffff');
+      expect(
+          levelLineColor(_level(30), '#abcdef',
+              majorLineStep: 30, majorLineAnchor: 20),
+          '#abcdef');
+      // 110 是主线（非特殊位）→ 调色板色
+      expect(
+          levelLineColor(_level(110), '#f6d36b',
+              majorLineStep: 30, majorLineAnchor: 20),
+          majorLevelColor(110));
     });
 
     test('主线调色板轮转（与网页版 majorLevelColor 公式一致）', () {

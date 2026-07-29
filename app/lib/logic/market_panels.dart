@@ -14,6 +14,7 @@ class MarketPanelConfig {
   final int lineStep;
   final int? majorLineStep;
   final double? majorLineMinPercent;
+  final int majorLineAnchor;
   final bool showLevelPrices;
   final bool extendLevelsBeyond100;
 
@@ -26,6 +27,7 @@ class MarketPanelConfig {
     required this.lineStep,
     this.majorLineStep,
     this.majorLineMinPercent,
+    this.majorLineAnchor = 0,
     this.showLevelPrices = false,
     this.extendLevelsBeyond100 = false,
   });
@@ -42,8 +44,9 @@ const marketPanels = <MarketPanelConfig>[
     windowDays: 90,
     windowMode: WindowMode.calendar,
     lineStep: 10,
-    majorLineStep: 20,
-    majorLineMinPercent: 100,
+    // 粗线 = 20 起每 30 一档（20/50/80/110/…/230），对齐八档局主线
+    majorLineStep: 30,
+    majorLineAnchor: 20,
     showLevelPrices: true,
     extendLevelsBeyond100: true,
   ),

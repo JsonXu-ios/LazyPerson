@@ -53,7 +53,7 @@ class EastmoneyProvider {
         'invt': '2',
         'fid': 'f12',
         'fs': _shSzMarkets,
-        'fields': 'f2,f3,f4,f5,f6,f8,f12,f13,f14,f15,f16,f17,f18,f124',
+        'fields': 'f2,f3,f4,f5,f6,f8,f12,f13,f14,f15,f16,f17,f18,f20,f124',
       },
     );
     final data = payload['data'];
@@ -94,6 +94,7 @@ class EastmoneyProvider {
         volume: safeDouble(row['f5']),
         amount: safeDouble(row['f6']),
         turnover: safeDouble(row['f8']),
+        marketCap: marketCapYi(safeDouble(row['f20'])),
       ));
     }
     return MarketSnapshotPage(quotes: quotes, total: total);
@@ -143,6 +144,8 @@ class EastmoneyProvider {
       '30m': '30',
       '60m': '60',
       'day': '101',
+      'week': '102',
+      'month': '103',
     };
     const fqtMap = {'none': '0', 'qfq': '1', 'hfq': '2'};
     final klt = kltMap[period];

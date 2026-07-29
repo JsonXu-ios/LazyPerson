@@ -32,12 +32,15 @@ class IndicatorPanel extends StatelessWidget {
           histogram: macd['hist'] ?? const [],
         ),
         const SizedBox(height: 6),
+        // 东财龙系长线画法：对零轴红绿柱（正红负绿）+ LON 白线 + LONMA 均线，
+        // 对齐 IndicatorTabs.tsx 的 LON 配置
         _IndicatorBlock(
           title: 'LON',
           count: count,
           hoverIndex: hoverIndex,
           lines: [
-            _LineSeries('LONMA', lon['lonma'] ?? const [], AppColors.accent),
+            _LineSeries('LON', lon['lon'] ?? const [], _lonLineColor),
+            _LineSeries('LONMA', lon['lonma'] ?? const [], _lonmaLineColor),
           ],
           histogram: lon['lon'] ?? const [],
         ),
@@ -45,6 +48,10 @@ class IndicatorPanel extends StatelessWidget {
     );
   }
 }
+
+/// LON 线 #e8eef7 / LONMA 线 #f2a93b（IndicatorTabs.tsx 的 color 数组）
+const _lonLineColor = Color(0xFFE8EEF7);
+const _lonmaLineColor = Color(0xFFF2A93B);
 
 class _LineSeries {
   final String name;

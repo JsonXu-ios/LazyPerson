@@ -233,8 +233,11 @@ class HomeController extends ChangeNotifier {
 
   List<String> get _quoteTargets {
     final symbols = panelWatchlist.map((item) => item.symbol).toList();
-    if (symbols.isNotEmpty) return symbols;
-    return selected.isNotEmpty ? [selected] : [];
+    // 非自选股（如八档局点击进来的）也拉行情，保证名称/现价可显示
+    if (selected.isNotEmpty && !symbols.contains(selected)) {
+      symbols.add(selected);
+    }
+    return symbols;
   }
 
   Future<void> loadQuotes({required bool refresh}) async {
@@ -275,7 +278,7 @@ class HomeController extends ChangeNotifier {
         symbol,
         period,
         refresh: refresh,
-        limit: period == 'day' ? activeConfig.dayLimit : 1000,
+        limit: _periodLimit(period),
       );
       if (requestId != _detailRequestId) return;
       kline = result.payload;
@@ -285,6 +288,19 @@ class HomeController extends ChangeNotifier {
       if (requestId != _detailRequestId) return;
       _setNotice(normalizeError(exc));
     }
+  }
+
+  /// 各周期的展示根数：日 K 按面板窗口，周/月 K 固定窗口画近 2 年/5 年
+  int _periodLimit(String period) {
+    switch (period) {
+      case 'day':
+        return activeConfig.dayLimit;
+      case 'week':
+        return 104;
+      case 'month':
+        return 60;
+    }
+    return 1000;
   }
 
   Future<void> loadSignals() async {

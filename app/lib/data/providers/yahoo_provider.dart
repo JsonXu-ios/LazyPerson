@@ -60,20 +60,25 @@ class YahooProvider {
   }) async {
     const intervalMap = {
       'day': '1d',
+      'week': '1wk',
+      'month': '1mo',
       '1m': '1m',
       '5m': '5m',
       '15m': '15m',
       '30m': '30m',
       '60m': '60m',
     };
+    // 日/周/月按自然日范围取数：日 900 天、周 2 年+、月 5 年+
+    const rangeDays = {'day': 900, 'week': 800, 'month': 1900};
     final interval = intervalMap[period];
     if (interval == null) {
       throw ProviderError('Unsupported period $period', source);
     }
 
     final params = <String, String>{'interval': interval};
-    if (period == 'day') {
-      params.addAll(_periodParams(start, end, defaultDays: 900));
+    final days = rangeDays[period];
+    if (days != null) {
+      params.addAll(_periodParams(start, end, defaultDays: days));
     } else {
       params['range'] = period == '1m' ? '5d' : '60d';
     }
@@ -144,7 +149,7 @@ String _formatTime(num? timestamp, Map<String, dynamic> meta, String period) {
       .add(Duration(seconds: _gmtOffsetSeconds(meta)));
   final date =
       '${local.year.toString().padLeft(4, '0')}-${local.month.toString().padLeft(2, '0')}-${local.day.toString().padLeft(2, '0')}';
-  if (period == 'day') return date;
+  if (period == 'day' || period == 'week' || period == 'month') return date;
   final time =
       '${local.hour.toString().padLeft(2, '0')}:${local.minute.toString().padLeft(2, '0')}:${local.second.toString().padLeft(2, '0')}';
   return '$date $time';

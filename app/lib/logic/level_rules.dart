@@ -6,20 +6,26 @@ import 'dart:math' as math;
 
 import 'auto_drawing.dart';
 
+/// KlineChart.tsx::isMajorLevel：主线 = anchor 起每 step 一档
+/// （A 股 anchor=20 step=30 → 20/50/80/110/…/230）
 bool isMajorLevel(AutoLineLevel level,
-    {int? majorLineStep, double majorLineMinPercent = 0}) {
-  return majorLineStep != null &&
-      majorLineStep != 0 &&
-      level.percent >= majorLineMinPercent &&
-      level.percent > 0 &&
-      level.percent % majorLineStep == 0;
+    {int? majorLineStep, double majorLineMinPercent = 0, int majorLineAnchor = 0}) {
+  if (majorLineStep == null || majorLineStep == 0 || level.percent <= 0) {
+    return false;
+  }
+  if (level.percent < math.max(majorLineMinPercent, majorLineAnchor.toDouble())) {
+    return false;
+  }
+  return (level.percent - majorLineAnchor) % majorLineStep == 0;
 }
 
 bool isHighlightLevel(AutoLineLevel level,
-    {int? majorLineStep, double majorLineMinPercent = 0}) {
+    {int? majorLineStep, double majorLineMinPercent = 0, int majorLineAnchor = 0}) {
   return isMajorLevel(level,
           majorLineStep: majorLineStep,
-          majorLineMinPercent: majorLineMinPercent) ||
+          majorLineMinPercent: majorLineMinPercent,
+          majorLineAnchor: majorLineAnchor) ||
+      level.percent == 0 ||
       level.label == '+20%' ||
       level.label == '+50%' ||
       level.label == '+80%';
@@ -44,34 +50,42 @@ String majorLevelTextColor(int percent) {
   return color == '#38bdf8' || color == '#f2a93b' ? '#061016' : '#ffffff';
 }
 
-/// 线条颜色：主线用调色板，特殊位固定色，其余用用户配置
+/// 线条颜色：+20%红/+50%蓝/+80%白固定色优先，其余主线用调色板，
+/// 细线用用户配置（顺序对齐 KlineChart.tsx::lineColor）
 String levelLineColor(AutoLineLevel level, String fallback,
-    {int? majorLineStep, double majorLineMinPercent = 0}) {
-  if (isMajorLevel(level,
-      majorLineStep: majorLineStep, majorLineMinPercent: majorLineMinPercent)) {
-    return majorLevelColor(level.percent);
-  }
+    {int? majorLineStep, double majorLineMinPercent = 0, int majorLineAnchor = 0}) {
   if (level.label == '+20%') return '#f24d4d';
   if (level.label == '+50%') return '#1f6feb';
   if (level.label == '+80%') return '#ffffff';
+  if (isMajorLevel(level,
+      majorLineStep: majorLineStep,
+      majorLineMinPercent: majorLineMinPercent,
+      majorLineAnchor: majorLineAnchor)) {
+    return majorLevelColor(level.percent);
+  }
   return fallback;
 }
 
 String levelLabelTextColor(AutoLineLevel level,
-    {int? majorLineStep, double majorLineMinPercent = 0}) {
+    {int? majorLineStep, double majorLineMinPercent = 0, int majorLineAnchor = 0}) {
+  if (level.label == '+20%' || level.label == '+50%') return '#ffffff';
+  if (level.label == '+80%') return '#07111f';
   if (isMajorLevel(level,
-      majorLineStep: majorLineStep, majorLineMinPercent: majorLineMinPercent)) {
+      majorLineStep: majorLineStep,
+      majorLineMinPercent: majorLineMinPercent,
+      majorLineAnchor: majorLineAnchor)) {
     return majorLevelTextColor(level.percent);
   }
-  if (level.label == '+20%' || level.label == '+50%') return '#ffffff';
   return '#07111f';
 }
 
 double levelLabelPriority(AutoLineLevel level,
-    {int? majorLineStep, double majorLineMinPercent = 0}) {
+    {int? majorLineStep, double majorLineMinPercent = 0, int majorLineAnchor = 0}) {
   if (level.percent == 0) return 90;
   if (isMajorLevel(level,
-      majorLineStep: majorLineStep, majorLineMinPercent: majorLineMinPercent)) {
+      majorLineStep: majorLineStep,
+      majorLineMinPercent: majorLineMinPercent,
+      majorLineAnchor: majorLineAnchor)) {
     return 80 + math.min(level.percent, 200) / 100;
   }
   if (level.percent % 50 == 0) return 70;

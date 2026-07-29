@@ -68,7 +68,7 @@ class TencentProvider {
     String adjust = 'qfq',
   }) async {
     final clean = _marketSymbol(symbol);
-    if (period != 'day') {
+    if (period != 'day' && period != 'week' && period != 'month') {
       final periodKey = _minutePeriodKey(period);
       final payload = await _getJson(
         'https://ifzq.gtimg.cn/appstock/app/kline/mkline',
@@ -82,9 +82,9 @@ class TencentProvider {
         const {'none': '', 'qfq': 'qfq', 'hfq': 'hfq'}[adjust] ?? 'qfq';
     final payload = await _getJson(
       'https://ifzq.gtimg.cn/appstock/app/fqkline/get',
-      {'param': '$clean,day,${start ?? ''},${end ?? ''},$count,$adjustKey'},
+      {'param': '$clean,$period,${start ?? ''},${end ?? ''},$count,$adjustKey'},
     );
-    return _parseKlinePayload(payload, clean, adjustKey);
+    return _parseKlinePayload(payload, clean, adjustKey, period);
   }
 
   /// 腾讯接口 content-type 为 text/html，需手动 JSON 解析
@@ -158,6 +158,8 @@ List<Quote> _parseRealtimeText(String text) {
       volume: safeDouble(fields[36]),
       amount: _slashValue(fields[35], 2) ?? safeDouble(fields[37]),
       turnover: safeDouble(fields[38]),
+      // 腾讯 f[45] = 总市值（亿元），对齐 tencent_adapter.py
+      marketCap: fields.length > 45 ? safeDouble(fields[45]) : null,
     ));
   }
   return quotes;
@@ -231,13 +233,14 @@ List<KlineBar> _normalizeRows(
   return byTime.values.toList()..sort((a, b) => a.time.compareTo(b.time));
 }
 
-List<KlineBar> _parseKlinePayload(
-    Map<String, dynamic> payload, String marketSymbol, String adjustKey) {
+List<KlineBar> _parseKlinePayload(Map<String, dynamic> payload,
+    String marketSymbol, String adjustKey, String period) {
   final data =
       (payload['data'] as Map<String, dynamic>?)?[marketSymbol] as Map<String, dynamic>? ??
           const {};
-  final key = adjustKey.isNotEmpty ? '${adjustKey}day' : 'day';
-  final rows = (data[key] ?? data['qfqday'] ?? data['day'] ?? const []) as List;
+  final key = adjustKey.isNotEmpty ? '$adjustKey$period' : period;
+  final rows =
+      (data[key] ?? data['qfq$period'] ?? data[period] ?? const []) as List;
   return _normalizeRows(rows, null, (value) => value);
 }
 

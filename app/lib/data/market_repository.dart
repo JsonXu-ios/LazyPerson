@@ -303,7 +303,8 @@ class MarketRepository {
     final isAShare = isAShareSymbol(symbol);
     final adjust = isAShare ? 'qfq' : 'none';
     final cacheKey = 'kline:$symbol:$period:$adjust';
-    final ttl = period == 'day' ? _globalDayTtl : _minuteTtl;
+    final isDaily = period == 'day' || period == 'week' || period == 'month';
+    final ttl = isDaily ? _globalDayTtl : _minuteTtl;
 
     if (!refresh) {
       final cached = await store.readFrame(cacheKey, allowStale: false);
@@ -357,7 +358,7 @@ class MarketRepository {
 
     await store.writeFrame(
       cacheKey: cacheKey,
-      dataType: period == 'day' ? 'kline_day' : 'kline_minute',
+      dataType: isDaily ? 'kline_$period' : 'kline_minute',
       payloadJson: jsonEncode(bars.map((bar) => bar.toJson()).toList()),
       source: source,
       symbol: symbol,

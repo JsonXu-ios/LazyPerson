@@ -7,15 +7,18 @@ import 'package:flutter/material.dart';
 import '../data/sync_service.dart';
 import '../logic/market_panels.dart';
 import '../logic/watch_signals.dart';
+import '../state/band_scan_controller.dart';
 import '../state/home_controller.dart';
 import '../theme/app_theme.dart';
 import '../utils/format.dart';
+import 'band_scan_screen.dart';
 import 'widgets/indicator_chart.dart';
 import 'widgets/kline_chart.dart';
 import 'widgets/summary_sheet.dart';
 import 'widgets/watchlist_sheet.dart';
 
-const _periods = ['day', '1m', '5m', '15m', '30m', '60m'];
+const _periods = ['day', 'week', 'month'];
+const _periodLabels = {'day': '日K', 'week': '周K', 'month': '月K'};
 
 class HomeScreen extends StatefulWidget {
   final HomeController controller;
@@ -28,6 +31,7 @@ class HomeScreen extends StatefulWidget {
 
 class _HomeScreenState extends State<HomeScreen> {
   int? _hoverIndex;
+  BandScanController? _bandScanController;
 
   HomeController get controller => widget.controller;
 
@@ -41,6 +45,7 @@ class _HomeScreenState extends State<HomeScreen> {
   @override
   void dispose() {
     controller.removeListener(_onChanged);
+    _bandScanController?.dispose();
     super.dispose();
   }
 
@@ -62,6 +67,20 @@ class _HomeScreenState extends State<HomeScreen> {
       isScrollControlled: true,
       builder: (_) => SummarySheet(controller: controller),
     );
+  }
+
+  void _openBandScan() {
+    final band =
+        _bandScanController ??= BandScanController(controller.repository);
+    Navigator.of(context).push(MaterialPageRoute<void>(
+      builder: (routeContext) => BandScanScreen(
+        controller: band,
+        onSelect: (symbol) {
+          controller.selectSymbol(symbol);
+          Navigator.of(routeContext).pop();
+        },
+      ),
+    ));
   }
 
   @override
@@ -148,6 +167,7 @@ class _HomeScreenState extends State<HomeScreen> {
                   majorLineStep: controller.activeConfig.majorLineStep,
                   majorLineMinPercent:
                       controller.activeConfig.majorLineMinPercent ?? 0,
+                  majorLineAnchor: controller.activeConfig.majorLineAnchor,
                   showLevelPrices: controller.activeConfig.showLevelPrices,
                   hoverIndex: _hoverIndex,
                   onHoverIndexChanged: (index) =>
@@ -163,6 +183,10 @@ class _HomeScreenState extends State<HomeScreen> {
             _BottomActions(
               onWatchlist: _openWatchlist,
               onSummary: _openSummary,
+              // 八档局入口仅 A 股面板显示
+              onBandScan: controller.activePanel == PanelKey.aShare
+                  ? _openBandScan
+                  : null,
             ),
           ],
         ),
@@ -399,7 +423,7 @@ class _PeriodSwitch extends StatelessWidget {
                     borderRadius: BorderRadius.circular(4),
                   ),
                   child: Text(
-                    item == 'day' ? '日K' : item,
+                    _periodLabels[item] ?? item,
                     textAlign: TextAlign.center,
                     style: TextStyle(
                         fontSize: 11,
@@ -476,8 +500,13 @@ class _SignalStrip extends StatelessWidget {
 class _BottomActions extends StatelessWidget {
   final VoidCallback onWatchlist;
   final VoidCallback onSummary;
+  final VoidCallback? onBandScan;
 
-  const _BottomActions({required this.onWatchlist, required this.onSummary});
+  const _BottomActions({
+    required this.onWatchlist,
+    required this.onSummary,
+    this.onBandScan,
+  });
 
   @override
   Widget build(BuildContext context) {
@@ -500,6 +529,16 @@ class _BottomActions extends StatelessWidget {
               label: const Text('资产信息', style: TextStyle(fontSize: 12)),
             ),
           ),
+          if (onBandScan != null) ...[
+            const SizedBox(width: 8),
+            Expanded(
+              child: OutlinedButton.icon(
+                onPressed: onBandScan,
+                icon: const Icon(Icons.grid_view, size: 15),
+                label: const Text('八档局', style: TextStyle(fontSize: 12)),
+              ),
+            ),
+          ],
         ],
       ),
     );

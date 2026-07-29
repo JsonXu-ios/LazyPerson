@@ -145,6 +145,12 @@ def evaluate_stock(
     if is_falling_from_top(pct, max_pct):
         return None  # 从顶部下来（跌破曾站上的先过线）的不要
 
+    closes_before_low = [float(bar["close"]) for bar in window[:low_index] if bar.get("close") is not None]
+    if closes_before_low:
+        before_high_pct = (max(closes_before_low) / low90 - 1) * 100
+        if before_high_pct >= pct:
+            return None  # 90日内先下降到底部再反弹、且未超过下跌起点 → V型反弹不要
+
     threshold = group_threshold(group)
     pre_level = low90 * (1 + (threshold - GROUP_PRE_OFFSET) / 100)
 

@@ -449,3 +449,44 @@ class TestFallingFromTop:
         assert row is not None
         assert row["group"] == 3
         assert row["max_pct"] >= 90.0
+
+
+class TestVShapeRebound:
+    today = date(2026, 7, 24)
+
+    def _v_bars(self, rebound_close: float) -> list[dict]:
+        """前段高位平台（40%）→ 跌到低点 10 → 反弹到 rebound_close 的 V 型走势。"""
+        bars = make_bars(200, 10.0, self.today)
+        for bar in bars:
+            bar["low"] = 14.0
+            bar["open"] = 14.0
+            bar["close"] = 14.0  # 低点前平台：高于低点 40%
+            bar["high"] = 14.2
+        bars[-4]["low"] = 10.0  # 波段低点（近端）
+        bars[-4]["close"] = 10.2
+        bars[-4]["open"] = 10.5
+        bars[-4]["high"] = 10.6
+        for offset in (3, 2, 1):
+            bar = bars[-offset]
+            bar["low"] = 10.5
+            bar["open"] = rebound_close * 0.98
+            bar["close"] = rebound_close
+            bar["high"] = rebound_close * 1.01
+        return bars
+
+    def test_v_rebound_excluded(self):
+        # 从 40% 平台跌到底部，反弹到 35%（未超过下跌起点）→ 不要
+        bars = self._v_bars(13.2)
+        assert evaluate_stock("600001", "V型反弹", 13.5, bars, today=self.today) is None
+
+    def test_recovery_beyond_prior_high_kept(self):
+        # 前段平台仅 12%（11.2），随后低点 10，反弹到 37% 创新高 → 保留
+        bars = make_wave_bars(self.today, 10.0, [5, 12, 30])
+        row = evaluate_stock("600001", "新高突破", 13.7, bars, today=self.today)
+        assert row is not None
+        assert row["group"] == 1
+
+    def test_uptrend_low_at_start_kept(self):
+        # 低点在窗口前段（make_wave_bars 平台低点在末尾前，前段无更高平台）→ 不受影响
+        bars = make_wave_bars(self.today, 10.0, [5, 12, 18])
+        assert evaluate_stock("600001", "上行波段", 13.5, bars, today=self.today) is not None

@@ -6,7 +6,6 @@ import 'package:flutter/material.dart';
 
 import '../data/sync_service.dart';
 import '../logic/market_panels.dart';
-import '../logic/watch_signals.dart';
 import '../state/band_scan_controller.dart';
 import '../state/home_controller.dart';
 import '../theme/app_theme.dart';
@@ -153,9 +152,6 @@ class _HomeScreenState extends State<HomeScreen> {
               ),
             ),
             _PeriodSwitch(controller: controller),
-            if (controller.drawdownSignals.isNotEmpty ||
-                controller.uptrendSignals.isNotEmpty)
-              _SignalStrip(controller: controller),
             Expanded(
               flex: 5,
               child: Padding(
@@ -438,61 +434,6 @@ class _PeriodSwitch extends StatelessWidget {
           ],
         ],
       ),
-    );
-  }
-}
-
-class _SignalStrip extends StatelessWidget {
-  final HomeController controller;
-
-  const _SignalStrip({required this.controller});
-
-  @override
-  Widget build(BuildContext context) {
-    return SizedBox(
-      height: 30,
-      child: ListView(
-        scrollDirection: Axis.horizontal,
-        padding: const EdgeInsets.symmetric(horizontal: 10),
-        children: [
-          if (controller.drawdownSignals.isNotEmpty)
-            _group('大涨回撤', AppColors.warn, controller.drawdownSignals),
-          if (controller.uptrendSignals.isNotEmpty)
-            _group('上升±3%', AppColors.rise, controller.uptrendSignals),
-        ],
-      ),
-    );
-  }
-
-  Widget _group(String label, Color tone, List<WatchSignal> items) {
-    return Row(
-      children: [
-        Padding(
-          padding: const EdgeInsets.only(right: 6, top: 6),
-          child: Text(label, style: TextStyle(fontSize: 10, color: tone)),
-        ),
-        for (final item in items)
-          Padding(
-            padding: const EdgeInsets.only(right: 4, top: 4),
-            child: GestureDetector(
-              onTap: () => controller.selectSymbol(item.symbol),
-              child: Container(
-                padding:
-                    const EdgeInsets.symmetric(horizontal: 8, vertical: 3),
-                decoration: BoxDecoration(
-                  color: controller.selected == item.symbol
-                      ? tone.withValues(alpha: 0.25)
-                      : AppColors.panel,
-                  borderRadius: BorderRadius.circular(10),
-                  border: Border.all(color: tone.withValues(alpha: 0.5)),
-                ),
-                child: Text(item.name,
-                    style: TextStyle(fontSize: 10, color: tone)),
-              ),
-            ),
-          ),
-        const SizedBox(width: 10),
-      ],
     );
   }
 }

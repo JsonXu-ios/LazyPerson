@@ -481,62 +481,6 @@ button:disabled {
   border-color: var(--blue);
 }
 
-.watch-signal-strip {
-  min-height: 36px;
-  display: flex;
-  flex-wrap: wrap;
-  align-items: center;
-  gap: 10px;
-  padding: 6px 12px;
-  border-bottom: 1px solid var(--line-soft);
-  background: #080d16;
-}
-
-.watch-signal-group {
-  min-width: 0;
-  display: flex;
-  align-items: center;
-  gap: 6px;
-}
-
-.watch-signal-group > span {
-  color: var(--muted);
-  font-size: 12px;
-  white-space: nowrap;
-}
-
-.watch-signal-group button {
-  max-width: 96px;
-  height: 24px;
-  padding: 0 7px;
-  border: 1px solid var(--line);
-  border-radius: 4px;
-  overflow: hidden;
-  text-overflow: ellipsis;
-  white-space: nowrap;
-  color: #cbd5e1;
-  background: #101722;
-  font-size: 12px;
-}
-
-.watch-signal-group.warn button {
-  border-color: rgba(242, 169, 59, 0.42);
-  color: #ffd479;
-  background: rgba(242, 169, 59, 0.1);
-}
-
-.watch-signal-group.rise button {
-  border-color: rgba(242, 77, 77, 0.42);
-  color: #ffb0b0;
-  background: rgba(242, 77, 77, 0.1);
-}
-
-.watch-signal-group button.active {
-  color: #061016;
-  background: var(--blue);
-  border-color: var(--blue);
-}
-
 .chart-panel {
   position: relative;
   min-width: 0;

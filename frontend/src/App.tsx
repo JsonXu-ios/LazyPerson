@@ -16,11 +16,6 @@ const periods = ["day", "week", "month"];
 const periodLabels: Record<string, string> = { day: "日 K", week: "周 K", month: "月 K" };
 type SortKey = "custom" | "pct" | "amount" | "price";
 type PanelKey = "a_share" | "us" | "gold" | "crypto";
-type WatchSignal = {
-  symbol: string;
-  name: string;
-};
-
 const marketPanels: Array<{
   key: PanelKey;
   label: string;
@@ -105,13 +100,8 @@ export function App() {
   const [loading, setLoading] = useState(false);
   const [lineColors, setLineColors] = useState<AutoLineColorMap>(() => loadLineColors());
   const [drawer, setDrawer] = useState<"watchlist" | "summary" | "moneygrab" | null>(null);
-  const [watchSignals, setWatchSignals] = useState<{ drawdown: WatchSignal[]; uptrend: WatchSignal[] }>({
-    drawdown: [],
-    uptrend: [],
-  });
   const quotesRequestRef = useRef(0);
   const detailRequestRef = useRef(0);
-  const signalRequestRef = useRef(0);
 
   const panelWatchlist = useMemo(
     () => watchlist.filter((item) => panelForAsset(item) === activePanel),
@@ -232,32 +222,6 @@ export function App() {
         loadDetailFor(selected, period, true, false).catch((refreshExc) => setNotice(normalizeError(refreshExc)));
       });
   }, [loadDetailFor, period, selected]);
-
-  useEffect(() => {
-    if (!panelWatchlist.length) {
-      setWatchSignals({ drawdown: [], uptrend: [] });
-      return;
-    }
-
-    const requestId = ++signalRequestRef.current;
-    Promise.allSettled(
-      panelWatchlist.map(async (item) => {
-        const config = panelConfig(panelForAsset(item));
-        const response = await api.kline(item.symbol, "day", false, config.windowDays === 180 ? 240 : 140);
-        return analyzeWatchSignal(item, response.data);
-      }),
-    ).then((results) => {
-      if (requestId !== signalRequestRef.current) return;
-      const drawdown: WatchSignal[] = [];
-      const uptrend: WatchSignal[] = [];
-      results.forEach((result) => {
-        if (result.status !== "fulfilled") return;
-        if (result.value.drawdown) drawdown.push(result.value.signal);
-        if (result.value.uptrend) uptrend.push(result.value.signal);
-      });
-      setWatchSignals({ drawdown, uptrend });
-    });
-  }, [panelWatchlist]);
 
   useEffect(() => {
     if (!query.trim()) {
@@ -400,17 +364,6 @@ export function App() {
             </div>
           </div>
 
-          {(watchSignals.drawdown.length > 0 || watchSignals.uptrend.length > 0) && (
-            <div className="watch-signal-strip">
-              {watchSignals.drawdown.length > 0 && (
-                <SignalGroup label="大涨回撤" tone="warn" items={watchSignals.drawdown} selected={selected} onSelect={selectSignal} />
-              )}
-              {watchSignals.uptrend.length > 0 && (
-                <SignalGroup label="上升±3%" tone="rise" items={watchSignals.uptrend} selected={selected} onSelect={selectSignal} />
-              )}
-            </div>
-          )}
-
           <KlineChart
             symbol={selected}
             payload={displayKline}
@@ -480,39 +433,9 @@ export function App() {
     </main>
   );
 
-  function selectSignal(symbol: string) {
-    selectPanelSymbol(symbol);
-    setPeriod("day");
-  }
-
   function selectPanelSymbol(symbol: string) {
     setSelectedByPanel((current) => ({ ...current, [activePanel]: symbol }));
   }
-}
-
-function SignalGroup({
-  label,
-  tone,
-  items,
-  selected,
-  onSelect,
-}: {
-  label: string;
-  tone: "warn" | "rise";
-  items: WatchSignal[];
-  selected: string;
-  onSelect: (symbol: string) => void;
-}) {
-  return (
-    <div className={`watch-signal-group ${tone}`}>
-      <span>{label}</span>
-      {items.map((item) => (
-        <button className={selected === item.symbol ? "active" : ""} key={item.symbol} onClick={() => onSelect(item.symbol)}>
-          {item.name || item.symbol}
-        </button>
-      ))}
-    </div>
-  );
 }
 
 function fillSelectedPanels(current: Record<PanelKey, string>, rows: WatchlistItem[]) {
@@ -551,49 +474,3 @@ function panelForAsset(item: Pick<WatchlistItem | SymbolItem, "symbol" | "market
   return "a_share";
 }
 
-function analyzeWatchSignal(item: WatchlistItem, payload: KlinePayload) {
-  const config = panelConfig(panelForAsset(item));
-  const sliced = sliceDailyPayloadByCalendarDays(payload, config.windowDays, config.windowMode || "calendar");
-  const bars = (sliced?.bars || []).filter((bar) => bar.high !== null && bar.low !== null && bar.close !== null);
-  const latest = bars[bars.length - 1];
-  const signal = { symbol: item.symbol, name: item.name || item.symbol };
-  if (!latest || bars.length < 20) {
-    return { signal, drawdown: false, uptrend: false };
-  }
-
-  const drawdown = hasLargeRiseThenDrawdown(bars);
-  const auto = computeAutoDrawing(bars, config.windowDays, config.lineStep, Boolean(config.extendLevelsBeyond100));
-  const latestPct = latest.pct_chg ?? 0;
-  const uptrend = Math.abs(latestPct) <= 3
-    && !!auto?.trendSegments.some((segment) => segment.direction === "up" && segment.end.index >= bars.length - 12);
-  return { signal, drawdown, uptrend };
-}
-
-function hasLargeRiseThenDrawdown(bars: KlinePayload["bars"]) {
-  let troughPrice = Number(bars[0]?.low);
-  let troughIndex = 0;
-  let bestPeakPrice = 0;
-  let bestPeakIndex = -1;
-  let bestRisePct = 0;
-
-  bars.forEach((bar, index) => {
-    const low = Number(bar.low);
-    const high = Number(bar.high);
-    if (Number.isFinite(low) && low < troughPrice) {
-      troughPrice = low;
-      troughIndex = index;
-    }
-    if (!Number.isFinite(high) || index <= troughIndex || troughPrice <= 0) return;
-    const risePct = ((high - troughPrice) / troughPrice) * 100;
-    if (risePct > bestRisePct) {
-      bestRisePct = risePct;
-      bestPeakPrice = high;
-      bestPeakIndex = index;
-    }
-  });
-
-  const latestClose = Number(bars[bars.length - 1]?.close);
-  if (bestPeakIndex < 0 || !Number.isFinite(latestClose) || bestPeakPrice <= 0) return false;
-  const drawdownPct = ((bestPeakPrice - latestClose) / bestPeakPrice) * 100;
-  return bestRisePct >= 30 && drawdownPct >= 20;
-}

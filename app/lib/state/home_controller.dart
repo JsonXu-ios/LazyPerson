@@ -13,7 +13,6 @@ import '../data/sync_service.dart';
 import '../logic/auto_drawing.dart';
 import '../logic/calendar_window.dart';
 import '../logic/market_panels.dart';
-import '../logic/watch_signals.dart';
 import '../models/models.dart';
 import '../utils/format.dart';
 
@@ -37,8 +36,6 @@ class HomeController extends ChangeNotifier {
   String notice = '';
   bool loading = false;
   Map<String, String> lineColors = Map.of(defaultLineColors);
-  List<WatchSignal> drawdownSignals = [];
-  List<WatchSignal> uptrendSignals = [];
   List<SymbolItem> searchResults = [];
   String query = '';
 
@@ -50,7 +47,6 @@ class HomeController extends ChangeNotifier {
 
   int _quotesRequestId = 0;
   int _detailRequestId = 0;
-  int _signalRequestId = 0;
   int _searchRequestId = 0;
   bool _disposed = false;
 
@@ -130,7 +126,6 @@ class HomeController extends ChangeNotifier {
     _notify();
     // 后台强刷
     unawaited(_backgroundRefresh());
-    unawaited(loadSignals());
     // 全市场数据后台同步（首次全量或每日增量），不阻塞界面
     unawaited(startBackgroundSync());
   }
@@ -160,8 +155,7 @@ class HomeController extends ChangeNotifier {
         if (progress.phase == SyncPhase.done) {
           syncProgress = null;
           // 全量数据就位后刷新信号
-          unawaited(loadSignals());
-        } else {
+              } else {
           syncProgress = progress;
         }
         _notify();
@@ -303,40 +297,6 @@ class HomeController extends ChangeNotifier {
     return 1000;
   }
 
-  Future<void> loadSignals() async {
-    final rows = panelWatchlist;
-    if (rows.isEmpty) {
-      drawdownSignals = [];
-      uptrendSignals = [];
-      _notify();
-      return;
-    }
-    final requestId = ++_signalRequestId;
-    final drawdown = <WatchSignal>[];
-    final uptrend = <WatchSignal>[];
-    for (final item in rows) {
-      try {
-        final config = panelConfig(panelForAsset(
-            symbol: item.symbol,
-            market: item.market,
-            groupName: item.groupName,
-            note: item.note));
-        final result = await repository.kline(item.symbol, 'day',
-            refresh: false, limit: config.dayLimit, indicators: const []);
-        final analyzed = analyzeWatchSignal(item, result.payload);
-        if (analyzed.drawdown) drawdown.add(analyzed.signal);
-        if (analyzed.uptrend) uptrend.add(analyzed.signal);
-      } catch (_) {
-        // 单只信号失败不影响整体
-      }
-      if (requestId != _signalRequestId) return;
-    }
-    if (requestId != _signalRequestId) return;
-    drawdownSignals = drawdown;
-    uptrendSignals = uptrend;
-    _notify();
-  }
-
   void setPanel(PanelKey panel) {
     if (panel == activePanel) return;
     activePanel = panel;
@@ -347,13 +307,10 @@ class HomeController extends ChangeNotifier {
     klineQuality = null;
     query = '';
     searchResults = [];
-    drawdownSignals = [];
-    uptrendSignals = [];
     _notify();
     unawaited(loadQuotes(refresh: false).then((_) => loadQuotes(refresh: true)));
     unawaited(loadDetail(refresh: false, clearBeforeLoad: true)
         .then((_) => loadDetail(refresh: true, clearBeforeLoad: false)));
-    unawaited(loadSignals());
   }
 
   void setPeriod(String next) {
@@ -383,8 +340,7 @@ class HomeController extends ChangeNotifier {
       await loadWatchlist();
       selectSymbol(symbol);
       unawaited(loadQuotes(refresh: true));
-      unawaited(loadSignals());
-    } catch (exc) {
+      } catch (exc) {
       _setNotice(normalizeError(exc));
     } finally {
       loading = false;
@@ -405,8 +361,7 @@ class HomeController extends ChangeNotifier {
             : activeConfig.fallback;
         selectSymbol(next);
       }
-      unawaited(loadSignals());
-    } catch (exc) {
+      } catch (exc) {
       _setNotice(normalizeError(exc));
     } finally {
       loading = false;
@@ -423,8 +378,7 @@ class HomeController extends ChangeNotifier {
         loadQuotes(refresh: true),
         loadDetail(refresh: true, clearBeforeLoad: false),
       ]);
-      unawaited(loadSignals());
-    } catch (exc) {
+      } catch (exc) {
       _setNotice(normalizeError(exc));
     } finally {
       loading = false;

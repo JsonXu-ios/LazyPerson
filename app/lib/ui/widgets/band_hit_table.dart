@@ -10,16 +10,16 @@ import '../../logic/band_scanner.dart' show BandHit;
 import '../../theme/app_theme.dart';
 
 /// 列宽合计 > 411，所以整表横向滚动；前两列（代码/名称）冻结在左侧。
-const _frozenWidth = 116.0;
+const _frozenWidth = 128.0;
 const _columns = <(String, double)>[
-  ('最新价', 54),
-  ('90日低点', 62),
-  ('涨幅', 52),
-  ('波段高', 52),
-  ('低点日', 48),
-  ('过线日', 48),
-  ('超出', 50),
-  ('形态', 62),
+  ('最新价', 64),
+  ('90日低点', 74),
+  ('涨幅', 62),
+  ('波段高', 62),
+  ('低点日', 58),
+  ('过线日', 58),
+  ('超出', 60),
+  ('形态', 72),
 ];
 
 class BandHitTable extends StatefulWidget {
@@ -54,7 +54,8 @@ class _BandHitTableState extends State<BandHitTable> {
       return Center(
         child: Text(
           widget.running ? '本档暂无命中（扫描中…）' : '本档无命中',
-          style: const TextStyle(fontSize: 12, color: AppColors.textFaint),
+          style: const TextStyle(
+              fontSize: FontSize.body, color: AppColors.textFaint),
         ),
       );
     }
@@ -78,7 +79,7 @@ class _BandHitTableState extends State<BandHitTable> {
 
   Widget _header() {
     final style = mono(
-      size: 9,
+      size: FontSize.legend,
       color: AppColors.textFaint,
       weight: FontWeight.w600,
       letterSpacing: 0.6,
@@ -124,8 +125,8 @@ class _BandHitTableState extends State<BandHitTable> {
   }
 
   Widget _row(BandHit hit, int index) {
-    final cell = mono(size: 10, color: AppColors.text);
-    final dim = mono(size: 10, color: AppColors.textFaint);
+    final cell = mono(size: FontSize.tableNumber, color: AppColors.text);
+    final dim = mono(size: FontSize.tableNumber, color: AppColors.textFaint);
     return InkWell(
       onTap: () => widget.onSelect(hit.symbol),
       child: Container(
@@ -165,7 +166,7 @@ class _BandHitTableState extends State<BandHitTable> {
                             hit.name,
                             overflow: TextOverflow.ellipsis,
                             style: const TextStyle(
-                              fontSize: 11.5,
+                              fontSize: FontSize.cardTitle,
                               fontWeight: FontWeight.w600,
                               color: AppColors.text,
                             ),
@@ -173,7 +174,9 @@ class _BandHitTableState extends State<BandHitTable> {
                         ),
                       ],
                     ),
-                    Text(hit.symbol, style: mono(size: 9, color: AppColors.textDim)),
+                    Text(hit.symbol,
+                        style: mono(
+                            size: FontSize.legend, color: AppColors.textDim)),
                   ],
                 ),
               ),
@@ -186,20 +189,30 @@ class _BandHitTableState extends State<BandHitTable> {
                   children: [
                     _c(0, Text(hit.price.toStringAsFixed(2),
                         textAlign: TextAlign.right,
-                        style: mono(size: 10.5, color: AppColors.rise, weight: FontWeight.w600))),
+                        style: mono(
+                            size: FontSize.tableNumber,
+                            color: AppColors.rise,
+                            weight: FontWeight.w600))),
                     _c(1, Text(hit.low90.toStringAsFixed(2), textAlign: TextAlign.right, style: cell)),
                     _c(2, Text('${hit.pct.toStringAsFixed(1)}%',
                         textAlign: TextAlign.right,
-                        style: mono(size: 10.5, color: AppColors.rise, weight: FontWeight.w700))),
+                        style: mono(
+                            size: FontSize.secondaryNumber,
+                            color: AppColors.rise,
+                            weight: FontWeight.w700))),
                     _c(3, Text('${hit.maxPct.toStringAsFixed(1)}%', textAlign: TextAlign.right, style: cell)),
                     _c(4, Text(_short(hit.lowDate), textAlign: TextAlign.right, style: dim)),
                     _c(5, Text(_short(hit.crossDate), textAlign: TextAlign.right, style: dim)),
                     _c(6, Text('+${hit.over.toStringAsFixed(1)}%',
                         textAlign: TextAlign.right,
-                        style: mono(size: 10, color: AppColors.warn, weight: FontWeight.w600))),
+                        style: mono(
+                            size: FontSize.tableNumber,
+                            color: AppColors.warn,
+                            weight: FontWeight.w600))),
                     _c(7, Text(_shape(hit),
                         textAlign: TextAlign.right,
-                        style: mono(size: 9, color: AppColors.textDim))),
+                        style: mono(
+                            size: FontSize.badge, color: AppColors.textDim))),
                     const SizedBox(width: 14),
                   ],
                 ),
@@ -256,7 +269,7 @@ class BandViewToggle extends StatelessWidget {
           ),
           child: Icon(
             icon,
-            size: 13,
+            size: 15,
             color: active ? AppColors.accent : AppColors.textFaint,
           ),
         ),

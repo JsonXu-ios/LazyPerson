@@ -72,10 +72,16 @@ class _BandScanScreenState extends State<BandScanScreen> {
                     radius: 10,
                     tint: AppColors.rise,
                     padding: const EdgeInsets.symmetric(
-                        horizontal: 11, vertical: 8),
-                    child: Text('扫描失败：${controller.error ?? ''}',
-                        style: const TextStyle(
-                            fontSize: 11, color: AppColors.rise)),
+                      horizontal: 11,
+                      vertical: 8,
+                    ),
+                    child: Text(
+                      '扫描失败：${controller.error ?? ''}',
+                      style: const TextStyle(
+                        fontSize: FontSize.body,
+                        color: AppColors.rise,
+                      ),
+                    ),
                   ),
                 ),
               if (running) _buildProgress(),
@@ -101,8 +107,13 @@ class _BandScanScreenState extends State<BandScanScreen> {
               ] else
                 Expanded(
                   child: Center(
-                    child: Text('点击“开始扫描”用本地日线数据计算档位',
-                        style: mono(size: 11, color: AppColors.textFaint)),
+                    child: Text(
+                      '点击“开始扫描”用本地日线数据计算档位',
+                      style: TextStyle(
+                        fontSize: FontSize.body,
+                        color: AppColors.textFaint,
+                      ),
+                    ),
                   ),
                 ),
             ],
@@ -122,22 +133,30 @@ class _BandScanScreenState extends State<BandScanScreen> {
             onPressed: () => Navigator.of(context).maybePop(),
             icon: const Icon(Icons.arrow_back, color: AppColors.textMuted),
           ),
-          Column(
-            crossAxisAlignment: CrossAxisAlignment.start,
-            children: [
-              const Text('八档局 · 档位雷达',
+          Expanded(
+            child: Column(
+              crossAxisAlignment: CrossAxisAlignment.start,
+              children: [
+                const Text(
+                  '八档局 · 档位雷达',
                   style: TextStyle(
-                      fontSize: 15,
-                      fontWeight: FontWeight.w700,
-                      color: AppColors.text)),
-              const SizedBox(height: 2),
-              Text('SHSZ MAIN · 90D BAND SCAN',
+                    fontSize: FontSize.screenTitle,
+                    fontWeight: FontWeight.w700,
+                    color: AppColors.text,
+                  ),
+                ),
+                const SizedBox(height: 2),
+                Text(
+                  'SHSZ MAIN · 90D BAND SCAN',
                   style: mono(
-                      size: 8.5,
-                      color: AppColors.accent,
-                      weight: FontWeight.w600,
-                      letterSpacing: 2.6)),
-            ],
+                    size: FontSize.capsLabel,
+                    color: AppColors.accent,
+                    weight: FontWeight.w600,
+                    letterSpacing: 2.6,
+                  ),
+                ),
+              ],
+            ),
           ),
         ],
       ),
@@ -146,7 +165,10 @@ class _BandScanScreenState extends State<BandScanScreen> {
 
   Widget _rules() {
     const bodyStyle = TextStyle(
-        fontSize: 10, height: 1.7, color: AppColors.textMuted);
+      fontSize: FontSize.caption,
+      height: 1.75,
+      color: AppColors.textMuted,
+    );
     return Container(
       margin: const EdgeInsets.fromLTRB(16, 10, 16, 0),
       padding: const EdgeInsets.fromLTRB(11, 8, 12, 8),
@@ -156,24 +178,26 @@ class _BandScanScreenState extends State<BandScanScreen> {
           topRight: Radius.circular(8),
           bottomRight: Radius.circular(8),
         ),
-        border: Border(
-          left: BorderSide(color: AppColors.accent, width: 2),
-        ),
+        border: Border(left: BorderSide(color: AppColors.accent, width: 2)),
       ),
       child: RichText(
         text: const TextSpan(
           style: bodyStyle,
           children: [
+            TextSpan(text: '沪深主板（60/00）。90 日波段（低点→高点）分档：过主线（20/50/80/…）后再站上 '),
             TextSpan(
-                text: '沪深主板（60/00）。90 日波段（低点→高点）分档：过主线（20/50/80/…）后再站上 '),
+              text: '10 个点',
+              style: TextStyle(
+                color: AppColors.accent,
+                fontWeight: FontWeight.w700,
+              ),
+            ),
             TextSpan(
-                text: '10 个点',
-                style: TextStyle(
-                    color: AppColors.accent, fontWeight: FontWeight.w700)),
-            TextSpan(
-                text: '才入档，有效区一档 30~40%、二档 60~70%、三档 90~100%…；'
-                    '刚过主线不足10点、档间过渡区不入档。'
-                    '「从高处来」的两种形态（从顶部跌破已站上线、V型反弹）默认隐藏，勾选开关即可并入列表。'),
+              text:
+                  '才入档，有效区一档 30~40%、二档 60~70%、三档 90~100%…；'
+                  '刚过主线不足10点、档间过渡区不入档。'
+                  '「从高处来」的两种形态（从顶部跌破已站上线、V型反弹）默认隐藏，勾选开关即可并入列表。',
+            ),
           ],
         ),
       ),
@@ -193,16 +217,16 @@ class _BandScanScreenState extends State<BandScanScreen> {
               crossAxisAlignment: WrapCrossAlignment.center,
               children: [
                 SizedBox(
-                  height: 30,
+                  height: 34,
                   child: OutlinedButton(
                     onPressed: running ? null : controller.startScan,
                     child: Text(
                       running
                           ? '扫描中…'
                           : controller.status == BandScanStatus.done
-                              ? '重新扫描'
-                              : '开始扫描',
-                      style: const TextStyle(fontSize: 12),
+                          ? '重新扫描'
+                          : '开始扫描',
+                      style: const TextStyle(fontSize: FontSize.body),
                     ),
                   ),
                 ),
@@ -233,16 +257,25 @@ class _BandScanScreenState extends State<BandScanScreen> {
           Column(
             crossAxisAlignment: CrossAxisAlignment.end,
             children: [
-              Text(controller.tradeDate ?? '',
-                  style: mono(size: 9, color: AppColors.textFaint)),
+              Text(
+                controller.tradeDate ?? '',
+                style: mono(
+                  size: FontSize.tableNumber,
+                  color: AppColors.textFaint,
+                ),
+              ),
               const SizedBox(height: 2),
               Text(
                 controller.status == BandScanStatus.done
                     ? 'SCAN ${controller.total}'
                     : controller.minMarketCap != null
-                        ? 'CAP>${controller.minMarketCap!.toInt()}亿'
-                        : 'CAP ALL',
-                style: mono(size: 9, color: AppColors.textDim),
+                    ? 'CAP>${controller.minMarketCap!.toInt()}亿'
+                    : 'CAP ALL',
+                style: mono(
+                  size: FontSize.legend,
+                  color: AppColors.textDim,
+                  letterSpacing: 0.8,
+                ),
               ),
             ],
           ),
@@ -263,8 +296,8 @@ class _BandScanScreenState extends State<BandScanScreen> {
         mainAxisSize: MainAxisSize.min,
         children: [
           Container(
-            width: 12,
-            height: 12,
+            width: 15,
+            height: 15,
             decoration: BoxDecoration(
               borderRadius: BorderRadius.circular(3),
               color: value
@@ -273,18 +306,23 @@ class _BandScanScreenState extends State<BandScanScreen> {
               border: Border.all(
                 color: value
                     ? Colors.transparent
-                    : (enabled ? AppColors.hudBorderActive : AppColors.hudBorder),
+                    : (enabled
+                          ? AppColors.hudBorderActive
+                          : AppColors.hudBorder),
               ),
             ),
             child: value
-                ? const Icon(Icons.check, size: 9, color: Color(0xFF050914))
+                ? const Icon(Icons.check, size: 11, color: Color(0xFF050914))
                 : null,
           ),
-          const SizedBox(width: 5),
-          Text(label,
-              style: TextStyle(
-                  fontSize: 10,
-                  color: enabled ? AppColors.textMuted : AppColors.textDim)),
+          const SizedBox(width: 6),
+          Text(
+            label,
+            style: TextStyle(
+              fontSize: FontSize.body,
+              color: enabled ? AppColors.textMuted : AppColors.textDim,
+            ),
+          ),
         ],
       ),
     );
@@ -303,7 +341,10 @@ class _BandScanScreenState extends State<BandScanScreen> {
         children: [
           HudSegmentBar(ratio: ratio),
           const SizedBox(height: 4),
-          Text(text, style: mono(size: 9.5, color: AppColors.textMuted)),
+          Text(
+            text,
+            style: mono(size: FontSize.legend, color: AppColors.textMuted),
+          ),
         ],
       ),
     );
@@ -317,7 +358,10 @@ class _BandScanScreenState extends State<BandScanScreen> {
           Text(
             '${bandGroupNames[controller.activeGroup - 1]}档命中 ${controller.activeHits.length}',
             style: mono(
-                size: 9.5, color: AppColors.textFaint, letterSpacing: 1.2),
+              size: FontSize.legend,
+              color: AppColors.textFaint,
+              letterSpacing: 1.2,
+            ),
           ),
           const Spacer(),
           BandViewToggle(
@@ -333,8 +377,13 @@ class _BandScanScreenState extends State<BandScanScreen> {
     final rows = controller.activeHits;
     if (rows.isEmpty) {
       return Center(
-        child: Text(running ? '本档暂无命中（扫描中…）' : '本档无命中',
-            style: const TextStyle(fontSize: 12, color: AppColors.textFaint)),
+        child: Text(
+          running ? '本档暂无命中（扫描中…）' : '本档无命中',
+          style: const TextStyle(
+            fontSize: FontSize.body,
+            color: AppColors.textFaint,
+          ),
+        ),
       );
     }
     return ListView.separated(
@@ -359,53 +408,87 @@ class _BandScanScreenState extends State<BandScanScreen> {
             crossAxisAlignment: CrossAxisAlignment.center,
             children: [
               Flexible(
-                child: Text(hit.name,
-                    overflow: TextOverflow.ellipsis,
-                    style: const TextStyle(
-                        fontSize: 14,
-                        fontWeight: FontWeight.w700,
-                        color: AppColors.text)),
+                child: Text(
+                  hit.name,
+                  overflow: TextOverflow.ellipsis,
+                  style: const TextStyle(
+                    fontSize: FontSize.cardTitle,
+                    fontWeight: FontWeight.w700,
+                    color: AppColors.text,
+                  ),
+                ),
               ),
               const SizedBox(width: 6),
-              Text(hit.symbol, style: mono(size: 9, color: AppColors.textDim)),
+              Text(
+                hit.symbol,
+                style: mono(size: FontSize.legend, color: AppColors.textDim),
+              ),
               if (hit.limitUp) ...[
                 const SizedBox(width: 6),
                 Container(
-                  padding:
-                      const EdgeInsets.symmetric(horizontal: 5, vertical: 1),
+                  padding: const EdgeInsets.symmetric(
+                    horizontal: 5,
+                    vertical: 1,
+                  ),
                   decoration: BoxDecoration(
                     color: AppColors.rise,
                     borderRadius: BorderRadius.circular(3),
                   ),
-                  child: Text('涨停',
-                      style: mono(
-                          size: 8.5,
-                          color: const Color(0xFF050914),
-                          weight: FontWeight.w700)),
+                  child: Text(
+                    '涨停',
+                    style: mono(
+                      size: FontSize.badge,
+                      color: const Color(0xFF050914),
+                      weight: FontWeight.w700,
+                    ),
+                  ),
                 ),
               ],
               const Spacer(),
-              GlowText('+${hit.pct.toStringAsFixed(1)}%',
-                  size: 18, color: AppColors.rise, blur: 16),
+              GlowText(
+                '+${hit.pct.toStringAsFixed(1)}%',
+                size: 20,
+                color: AppColors.rise,
+                blur: 16,
+              ),
             ],
           ),
           const SizedBox(height: 9),
           _bandProgress(hit),
           const SizedBox(height: 8),
-          Row(
+          Wrap(
+            spacing: 12,
+            runSpacing: 4,
             children: [
-              Text('波段高 ${hit.maxPct.toStringAsFixed(1)}%',
-                  style: mono(size: 9, color: AppColors.textFaint)),
-              const SizedBox(width: 8),
-              Text('低点 ${_shortDate(hit.lowDate)}',
-                  style: mono(size: 9, color: AppColors.textFaint)),
-              const SizedBox(width: 8),
-              Text('过线 ${_shortDate(hit.crossDate)}',
-                  style: mono(size: 9, color: AppColors.textFaint)),
-              const Spacer(),
-              Text('超出 +${hit.over.toStringAsFixed(1)}%',
-                  style: mono(
-                      size: 9, color: AppColors.warn, weight: FontWeight.w600)),
+              Text(
+                '波段高 ${hit.maxPct.toStringAsFixed(1)}%',
+                style: mono(
+                  size: FontSize.tableNumber,
+                  color: AppColors.textFaint,
+                ),
+              ),
+              Text(
+                '低点 ${_shortDate(hit.lowDate)}',
+                style: mono(
+                  size: FontSize.tableNumber,
+                  color: AppColors.textFaint,
+                ),
+              ),
+              Text(
+                '过线 ${_shortDate(hit.crossDate)}',
+                style: mono(
+                  size: FontSize.tableNumber,
+                  color: AppColors.textFaint,
+                ),
+              ),
+              Text(
+                '超出 +${hit.over.toStringAsFixed(1)}%',
+                style: mono(
+                  size: FontSize.tableNumber,
+                  color: AppColors.warn,
+                  weight: FontWeight.w600,
+                ),
+              ),
             ],
           ),
           if (hit.fromTop || hit.vShape) ...[
@@ -446,16 +529,20 @@ class _BandScanScreenState extends State<BandScanScreen> {
                   child: Container(
                     decoration: BoxDecoration(
                       borderRadius: BorderRadius.circular(3),
-                      gradient: LinearGradient(colors: [
-                        AppColors.rise.withValues(alpha: 0.35),
-                        AppColors.rise,
-                      ]),
+                      gradient: LinearGradient(
+                        colors: [
+                          AppColors.rise.withValues(alpha: 0.35),
+                          AppColors.rise,
+                        ],
+                      ),
                     ),
                   ),
                 ),
                 _needle(box.maxWidth * at(threshold), AppColors.yellowLine),
-                _needle(box.maxWidth * at(threshold + 10),
-                    AppColors.text.withValues(alpha: 0.8)),
+                _needle(
+                  box.maxWidth * at(threshold + 10),
+                  AppColors.text.withValues(alpha: 0.8),
+                ),
               ],
             ),
           ),
@@ -463,11 +550,15 @@ class _BandScanScreenState extends State<BandScanScreen> {
         const SizedBox(height: 4),
         Row(
           children: [
-            Text(hit.low90.toStringAsFixed(2),
-                style: mono(size: 9, color: AppColors.textDim)),
+            Text(
+              hit.low90.toStringAsFixed(2),
+              style: mono(size: FontSize.tableNumber, color: AppColors.textDim),
+            ),
             const Spacer(),
-            Text(hit.price.toStringAsFixed(2),
-                style: mono(size: 9, color: AppColors.text)),
+            Text(
+              hit.price.toStringAsFixed(2),
+              style: mono(size: FontSize.tableNumber, color: AppColors.text),
+            ),
           ],
         ),
       ],
@@ -475,20 +566,24 @@ class _BandScanScreenState extends State<BandScanScreen> {
   }
 
   Widget _needle(double left, Color color) => Positioned(
-        left: left,
-        top: -1,
-        child: Container(width: 1.5, height: 7, color: color),
-      );
+    left: left,
+    top: -1,
+    child: Container(width: 1.5, height: 7, color: color),
+  );
 
   Widget _shapeTag(String label) => Container(
-        margin: const EdgeInsets.only(right: 4),
-        padding: const EdgeInsets.symmetric(horizontal: 5, vertical: 1),
-        decoration: BoxDecoration(
-          borderRadius: BorderRadius.circular(3),
-          border: Border.all(color: AppColors.hudBorder),
-        ),
-        child: Text(label, style: mono(size: 8.5, color: AppColors.textFaint)),
-      );
+    margin: const EdgeInsets.only(right: 4),
+    padding: const EdgeInsets.symmetric(horizontal: 5, vertical: 1),
+    decoration: BoxDecoration(
+      borderRadius: BorderRadius.circular(3),
+      border: Border.all(color: AppColors.hudBorder),
+    ),
+    child: Text(
+      label,
+      style: mono(size: FontSize.badge, color: AppColors.textFaint),
+    ),
+  );
 
-  String _shortDate(String date) => date.length >= 10 ? date.substring(5) : date;
+  String _shortDate(String date) =>
+      date.length >= 10 ? date.substring(5) : date;
 }

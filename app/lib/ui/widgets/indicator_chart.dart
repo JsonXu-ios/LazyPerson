@@ -90,7 +90,7 @@ class _IndicatorBlock extends StatelessWidget {
   @override
   Widget build(BuildContext context) {
     return SizedBox(
-      height: 96,
+      height: 104,
       child: HudPanel(
         radius: 10,
         padding: EdgeInsets.zero,
@@ -103,15 +103,15 @@ class _IndicatorBlock extends StatelessWidget {
                 children: [
                   Text(title,
                       style: mono(
-                          size: 9,
+                          size: FontSize.capsLabel,
                           color: AppColors.textMuted,
                           weight: FontWeight.w600,
                           letterSpacing: 1.4)),
                   const Spacer(),
                   for (final line in lines) ...[
                     Text('${line.name} ${formatNumber(_valueOf(line))}',
-                        style: mono(size: 9, color: line.color)),
-                    const SizedBox(width: 9),
+                        style: mono(size: FontSize.legend, color: line.color)),
+                    const SizedBox(width: 10),
                   ],
                 ],
               ),

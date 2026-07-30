@@ -73,7 +73,7 @@ class _SummarySheetState extends State<SummarySheet> {
                   quoteName(controller.selected, quote?.name),
                   overflow: TextOverflow.ellipsis,
                   style: const TextStyle(
-                      fontSize: 16,
+                      fontSize: FontSize.screenTitle,
                       fontWeight: FontWeight.w700,
                       color: AppColors.text),
                 ),
@@ -81,13 +81,15 @@ class _SummarySheetState extends State<SummarySheet> {
               const SizedBox(width: 8),
               Text(controller.selected,
                   style: mono(
-                      size: 9.5, color: AppColors.accent, letterSpacing: 1.2)),
+                      size: FontSize.legend,
+                      color: AppColors.accent,
+                      letterSpacing: 1.2)),
             ],
           ),
           const SizedBox(height: 4),
           Text(
             '行情 ${qualityText(controller.quoteQuality)} · K线 ${qualityText(controller.klineQuality)}',
-            style: mono(size: 9, color: AppColors.textDim),
+            style: mono(size: FontSize.legend, color: AppColors.textDim),
           ),
           const SizedBox(height: 12),
           _metricGrid([
@@ -137,8 +139,9 @@ class _SummarySheetState extends State<SummarySheet> {
                     controller.refreshAll();
                     Navigator.of(context).pop();
                   },
-                  icon: const Icon(Icons.refresh, size: 15),
-                  label: const Text('强制刷新', style: TextStyle(fontSize: 12)),
+                  icon: const Icon(Icons.refresh, size: 17),
+                  label: const Text('强制刷新',
+                      style: TextStyle(fontSize: FontSize.body)),
                 ),
               ),
               const SizedBox(width: 10),
@@ -154,8 +157,9 @@ class _SummarySheetState extends State<SummarySheet> {
                     controller.removeSymbol(controller.selected);
                     Navigator.of(context).pop();
                   },
-                  icon: const Icon(Icons.delete_outline, size: 15),
-                  label: const Text('删除自选', style: TextStyle(fontSize: 12)),
+                  icon: const Icon(Icons.delete_outline, size: 17),
+                  label: const Text('删除自选',
+                      style: TextStyle(fontSize: FontSize.body)),
                 ),
               ),
             ],
@@ -171,7 +175,7 @@ class _SummarySheetState extends State<SummarySheet> {
       children: [
         Text(title,
             style: const TextStyle(
-                fontSize: 12.5,
+                fontSize: FontSize.secondaryNumber,
                 fontWeight: FontWeight.w700,
                 color: AppColors.text)),
         const SizedBox(width: 10),
@@ -180,7 +184,7 @@ class _SummarySheetState extends State<SummarySheet> {
           const SizedBox(width: 10),
           Text(status,
               style: mono(
-                  size: 9.5,
+                  size: FontSize.legend,
                   color: statusColor ?? AppColors.textMuted,
                   weight: FontWeight.w600)),
         ],
@@ -208,8 +212,10 @@ class _SummarySheetState extends State<SummarySheet> {
       child: Row(
         children: [
           SizedBox(
-            width: 62,
-            child: Text(label, style: mono(size: 11, color: AppColors.textMuted)),
+            width: 70,
+            child: Text(label,
+                style:
+                    mono(size: FontSize.tableNumber, color: AppColors.textMuted)),
           ),
           Expanded(
             child: Wrap(
@@ -219,8 +225,8 @@ class _SummarySheetState extends State<SummarySheet> {
                   GestureDetector(
                     onTap: () => controller.updateLineColor(label, hex),
                     child: Container(
-                      width: 19,
-                      height: 19,
+                      width: 22,
+                      height: 22,
                       decoration: BoxDecoration(
                         color: colorFromHex(hex),
                         shape: BoxShape.circle,
@@ -270,11 +276,11 @@ class _MetricCell extends StatelessWidget {
             children: [
               Text(label,
                   style: const TextStyle(
-                      fontSize: 10, color: AppColors.textFaint)),
-              const SizedBox(height: 3),
+                      fontSize: FontSize.legend, color: AppColors.textFaint)),
+              const SizedBox(height: 4),
               Text(value,
                   overflow: TextOverflow.ellipsis,
-                  style: mono(size: 11.5, color: AppColors.text)),
+                  style: mono(size: FontSize.tableNumber, color: AppColors.text)),
             ],
           ),
         ),

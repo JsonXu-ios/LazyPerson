@@ -71,17 +71,20 @@ class _HomeScreenState extends State<HomeScreen> {
   }
 
   void _openBandScan() {
-    final band =
-        _bandScanController ??= BandScanController(controller.repository);
-    Navigator.of(context).push(MaterialPageRoute<void>(
-      builder: (routeContext) => BandScanScreen(
-        controller: band,
-        onSelect: (symbol) {
-          controller.selectSymbol(symbol);
-          Navigator.of(routeContext).pop();
-        },
+    final band = _bandScanController ??= BandScanController(
+      controller.repository,
+    );
+    Navigator.of(context).push(
+      MaterialPageRoute<void>(
+        builder: (routeContext) => BandScanScreen(
+          controller: band,
+          onSelect: (symbol) {
+            controller.selectSymbol(symbol);
+            Navigator.of(routeContext).pop();
+          },
+        ),
       ),
-    ));
+    );
   }
 
   @override
@@ -102,7 +105,9 @@ class _HomeScreenState extends State<HomeScreen> {
                 _SyncStrip(controller: controller),
               if (controller.notice.isNotEmpty)
                 _NoticeBar(
-                    notice: controller.notice, onClose: controller.clearNotice),
+                  notice: controller.notice,
+                  onClose: controller.clearNotice,
+                ),
               _SymbolHead(controller: controller, quote: quote),
               _PeriodSwitch(controller: controller),
               Expanded(
@@ -134,7 +139,9 @@ class _HomeScreenState extends State<HomeScreen> {
               Padding(
                 padding: const EdgeInsets.fromLTRB(14, 8, 14, 2),
                 child: IndicatorPanel(
-                    kline: displayKline, hoverIndex: _hoverIndex),
+                  kline: displayKline,
+                  hoverIndex: _hoverIndex,
+                ),
               ),
               _BottomActions(
                 onWatchlist: _openWatchlist,
@@ -163,18 +170,35 @@ class _StatusBar extends StatelessWidget {
         padding: const EdgeInsets.symmetric(horizontal: 12, vertical: 8),
         child: Row(
           children: [
-            const Icon(Icons.candlestick_chart, size: 24, color: AppColors.warn),
+            const Icon(
+              Icons.candlestick_chart,
+              size: 24,
+              color: AppColors.warn,
+            ),
             const SizedBox(width: 8),
-            const Text('LazyPerson',
-                style: TextStyle(
-                    fontSize: 14,
-                    fontWeight: FontWeight.w700,
-                    color: AppColors.text)),
+            const Text(
+              'LazyPerson',
+              style: TextStyle(
+                fontSize: FontSize.screenTitle,
+                fontWeight: FontWeight.w700,
+                color: AppColors.text,
+              ),
+            ),
             const SizedBox(width: 8),
-            Text('MARKET HUD v3.2',
+            // 纯装饰，窄屏优先让它被截，不要挤掉右侧的 LIVE 与刷新
+            Flexible(
+              child: Text(
+                'MARKET HUD v3.2',
+                overflow: TextOverflow.clip,
+                softWrap: false,
                 style: mono(
-                    size: 8, color: AppColors.accent, letterSpacing: 3.8)),
-            const Spacer(),
+                  size: FontSize.capsLabel,
+                  color: AppColors.accent,
+                  letterSpacing: 3.2,
+                ),
+              ),
+            ),
+            const SizedBox(width: 8),
             HudLiveBadge(live: !controller.loading),
             SizedBox(
               width: 30,
@@ -187,7 +211,8 @@ class _StatusBar extends StatelessWidget {
                     ? const SizedBox(
                         width: 14,
                         height: 14,
-                        child: CircularProgressIndicator(strokeWidth: 2))
+                        child: CircularProgressIndicator(strokeWidth: 2),
+                      )
                     : const Icon(Icons.refresh, color: AppColors.accent),
               ),
             ),
@@ -234,29 +259,43 @@ class _SyncStrip extends StatelessWidget {
           children: [
             Row(
               children: [
-                Text('SYNC',
-                    style: mono(
-                        size: 8.5,
-                        color: failed ? AppColors.rise : AppColors.warn,
-                        weight: FontWeight.w600,
-                        letterSpacing: 2.6)),
+                Text(
+                  'SYNC',
+                  style: mono(
+                    size: FontSize.capsLabel,
+                    color: failed ? AppColors.rise : AppColors.warn,
+                    weight: FontWeight.w600,
+                    letterSpacing: 2.6,
+                  ),
+                ),
                 const SizedBox(width: 8),
                 Expanded(
                   child: Text(
                     _text,
                     style: TextStyle(
-                        fontSize: 10,
-                        color: failed ? AppColors.rise : AppColors.textMuted),
+                      fontSize: FontSize.caption,
+                      color: failed ? AppColors.rise : AppColors.textMuted,
+                    ),
                     overflow: TextOverflow.ellipsis,
                   ),
                 ),
                 if (ratio != null && !failed)
-                  Text('${(ratio * 100).toStringAsFixed(0)}%',
-                      style: mono(size: 9, color: AppColors.warn)),
+                  Text(
+                    '${(ratio * 100).toStringAsFixed(0)}%',
+                    style: mono(
+                      size: FontSize.tableNumber,
+                      color: AppColors.warn,
+                    ),
+                  ),
                 if ((progress?.errorCount ?? 0) > 0) ...[
                   const SizedBox(width: 6),
-                  Text('${progress!.errorCount} 只失败',
-                      style: mono(size: 9, color: AppColors.rise)),
+                  Text(
+                    '${progress!.errorCount} 只失败',
+                    style: mono(
+                      size: FontSize.tableNumber,
+                      color: AppColors.rise,
+                    ),
+                  ),
                 ],
               ],
             ),
@@ -288,10 +327,15 @@ class _NoticeBar extends StatelessWidget {
         child: Row(
           children: [
             Expanded(
-              child: Text(notice,
-                  maxLines: 2,
-                  overflow: TextOverflow.ellipsis,
-                  style: const TextStyle(fontSize: 11, color: AppColors.warn)),
+              child: Text(
+                notice,
+                maxLines: 2,
+                overflow: TextOverflow.ellipsis,
+                style: const TextStyle(
+                  fontSize: FontSize.body,
+                  color: AppColors.warn,
+                ),
+              ),
             ),
             GestureDetector(
               onTap: onClose,
@@ -335,17 +379,21 @@ class _SymbolHead extends StatelessWidget {
                 Text(
                   quoteName(controller.selected, quote?.name as String?),
                   style: const TextStyle(
-                      fontSize: 21,
-                      fontWeight: FontWeight.w700,
-                      height: 1.1,
-                      color: AppColors.text),
+                    fontSize: FontSize.symbolName,
+                    fontWeight: FontWeight.w700,
+                    height: 1.1,
+                    color: AppColors.text,
+                  ),
                   overflow: TextOverflow.ellipsis,
                 ),
                 const SizedBox(height: 4),
                 Text(
                   subParts.join(' · '),
                   style: mono(
-                      size: 9.5, color: AppColors.textFaint, letterSpacing: 1),
+                    size: FontSize.legend,
+                    color: AppColors.textFaint,
+                    letterSpacing: 1,
+                  ),
                   overflow: TextOverflow.ellipsis,
                 ),
               ],
@@ -355,19 +403,24 @@ class _SymbolHead extends StatelessWidget {
             Column(
               crossAxisAlignment: CrossAxisAlignment.end,
               children: [
-                GlowText(formatFullPrice(quote.price as double?),
-                    size: 30, color: tone),
+                GlowText(
+                  formatFullPrice(quote.price as double?),
+                  size: FontSize.price,
+                  color: tone,
+                ),
                 const SizedBox(height: 6),
                 Row(
                   children: [
                     Text(
                       _signed(quote.change as double?),
-                      style: mono(size: 10.5, color: tone),
+                      style: mono(size: FontSize.secondaryNumber, color: tone),
                     ),
                     const SizedBox(width: 6),
                     Container(
                       padding: const EdgeInsets.symmetric(
-                          horizontal: 6, vertical: 2),
+                        horizontal: 6,
+                        vertical: 2,
+                      ),
                       decoration: BoxDecoration(
                         color: tone,
                         borderRadius: BorderRadius.circular(3),
@@ -375,9 +428,10 @@ class _SymbolHead extends StatelessWidget {
                       child: Text(
                         _signedPercent(pct),
                         style: mono(
-                            size: 10,
-                            color: const Color(0xFF050914),
-                            weight: FontWeight.w700),
+                          size: FontSize.secondaryNumber,
+                          color: const Color(0xFF050914),
+                          weight: FontWeight.w700,
+                        ),
                       ),
                     ),
                   ],
@@ -416,13 +470,18 @@ _CrossedLevel? _crossedLevel(HomeController controller) {
   final base = auto?.base.price;
   if (auto == null || close == null || base == null || base <= 0) return null;
   final config = controller.activeConfig;
-  final majors = auto.levels
-      .where((level) => isMajorLevel(level,
-          majorLineStep: config.majorLineStep,
-          majorLineMinPercent: config.majorLineMinPercent ?? 0,
-          majorLineAnchor: config.majorLineAnchor))
-      .toList()
-    ..sort((a, b) => a.percent.compareTo(b.percent));
+  final majors =
+      auto.levels
+          .where(
+            (level) => isMajorLevel(
+              level,
+              majorLineStep: config.majorLineStep,
+              majorLineMinPercent: config.majorLineMinPercent ?? 0,
+              majorLineAnchor: config.majorLineAnchor,
+            ),
+          )
+          .toList()
+        ..sort((a, b) => a.percent.compareTo(b.percent));
   if (majors.isEmpty) return null;
   final pct = (close / base - 1) * 100;
   var index = -1;
@@ -457,7 +516,9 @@ class _PeriodSwitch extends StatelessWidget {
                     onTap: () => controller.setPeriod(item),
                     child: Container(
                       padding: const EdgeInsets.symmetric(
-                          horizontal: 12, vertical: 5),
+                        horizontal: 12,
+                        vertical: 5,
+                      ),
                       decoration: BoxDecoration(
                         color: controller.period == item
                             ? AppColors.hudFillActive
@@ -467,13 +528,14 @@ class _PeriodSwitch extends StatelessWidget {
                       child: Text(
                         _periodLabels[item] ?? item,
                         style: TextStyle(
-                            fontSize: 11.5,
-                            fontWeight: controller.period == item
-                                ? FontWeight.w700
-                                : FontWeight.w500,
-                            color: controller.period == item
-                                ? AppColors.text
-                                : AppColors.textFaint),
+                          fontSize: FontSize.secondaryNumber,
+                          fontWeight: controller.period == item
+                              ? FontWeight.w700
+                              : FontWeight.w500,
+                          color: controller.period == item
+                              ? AppColors.text
+                              : AppColors.textFaint,
+                        ),
                       ),
                     ),
                   ),
@@ -489,7 +551,10 @@ class _PeriodSwitch extends StatelessWidget {
             Text(
               '${crossed.pct >= 0 ? '+' : ''}${crossed.pct.toStringAsFixed(1)}%',
               style: mono(
-                  size: 11, color: AppColors.warn, weight: FontWeight.w600),
+                size: FontSize.secondaryNumber,
+                color: AppColors.warn,
+                weight: FontWeight.w600,
+              ),
             ),
           ],
         ],
@@ -566,9 +631,12 @@ class _ActionCell extends StatelessWidget {
     final cell = Column(
       mainAxisSize: MainAxisSize.min,
       children: [
-        Icon(icon, size: 18, color: color),
-        const SizedBox(height: 4),
-        Text(label, style: TextStyle(fontSize: 11, color: color)),
+        Icon(icon, size: 20, color: color),
+        const SizedBox(height: 5),
+        Text(
+          label,
+          style: TextStyle(fontSize: FontSize.body, color: color),
+        ),
       ],
     );
     if (!highlight) {

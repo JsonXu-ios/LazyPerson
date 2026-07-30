@@ -147,14 +147,14 @@ class _FundamentalsSectionState extends State<FundamentalsSection> {
   }
 
   static const _reportColumns = [
-    ('报告期', 92.0),
-    ('营收', 62.0),
-    ('营收同比', 62.0),
-    ('归母净利润', 72.0),
-    ('归母同比', 62.0),
-    ('净利润', 62.0),
-    ('EPS', 46.0),
-    ('ROE', 52.0),
+    ('报告期', 106.0),
+    ('营收', 72.0),
+    ('营收同比', 74.0),
+    ('归母净利润', 84.0),
+    ('归母同比', 74.0),
+    ('净利润', 72.0),
+    ('EPS', 54.0),
+    ('ROE', 62.0),
   ];
 
   Widget _reportTable(List<FundamentalReport> reports) {
@@ -169,10 +169,10 @@ class _FundamentalsSectionState extends State<FundamentalsSection> {
                 SizedBox(
                   width: width,
                   child: Text(label,
-                      style: const TextStyle(
-                          fontSize: 10,
-                          fontWeight: FontWeight.w600,
-                          color: AppColors.textMuted)),
+                      style: mono(
+                          size: FontSize.legend,
+                          color: AppColors.textMuted,
+                          weight: FontWeight.w600)),
                 ),
             ],
           ),
@@ -208,7 +208,7 @@ class _FundamentalsSectionState extends State<FundamentalsSection> {
       child: Text(
         text,
         overflow: TextOverflow.ellipsis,
-        style: TextStyle(fontSize: 10, color: _toneColor(tone)),
+        style: mono(size: FontSize.tableNumber, color: _toneColor(tone)),
       ),
     );
   }
@@ -232,30 +232,34 @@ class _FundamentalsSectionState extends State<FundamentalsSection> {
                   children: [
                     Text(
                       item.reportDate.isEmpty ? '-' : item.reportDate,
-                      style: const TextStyle(
-                          fontSize: 11, color: AppColors.textMuted),
+                      style: mono(
+                          size: FontSize.tableNumber,
+                          color: AppColors.textMuted),
                     ),
-                    const SizedBox(width: 6),
+                    const SizedBox(width: 8),
                     if (item.progress.isNotEmpty)
                       Text(item.progress,
                           style: const TextStyle(
-                              fontSize: 10, color: AppColors.textFaint)),
+                              fontSize: FontSize.legend,
+                              color: AppColors.textFaint)),
                     const Spacer(),
                     if (item.dividendRatio != null)
                       Text('股息率 ${formatPercent(item.dividendRatio! * 100)}',
-                          style: const TextStyle(
-                              fontSize: 10, color: AppColors.warn)),
+                          style: mono(
+                              size: FontSize.tableNumber,
+                              color: AppColors.warn)),
                   ],
                 ),
                 const SizedBox(height: 2),
                 Text(
                   item.plan.isEmpty ? '-' : item.plan,
-                  style: const TextStyle(fontSize: 11, color: AppColors.text),
+                  style: const TextStyle(
+                      fontSize: FontSize.body, color: AppColors.text),
                 ),
                 if (item.exDividendDate.isNotEmpty)
                   Text('除权除息日 ${item.exDividendDate}',
-                      style: const TextStyle(
-                          fontSize: 10, color: AppColors.textFaint)),
+                      style: mono(
+                          size: FontSize.legend, color: AppColors.textFaint)),
               ],
             ),
           ),
@@ -274,11 +278,11 @@ class _FundamentalsSectionState extends State<FundamentalsSection> {
               children: [
                 Text('$label ',
                     style: const TextStyle(
-                        fontSize: 11, color: AppColors.textFaint)),
+                        fontSize: FontSize.legend, color: AppColors.textFaint)),
                 Expanded(
                   child: Text(value,
                       overflow: TextOverflow.ellipsis,
-                      style: mono(size: 11.5, color: AppColors.text)),
+                      style: mono(size: FontSize.tableNumber, color: AppColors.text)),
                 ),
               ],
             ),
@@ -303,14 +307,14 @@ class _SectionTitle extends StatelessWidget {
         Expanded(
           child: Text(title,
               style: const TextStyle(
-                  fontSize: 13,
+                  fontSize: FontSize.secondaryNumber,
                   fontWeight: FontWeight.w700,
                   color: AppColors.text)),
         ),
         if (trailing != null)
           Text(trailing!,
               style:
-                  const TextStyle(fontSize: 10, color: AppColors.textFaint)),
+                  mono(size: FontSize.legend, color: AppColors.textFaint)),
       ],
     );
   }
@@ -327,7 +331,8 @@ class _Hint extends StatelessWidget {
     return Text(
       text,
       style: TextStyle(
-          fontSize: 11, color: warn ? AppColors.warn : AppColors.textFaint),
+          fontSize: FontSize.body,
+          color: warn ? AppColors.warn : AppColors.textFaint),
     );
   }
 }

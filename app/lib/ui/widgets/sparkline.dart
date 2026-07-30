@@ -23,7 +23,7 @@ class Sparkline extends StatelessWidget {
     super.key,
     required this.values,
     required this.color,
-    this.size = const Size(56, 20),
+    this.size = const Size(62, 24),
     this.fallbackPct,
   });
 
@@ -71,7 +71,8 @@ class _Fallback extends StatelessWidget {
           Text(
             '${pct! >= 0 ? '+' : ''}${pct!.toStringAsFixed(2)}',
             textAlign: TextAlign.right,
-            style: mono(size: 8.5, color: color, weight: FontWeight.w600),
+            style: mono(
+                size: FontSize.badge, color: color, weight: FontWeight.w600),
           ),
           const SizedBox(height: 3),
           Align(

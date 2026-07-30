@@ -266,7 +266,7 @@ class HudChip extends StatelessWidget {
             Text(
               label,
               style: TextStyle(
-                fontSize: 11.5,
+                fontSize: FontSize.secondaryNumber,
                 fontWeight: active ? FontWeight.w700 : FontWeight.w500,
                 color: active ? AppColors.text : AppColors.textMuted,
               ),
@@ -275,9 +275,10 @@ class HudChip extends StatelessWidget {
               Text(
                 sub!,
                 style: mono(
-                  size: 8.5,
+                  size: FontSize.capsLabel,
                   color: active ? AppColors.accent : AppColors.textDim,
                   weight: FontWeight.w500,
+                  letterSpacing: 0.8,
                 ),
               ),
           ],
@@ -316,7 +317,12 @@ class HudLiveBadge extends StatelessWidget {
             ),
           ),
           const SizedBox(width: 6),
-          Text(label, style: mono(size: 8.5, color: color, weight: FontWeight.w600, letterSpacing: 1)),
+          Text(label,
+              style: mono(
+                  size: FontSize.capsLabel,
+                  color: color,
+                  weight: FontWeight.w600,
+                  letterSpacing: 1.4)),
         ],
       ),
     );

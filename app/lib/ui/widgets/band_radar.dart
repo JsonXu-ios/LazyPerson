@@ -52,18 +52,26 @@ class BandRadar extends StatelessWidget {
             children: [
               Text(
                 '档位分布 · 命中 $visibleTotal / $allTotal',
-                style: mono(size: 9, color: AppColors.textFaint, weight: FontWeight.w600, letterSpacing: 1.4),
+                style: mono(
+                    size: FontSize.capsLabel,
+                    color: AppColors.textFaint,
+                    weight: FontWeight.w600,
+                    letterSpacing: 1.4),
               ),
               const Spacer(),
               Text(
                 '${bandGroupNames[activeGroup - 1]}档 ACTIVE',
-                style: mono(size: 9, color: AppColors.accent, weight: FontWeight.w600),
+                style: mono(
+                    size: FontSize.capsLabel,
+                    color: AppColors.accent,
+                    weight: FontWeight.w600,
+                    letterSpacing: 1.2),
               ),
             ],
           ),
           const SizedBox(height: 12),
           SizedBox(
-            height: 96,
+            height: 104,
             child: Row(
               children: [
                 for (var group = 1; group <= maxGroups; group++) ...[
@@ -123,7 +131,7 @@ class _RadarBar extends StatelessWidget {
             Text(
               '$count',
               style: mono(
-                size: 9,
+                size: FontSize.tableNumber,
                 color: hit ? AppColors.accent : AppColors.textDim,
                 weight: FontWeight.w600,
               ),
@@ -176,7 +184,7 @@ class _RadarBar extends StatelessWidget {
             Text(
               name,
               style: TextStyle(
-                fontSize: 11,
+                fontSize: FontSize.secondaryNumber,
                 fontWeight: active ? FontWeight.w700 : FontWeight.w500,
                 color: hit ? AppColors.text : AppColors.textDim,
               ),

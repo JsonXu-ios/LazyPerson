@@ -54,6 +54,43 @@ const hudBackgroundGradient = RadialGradient(
   stops: [0.0, 0.62],
 );
 
+/// 字号标度：按“用途”命名的上限值，411dp 宽下实测舒适。
+/// widget 里不要再写裸数字，否则各屏字号会再次跑偏、密到看不清。
+abstract final class FontSize {
+  /// 主屏标的名
+  static const symbolName = 21.0;
+
+  /// 现价（发光大字）
+  static const price = 30.0;
+
+  /// 卡片/列表项的名称
+  static const cardTitle = 15.0;
+
+  /// 屏标题、浮层标题
+  static const screenTitle = 16.0;
+
+  /// 涨跌幅与其它次要数字
+  static const secondaryNumber = 13.0;
+
+  /// 表格内数字
+  static const tableNumber = 12.0;
+
+  /// OHLC 条、副图图例、代码副行
+  static const legend = 11.0;
+
+  /// 全大写英文装饰标签（务必配 letterSpacing）
+  static const capsLabel = 9.0;
+
+  /// 角标（涨停、形态等）
+  static const badge = 10.0;
+
+  /// 中文正文与按钮
+  static const body = 12.0;
+
+  /// 次要中文说明
+  static const caption = 11.5;
+}
+
 /// 数字统一等宽 + tabular figures：所有价格/百分比/日期都用它，
 /// 避免跳动（1d 稿里全部数字均为等宽）。
 const hudMono = TextStyle(

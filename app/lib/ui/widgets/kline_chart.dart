@@ -69,8 +69,9 @@ class _KlineChartState extends State<KlineChart> {
           child: bars.isEmpty
               ? const Center(
                   child: Text('暂无K线数据',
-                      style:
-                          TextStyle(color: AppColors.textFaint, fontSize: 13)))
+                      style: TextStyle(
+                          color: AppColors.textFaint,
+                          fontSize: FontSize.screenTitle)))
               : LayoutBuilder(
                   builder: (context, constraints) => GestureDetector(
                     onLongPressStart: (event) =>
@@ -124,7 +125,8 @@ class _OhlcStrip extends StatelessWidget {
       child: Row(
         children: [
           if (isHover && bar != null) ...[
-            Text(bar!.time, style: mono(size: 9.5, color: AppColors.warn)),
+            Text(bar!.time,
+                style: mono(size: FontSize.legend, color: AppColors.warn)),
             const SizedBox(width: 10),
           ],
           for (final (label, value) in [
@@ -133,17 +135,18 @@ class _OhlcStrip extends StatelessWidget {
             ('L', formatNumber(bar?.low)),
             ('C', formatNumber(bar?.close)),
           ]) ...[
-            Text(label, style: mono(size: 9.5, color: labelColor)),
-            const SizedBox(width: 2),
-            Text(value, style: mono(size: 9.5, color: valueColor)),
-            const SizedBox(width: 9),
+            Text(label, style: mono(size: FontSize.legend, color: labelColor)),
+            const SizedBox(width: 3),
+            Text(value, style: mono(size: FontSize.legend, color: valueColor)),
+            const SizedBox(width: 10),
           ],
-          Text(formatPercent(pct), style: mono(size: 9.5, color: pctColor)),
+          Text(formatPercent(pct),
+              style: mono(size: FontSize.legend, color: pctColor)),
           const Spacer(),
-          Text('VOL', style: mono(size: 9.5, color: labelColor)),
-          const SizedBox(width: 2),
+          Text('VOL', style: mono(size: FontSize.legend, color: labelColor)),
+          const SizedBox(width: 3),
           Text(formatNumber(bar?.volume),
-              style: mono(size: 9.5, color: valueColor)),
+              style: mono(size: FontSize.legend, color: valueColor)),
         ],
       ),
     );
@@ -151,8 +154,8 @@ class _OhlcStrip extends StatelessWidget {
 }
 
 class _KlinePainter extends CustomPainter {
-  static const rightAxisWidth = 52.0;
-  static const bottomAxisHeight = 18.0;
+  static const rightAxisWidth = 58.0;
+  static const bottomAxisHeight = 20.0;
 
   final List<KlineBar> bars;
   final String period;
@@ -244,7 +247,7 @@ class _KlinePainter extends CustomPainter {
     final gridPaint = Paint()
       ..color = AppColors.grid
       ..strokeWidth = 1;
-    final axisText = _textStyle(AppColors.textFaint, 10);
+    final axisText = _textStyle(AppColors.textFaint, FontSize.legend);
     const rows = 5;
     for (var i = 0; i <= rows; i++) {
       final ratio = i / rows;
@@ -376,7 +379,7 @@ class _KlinePainter extends CustomPainter {
         text: row.label,
         style: TextStyle(
           color: colorFromHex(row.textColor),
-          fontSize: 10,
+          fontSize: FontSize.legend,
           fontWeight: row.highlight ? FontWeight.w700 : FontWeight.w500,
         ),
       ),
@@ -420,7 +423,7 @@ class _KlinePainter extends CustomPainter {
   }
 
   void _paintTimeAxis(Canvas canvas, double plotWidth, double plotHeight) {
-    final style = _textStyle(AppColors.textFaint, 9);
+    final style = _textStyle(AppColors.textFaint, FontSize.badge);
     final step = math.max(1, (bars.length / 5).round());
     for (var index = 0; index < bars.length; index += step) {
       final time = bars[index].time;
@@ -443,7 +446,7 @@ class _KlinePainter extends CustomPainter {
       canvas.drawLine(Offset(0, y), Offset(plotWidth, y), linePaint);
       final label = formatFullPrice(bar.close);
       final painter = TextPainter(
-        text: TextSpan(text: label, style: _textStyle(Colors.white, 10)),
+        text: TextSpan(text: label, style: _textStyle(Colors.white, FontSize.legend)),
         textDirection: TextDirection.ltr,
       )..layout();
       final rect = Rect.fromLTWH(plotWidth + 1, y - painter.height / 2 - 2,
@@ -454,7 +457,7 @@ class _KlinePainter extends CustomPainter {
   }
 
   TextStyle _textStyle(Color color, double size) =>
-      TextStyle(color: color, fontSize: size);
+      mono(size: size, color: color);
 
   void _drawText(Canvas canvas, String text, TextStyle style, Offset offset) {
     final painter = TextPainter(

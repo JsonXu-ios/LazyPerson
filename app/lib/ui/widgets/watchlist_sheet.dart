@@ -135,17 +135,22 @@ class _WatchlistSheetState extends State<WatchlistSheet> {
         children: [
           const Text('自选资产',
               style: TextStyle(
-                  fontSize: 16,
+                  fontSize: FontSize.screenTitle,
                   fontWeight: FontWeight.w700,
                   color: AppColors.text)),
           const SizedBox(width: 8),
           Text('A SHARE · $total',
-              style: mono(size: 9, color: AppColors.accent, letterSpacing: 1.2)),
+              style: mono(
+                  size: FontSize.capsLabel,
+                  color: AppColors.accent,
+                  letterSpacing: 1.2)),
           const Spacer(),
           Text('涨 $up',
-              style: mono(size: 9.5, color: AppColors.rise)),
-          Text(' · ', style: mono(size: 9.5, color: AppColors.textDim)),
-          Text('跌 $down', style: mono(size: 9.5, color: AppColors.fall)),
+              style: mono(size: FontSize.tableNumber, color: AppColors.rise)),
+          Text(' · ',
+              style: mono(size: FontSize.tableNumber, color: AppColors.textDim)),
+          Text('跌 $down',
+              style: mono(size: FontSize.tableNumber, color: AppColors.fall)),
         ],
       ),
     );
@@ -159,25 +164,28 @@ class _WatchlistSheetState extends State<WatchlistSheet> {
         padding: const EdgeInsets.symmetric(horizontal: 13, vertical: 2),
         child: Row(
           children: [
-            const Icon(Icons.search, size: 15, color: AppColors.textFaint),
+            const Icon(Icons.search, size: 17, color: AppColors.textFaint),
             const SizedBox(width: 8),
             Expanded(
               child: TextField(
                 controller: _searchController,
                 onChanged: controller.search,
-                style: const TextStyle(fontSize: 13, color: AppColors.text),
+                style: const TextStyle(
+                    fontSize: FontSize.secondaryNumber, color: AppColors.text),
                 decoration: const InputDecoration(
                   isDense: true,
                   border: InputBorder.none,
                   hintText: '代码 / 名称 / 拼音首字母',
-                  hintStyle:
-                      TextStyle(fontSize: 12, color: AppColors.textFaint),
+                  hintStyle: TextStyle(
+                      fontSize: FontSize.body, color: AppColors.textFaint),
                 ),
               ),
             ),
             Text('SEARCH',
                 style: mono(
-                    size: 8.5, color: AppColors.accent, letterSpacing: 1.6)),
+                    size: FontSize.capsLabel,
+                    color: AppColors.accent,
+                    letterSpacing: 1.6)),
           ],
         ),
       ),
@@ -200,9 +208,11 @@ class _WatchlistSheetState extends State<WatchlistSheet> {
             ListTile(
               dense: true,
               title: Text(item.display,
-                  style: const TextStyle(fontSize: 12, color: AppColors.text)),
+                  style: const TextStyle(
+                      fontSize: FontSize.secondaryNumber,
+                      color: AppColors.text)),
               trailing:
-                  const Icon(Icons.add, size: 16, color: AppColors.accent),
+                  const Icon(Icons.add, size: 18, color: AppColors.accent),
               onTap: () {
                 controller.addSymbol(item.symbol);
                 _searchController.clear();
@@ -224,7 +234,7 @@ class _WatchlistSheetState extends State<WatchlistSheet> {
               label: label,
               active: _sortKey == key,
               padding:
-                  const EdgeInsets.symmetric(horizontal: 11, vertical: 4),
+                  const EdgeInsets.symmetric(horizontal: 12, vertical: 6),
               onTap: () => setState(() => _sortKey = key),
             ),
             const SizedBox(width: 7),
@@ -260,7 +270,7 @@ class _WatchlistSheetState extends State<WatchlistSheet> {
             ),
             alignment: Alignment.centerRight,
             padding: const EdgeInsets.only(right: 20),
-            child: const Icon(Icons.delete, size: 18, color: AppColors.rise),
+            child: const Icon(Icons.delete, size: 20, color: AppColors.rise),
           ),
           onDismissed: (_) => controller.removeSymbol(item.symbol),
           child: HudPanel(
@@ -281,13 +291,14 @@ class _WatchlistSheetState extends State<WatchlistSheet> {
                       Text(quoteName(item.symbol, item.name),
                           overflow: TextOverflow.ellipsis,
                           style: const TextStyle(
-                              fontSize: 13.5,
+                              fontSize: FontSize.cardTitle,
                               fontWeight: FontWeight.w600,
                               color: AppColors.text)),
                       const SizedBox(height: 3),
                       Text(
                         '${item.symbol} · ${formatNumber(quote?.amount)}',
-                        style: mono(size: 9, color: AppColors.textDim),
+                        style: mono(
+                            size: FontSize.legend, color: AppColors.textDim),
                       ),
                     ],
                   ),
@@ -304,12 +315,13 @@ class _WatchlistSheetState extends State<WatchlistSheet> {
                   children: [
                     Text(formatFullPrice(quote?.price),
                         style: mono(
-                            size: 14.5,
+                            size: FontSize.cardTitle,
                             color: tone,
                             weight: FontWeight.w700)),
-                    const SizedBox(height: 2),
+                    const SizedBox(height: 3),
                     Text(formatPercent(pct),
-                        style: mono(size: 10, color: tone)),
+                        style:
+                            mono(size: FontSize.secondaryNumber, color: tone)),
                   ],
                 ),
               ],
@@ -328,8 +340,10 @@ class _WatchlistSheetState extends State<WatchlistSheet> {
           Container(width: 16, height: 1, color: AppColors.accent),
           const SizedBox(width: 8),
           Text('SWIPE LEFT TO REMOVE · TAP TO CHART',
-              style:
-                  mono(size: 9, color: AppColors.textDim, letterSpacing: 1.2)),
+              style: mono(
+                  size: FontSize.capsLabel,
+                  color: AppColors.textDim,
+                  letterSpacing: 1.2)),
         ],
       ),
     );

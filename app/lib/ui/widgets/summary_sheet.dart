@@ -12,19 +12,6 @@ import '../../utils/format.dart';
 import 'fundamentals_section.dart';
 import 'hud_sheet.dart';
 
-/// 色值与 logic/level_rules.dart 的固定色、defaultLineColors 保持一致，
-/// 否则默认档位选不中（选中圈按 hex 精确比对）。
-const _colorChoices = [
-  '#f6d36b',
-  '#f24d4d',
-  '#1f6feb',
-  '#ffffff',
-  '#38bdf8',
-  '#c084fc',
-  '#f2a93b',
-  '#00a884',
-];
-
 class SummarySheet extends StatefulWidget {
   final HomeController controller;
 
@@ -73,17 +60,21 @@ class _SummarySheetState extends State<SummarySheet> {
                   quoteName(controller.selected, quote?.name),
                   overflow: TextOverflow.ellipsis,
                   style: const TextStyle(
-                      fontSize: FontSize.screenTitle,
-                      fontWeight: FontWeight.w700,
-                      color: AppColors.text),
+                    fontSize: FontSize.screenTitle,
+                    fontWeight: FontWeight.w700,
+                    color: AppColors.text,
+                  ),
                 ),
               ),
               const SizedBox(width: 8),
-              Text(controller.selected,
-                  style: mono(
-                      size: FontSize.legend,
-                      color: AppColors.accent,
-                      letterSpacing: 1.2)),
+              Text(
+                controller.selected,
+                style: mono(
+                  size: FontSize.legend,
+                  color: AppColors.accent,
+                  letterSpacing: 1.2,
+                ),
+              ),
             ],
           ),
           const SizedBox(height: 4),
@@ -108,27 +99,28 @@ class _SummarySheetState extends State<SummarySheet> {
           ),
           if (auto != null) ...[
             const SizedBox(height: 16),
-            _sectionTitle('自动画线', status: trendLabel(auto.direction),
-                statusColor: auto.direction == AutoTrendDirection.up
-                    ? AppColors.rise
-                    : auto.direction == AutoTrendDirection.down
-                        ? AppColors.fall
-                        : AppColors.textMuted),
+            _sectionTitle(
+              '自动画线',
+              status: trendLabel(auto.direction),
+              statusColor: auto.direction == AutoTrendDirection.up
+                  ? AppColors.rise
+                  : auto.direction == AutoTrendDirection.down
+                  ? AppColors.fall
+                  : AppColors.textMuted,
+            ),
             const SizedBox(height: 8),
             _metricGrid([
               ('窗口', '${auto.windowSize} 根'),
               (auto.base.label, formatFullPrice(auto.base.price)),
               (auto.target.label, formatFullPrice(auto.target.price)),
               if (auto.nearestLevel != null)
-                ('最近关键位',
-                    '${auto.nearestLevel!.label} ${formatFullPrice(auto.nearestLevel!.price)}'),
+                (
+                  '最近关键位',
+                  '${auto.nearestLevel!.label} ${formatFullPrice(auto.nearestLevel!.price)}',
+                ),
               if (auto.nearestDistancePct != null)
                 ('距关键位', formatPercent(auto.nearestDistancePct)),
             ]),
-            const SizedBox(height: 16),
-            _sectionTitle('线位颜色'),
-            const SizedBox(height: 8),
-            for (final level in auto.levels) _colorRow(level.label),
           ],
           const SizedBox(height: 18),
           Row(
@@ -140,27 +132,47 @@ class _SummarySheetState extends State<SummarySheet> {
                     Navigator.of(context).pop();
                   },
                   icon: const Icon(Icons.refresh, size: 17),
-                  label: const Text('强制刷新',
-                      style: TextStyle(fontSize: FontSize.body)),
+                  label: const Text(
+                    '强制刷新',
+                    style: TextStyle(fontSize: FontSize.body),
+                  ),
                 ),
               ),
               const SizedBox(width: 10),
+              // 八档局点进来的标的通常不在自选里，这里给个入口能直接加
               Expanded(
-                child: OutlinedButton.icon(
-                  style: OutlinedButton.styleFrom(
-                    foregroundColor: AppColors.rise,
-                    side: BorderSide(
-                        color: AppColors.rise.withValues(alpha: 0.5)),
-                    backgroundColor: AppColors.rise.withValues(alpha: 0.12),
-                  ),
-                  onPressed: () {
-                    controller.removeSymbol(controller.selected);
-                    Navigator.of(context).pop();
-                  },
-                  icon: const Icon(Icons.delete_outline, size: 17),
-                  label: const Text('删除自选',
-                      style: TextStyle(fontSize: FontSize.body)),
-                ),
+                child: controller.selectedInWatchlist
+                    ? OutlinedButton.icon(
+                        style: OutlinedButton.styleFrom(
+                          foregroundColor: AppColors.rise,
+                          side: BorderSide(
+                            color: AppColors.rise.withValues(alpha: 0.5),
+                          ),
+                          backgroundColor: AppColors.rise.withValues(
+                            alpha: 0.12,
+                          ),
+                        ),
+                        onPressed: () {
+                          controller.removeSymbol(controller.selected);
+                          Navigator.of(context).pop();
+                        },
+                        icon: const Icon(Icons.delete_outline, size: 17),
+                        label: const Text(
+                          '删除自选',
+                          style: TextStyle(fontSize: FontSize.body),
+                        ),
+                      )
+                    : OutlinedButton.icon(
+                        onPressed: () {
+                          controller.addSymbol(controller.selected);
+                          Navigator.of(context).pop();
+                        },
+                        icon: const Icon(Icons.star_border, size: 17),
+                        label: const Text(
+                          '加入自选',
+                          style: TextStyle(fontSize: FontSize.body),
+                        ),
+                      ),
               ),
             ],
           ),
@@ -173,20 +185,26 @@ class _SummarySheetState extends State<SummarySheet> {
   Widget _sectionTitle(String title, {String? status, Color? statusColor}) {
     return Row(
       children: [
-        Text(title,
-            style: const TextStyle(
-                fontSize: FontSize.secondaryNumber,
-                fontWeight: FontWeight.w700,
-                color: AppColors.text)),
+        Text(
+          title,
+          style: const TextStyle(
+            fontSize: FontSize.secondaryNumber,
+            fontWeight: FontWeight.w700,
+            color: AppColors.text,
+          ),
+        ),
         const SizedBox(width: 10),
         Expanded(child: Container(height: 1, color: AppColors.hudBorder)),
         if (status != null) ...[
           const SizedBox(width: 10),
-          Text(status,
-              style: mono(
-                  size: FontSize.legend,
-                  color: statusColor ?? AppColors.textMuted,
-                  weight: FontWeight.w600)),
+          Text(
+            status,
+            style: mono(
+              size: FontSize.legend,
+              color: statusColor ?? AppColors.textMuted,
+              weight: FontWeight.w600,
+            ),
+          ),
         ],
       ],
     );
@@ -201,57 +219,6 @@ class _SummarySheetState extends State<SummarySheet> {
         for (final (label, value) in items)
           _MetricCell(label: label, value: value),
       ],
-    );
-  }
-
-  Widget _colorRow(String label) {
-    final current =
-        controller.lineColors[label] ?? defaultLineColors[label];
-    return Padding(
-      padding: const EdgeInsets.symmetric(vertical: 4),
-      child: Row(
-        children: [
-          SizedBox(
-            width: 70,
-            child: Text(label,
-                style:
-                    mono(size: FontSize.tableNumber, color: AppColors.textMuted)),
-          ),
-          Expanded(
-            child: Wrap(
-              spacing: 7,
-              children: [
-                for (final hex in _colorChoices)
-                  GestureDetector(
-                    onTap: () => controller.updateLineColor(label, hex),
-                    child: Container(
-                      width: 22,
-                      height: 22,
-                      decoration: BoxDecoration(
-                        color: colorFromHex(hex),
-                        shape: BoxShape.circle,
-                        boxShadow: current == hex
-                            ? [
-                                const BoxShadow(
-                                  color: AppColors.background,
-                                  blurRadius: 0,
-                                  spreadRadius: 2,
-                                ),
-                                BoxShadow(
-                                  color: AppColors.accent,
-                                  blurRadius: 0,
-                                  spreadRadius: 3.5,
-                                ),
-                              ]
-                            : null,
-                      ),
-                    ),
-                  ),
-              ],
-            ),
-          ),
-        ],
-      ),
     );
   }
 }
@@ -274,13 +241,19 @@ class _MetricCell extends StatelessWidget {
           child: Column(
             crossAxisAlignment: CrossAxisAlignment.start,
             children: [
-              Text(label,
-                  style: const TextStyle(
-                      fontSize: FontSize.legend, color: AppColors.textFaint)),
+              Text(
+                label,
+                style: const TextStyle(
+                  fontSize: FontSize.legend,
+                  color: AppColors.textFaint,
+                ),
+              ),
               const SizedBox(height: 4),
-              Text(value,
-                  overflow: TextOverflow.ellipsis,
-                  style: mono(size: FontSize.tableNumber, color: AppColors.text)),
+              Text(
+                value,
+                overflow: TextOverflow.ellipsis,
+                style: mono(size: FontSize.tableNumber, color: AppColors.text),
+              ),
             ],
           ),
         ),

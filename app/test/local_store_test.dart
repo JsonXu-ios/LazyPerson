@@ -109,6 +109,55 @@ void main() {
     expect(synced, {'600519': '2026-07-17'});
   });
 
+  test('行情里的名称落进 symbols，自选列表不再只剩代码', () async {
+    // listWatchlist 的 name 是 join symbols 拿的；全市场同步没跑完时那张表是空的
+    final sync = SyncService(store: store);
+    final repo = MarketRepository(store: store, sync: sync);
+    await store.addWatchlist('600360', 'a_share');
+    expect((await store.listWatchlist()).single.name, '');
+
+    await repo.rememberQuoteNames(const [
+      Quote(symbol: '600360', market: 'SH', name: '华微电子', price: 9.04),
+      Quote(symbol: '000001', market: 'SZ', name: '', price: 11.61), // 空名不写
+    ]);
+
+    expect((await store.listWatchlist()).single.name, '华微电子');
+    expect(await store.getSymbol('000001'), isNull);
+  });
+
+  test('清掉历史种下的非 A 股自选（美股/黄金/加密）', () async {
+    // 删种子代码不会删已落库的数据，残留一条 SPY 会让整批行情请求失败、
+    // 退化成日 K 兜底（name/market 变空，界面标题退回代码）
+    await store.upsertSymbols(const [
+      SymbolItem(symbol: '600519', market: 'SH', name: '贵州茅台'),
+      SymbolItem(symbol: 'SPY', market: 'US', name: '标普500 ETF'),
+      SymbolItem(symbol: 'GC=F', market: 'FUT', name: 'COMEX 黄金期货'),
+    ]);
+    await store.addWatchlist('600519', 'a_share');
+    await store.addWatchlist('SPY', 'us');
+    await store.addWatchlist('BTC-USD', 'crypto');
+
+    final removed = await store.purgeNonAShare();
+
+    expect(removed, 2);
+    expect((await store.listWatchlist()).map((item) => item.symbol), ['600519']);
+    expect(await store.getSymbol('SPY'), isNull);
+    expect((await store.getSymbol('600519'))?.name, '贵州茅台');
+  });
+
+  test('ensureSeeded 会补跑一次非 A 股清理', () async {
+    final sync = SyncService(store: store);
+    final repo = MarketRepository(store: store, sync: sync);
+    // 模拟旧版本已经种过全球自选（种子标记也已置位）
+    await store.addWatchlist('SPY', 'us');
+    await store.setState('watchlist_seeded', '1');
+
+    await repo.ensureSeeded();
+
+    expect((await store.listWatchlist()).map((item) => item.symbol),
+        isNot(contains('SPY')));
+  });
+
   test('repository 种子数据只写一次', () async {
     final sync = SyncService(store: store);
     final repo = MarketRepository(store: store, sync: sync);

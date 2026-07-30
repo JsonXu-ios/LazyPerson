@@ -120,7 +120,6 @@ class _HomeScreenState extends State<HomeScreen> {
                       child: KlineChart(
                         payload: displayKline,
                         autoDrawing: controller.autoDrawing,
-                        lineColors: controller.lineColors,
                         majorLineStep: controller.activeConfig.majorLineStep,
                         majorLineMinPercent:
                             controller.activeConfig.majorLineMinPercent ?? 0,

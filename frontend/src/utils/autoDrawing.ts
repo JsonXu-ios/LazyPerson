@@ -59,15 +59,12 @@ export type AutoDrawing = {
   nearestDistancePct: number | null;
 };
 
-export type AutoLineColorMap = Record<string, string>;
-
 const DEFAULT_WINDOW = 90;
-const STORAGE_KEY = "lazy-person:auto-line-colors:v3";
 const DEFAULT_YELLOW = "#f6d36b";
 const SWING_RADIUS = 1;
 const MIN_CHANNEL_SPAN = 6;
 const RECENT_CHANNEL_LOOKBACK = 35;
-const DEFAULT_COLORS: AutoLineColorMap = {
+const DEFAULT_COLORS: Record<string, string> = {
   "0%": DEFAULT_YELLOW,
   "+10%": DEFAULT_YELLOW,
   "+20%": "#f24d4d",
@@ -538,26 +535,9 @@ export function trendLabel(direction: AutoTrendDirection) {
   return "震荡观察";
 }
 
-export function defaultLineColors() {
-  return { ...DEFAULT_COLORS };
-}
-
-export function loadLineColors(): AutoLineColorMap {
-  try {
-    const raw = window.localStorage.getItem(STORAGE_KEY);
-    return raw ? { ...DEFAULT_COLORS, ...JSON.parse(raw) } : defaultLineColors();
-  } catch {
-    return defaultLineColors();
-  }
-}
-
-export function saveLineColors(colors: AutoLineColorMap) {
-  window.localStorage.setItem(STORAGE_KEY, JSON.stringify(colors));
-}
-
-export function colorForLevel(level: AutoLineLevel, colors: AutoLineColorMap, index = 0) {
+export function colorForLevel(level: AutoLineLevel) {
   if (level.label === "+20%") return "#f24d4d";
   if (level.label === "+50%") return "#1f6feb";
   if (level.label === "+80%") return "#ffffff";
-  return colors[level.label] || DEFAULT_COLORS[level.label] || (index >= 0 ? DEFAULT_YELLOW : DEFAULT_YELLOW);
+  return DEFAULT_COLORS[level.label] || DEFAULT_YELLOW;
 }

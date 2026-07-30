@@ -132,6 +132,15 @@ class LocalStore {
     return (result.first['c'] as int?) ?? 0;
   }
 
+  /// 删掉自选与清单里所有非 6 位数字代码的行（历史上种过的美股/黄金/加密）。
+  /// 项目已收敛为纯 A 股，这些行留着会让整批行情请求失败。返回删除的自选条数。
+  Future<int> purgeNonAShare() async {
+    const notASharePattern = "symbol NOT GLOB '[0-9][0-9][0-9][0-9][0-9][0-9]'";
+    final removed = await db.delete('watchlist', where: notASharePattern);
+    await db.delete('symbols', where: notASharePattern);
+    return removed;
+  }
+
   Future<SymbolItem?> getSymbol(String symbol) async {
     final rows =
         await db.query('symbols', where: 'symbol = ?', whereArgs: [symbol]);

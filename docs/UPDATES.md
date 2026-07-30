@@ -809,3 +809,120 @@ widget 里不再写裸数字，避免各屏再次跑偏：
   且失败会污染同文件其它用例）。整屏的横向风险改为结构性堵住，纵向仍需装机确认。
 - 竖向空间没实测：主行情屏是固定 Column（顶栏/标的头/周期条/图表 flex5/副图 104×2/底部条），
   字号普遍上调后在 800dp 高的窄屏上是否够，要装机看。
+
+## 2026-07-30（修复）：标的名退回代码、市场显示 --
+
+类型：实现更新
+
+问题：网页版标题只显示代码（如 `600360`），副行 `600360 · -- · 腾讯行情数据`，名称丢失。
+
+根因是「只保留 A 股」那次改动**漏了数据迁移**：种全球自选的代码删掉了，但本地 sqlite 里
+**已经种下**的 SPY / QQQ / GC=F / BTC-USD 还在（`global_watchlist_seeded` 早已置位，删代码不删数据）。
+`guess_market('SPY')` 现在返回空 → `TencentAdapter._market_symbol` 抛 `ProviderError`
+→ **整批行情请求一起失败**（一个请求一个缓存键，validator 要求所有 symbol 都在）
+→ 落到 `kline_fallback` 分支，而兜底行的 `name` / `market` 是硬编码的空字符串
+→ 前端 `selectedQuote?.name || selected` 退回代码、`market` 显示 `--`。
+
+复现：`GET /api/quotes/realtime?symbols=600360,002138,SPY` → 两行 name/market 全空，quality 为 `kline_fallback`。
+
+修复内容（后端与 App 两侧对称）：
+
+- **数据迁移**：`CacheStore.purge_non_a_share()` / `LocalStore.purgeNonAShare()` 删掉 watchlist 与 symbols
+  里所有非 6 位数字代码的行；后端在 `list_watchlist` 前、App 在 `ensureSeeded` 里各跑一次，
+  用 `a_share_only_migrated` 标记保证只跑一次。
+- **入口过滤**：`realtime_quotes` / `realtimeQuotes` 只保留 A 股代码。残留脏数据从此只是被忽略，
+  不会再拖垮整批请求 —— 这是防御层，即使将来又混进别的代码也不会再出现同样的退化。
+- **兜底带上名称**：日 K 兜底的行改为从 symbols 表补 `name` / `market`，
+  这样即使行情源真的全挂，标题也不会退回代码。
+
+验证：
+
+- 修复后 `GET /api/quotes/realtime?symbols=600360,002138,SPY` → SPY 被忽略，
+  600360 返回「华微电子 / SH / 9.04」，quality 为 `tencent`。
+- 新增 `tests/test_cache.py::AShareOnlyMigrationTests` 3 项（清理生效、list_watchlist 触发一次、入口过滤），
+  `app/test/local_store_test.dart` 2 项（清理生效、ensureSeeded 补跑）。
+- `python -m pytest tests/` 58 项通过；`flutter analyze` 无告警、`flutter test` 64 项通过。
+- `flutter build apk --release` 构建成功。
+
+## 2026-07-30（调整）：自选显示名称、可加入自选、去掉线位颜色
+
+类型：实现更新
+
+### 1. App 自选列表只显示代码
+
+`LocalStore.listWatchlist` 的 name 是 `LEFT JOIN symbols` 拿的，而 symbols 表要等全市场同步跑完才有内容；
+同步没完成（或手动加的标的不在表里）时列表就只剩代码。两处修：
+
+- `MarketRepository.rememberQuoteNames()`：每次行情回来后把 name/market 落进 symbols 表，
+  由 `HomeController.loadQuotes` 触发（空名不写）。加入自选前也先落一次，保证新加的立刻有名字。
+- `watchlist_sheet` 显示层再兜一层：`item.name` 为空时退到该标的的行情名称，两个都空才显示代码。
+
+### 2. 八档局点进来的标的无法加入自选
+
+两端都只有"删除自选"，没有"加入"。现在按是否已在自选切换：
+
+- App：`HomeController.selectedInWatchlist`，资产信息浮层底部按钮在「加入自选」/「删除自选」之间切换。
+- 网页版：`App.tsx` 计算 `selectedInWatchlist` 传给 `StockSummary`，右上角图标按钮在「加入自选」（Star）/「移除自选」（Trash）之间切换。
+
+### 3. 去掉线位颜色
+
+档位线颜色改为只用 `defaultLineColors` / `DEFAULT_COLORS` 的固定配色，不再可配置。删除内容：
+
+- App：`HomeController.lineColors` / `updateLineColor` / SharedPreferences 键 `lazy-person:auto-line-colors:v3`；
+  `KlineChart` 的 `lineColors` 入参；资产信息浮层的「线位颜色」整段与色板。
+- 网页版：`autoDrawing.ts` 的 `AutoLineColorMap` / `loadLineColors` / `saveLineColors` / `defaultLineColors`
+  与 localStorage 键；`colorForLevel(level)` 只保留固定色；`KlineChart` 与 `StockSummary` 的相关 props；
+  `styles.css` 里 `.auto-line-list` 一族样式。
+
+验证：
+
+- `flutter analyze` 无告警；`flutter test` 65 项通过（新增 1 项：行情名称落库后自选列表不再只剩代码）。
+- `python -m pytest tests/` 58 项通过；`npx tsc --noEmit` 与 `npm run build` 通过。
+- `flutter build apk --release` 构建成功。
+
+遗留问题：
+
+- 八档局列表里没有直接的"加入自选"按钮，需要先点进标的再从资产信息加。两端一致，如需一步到位可再加。
+
+## 2026-07-30（调整）：八档局页筛选改开关 chip、字号再放大、只留卡片视图
+
+类型：实现更新
+
+仅 app 端，网页版未动。
+
+- **筛选开关**：四个 12dp 勾选框（市值/涨停/含顶部下来/含V型反弹）换成 `_FilterChip` ——
+  整块可点、`minHeight: 36`、选中态是 accent 描边 + 底色 + 发光 + 实心勾。原来的小方框在手机上很难按准。
+- **字号再上调一档**（这一页整体偏小）：规则说明 11.5→13、筛选标签 12→13、按钮 12→13、
+  进度/空态/失败文案 11~12→13、档命中标题 11→13、副标题 9→11；
+  雷达的档位数字 12→13、档名 13→15、表头 9→11；
+  命中卡名称 15→16、代码 11→12、波段信息 12→13、命中涨幅 20→24。
+- **只留卡片视图**：删除 `band_hit_table.dart`（含 `BandViewToggle`）与 `_tableView` 状态，
+  命中卡抽成独立的 `lib/ui/widgets/band_hit_card.dart`（原来是屏内私有方法，抽出来才能单独测布局）。
+
+验证：
+
+- `flutter analyze` 无告警；`flutter test` 65 项通过。
+- 布局回归测试同步改为覆盖 `BandHitCard`，并**在这次改动中抓到一处真实溢出**：
+  字号放大后雷达头部那行（`档位分布 · 命中 x / y` + `n档 ACTIVE`）在 360dp 下溢出 40px，
+  已把左侧文本改为 `Flexible` + ellipsis。
+- `flutter build apk --release` 构建成功。
+
+## 2026-07-30（修复）：命中卡涨幅未右对齐、扫描按钮不显眼
+
+类型：实现更新
+
+- **涨幅没贴右**：卡片首行原本写成 `Flexible(名称) + … + Spacer()`。两者都是 flex 1，
+  剩余空间被五五分；`Flexible` 是 loose fit，名称短时用不满自己那一半，而 `Spacer` 是 tight、
+  只占固定的另一半 —— 差额留在行尾（Row 默认 `MainAxisAlignment.start`），涨幅就停在半路。
+  改成左侧整组套一个 `Expanded`，它吃掉全部剩余空间，涨幅自然贴右。
+- **扫描按钮不显眼**：主题里的 `OutlinedButtonTheme` 是 accent 描边 + 16% 底色，
+  在 HUD 深底上几乎看不出是按钮。这一页的主操作换成 `_ScanButton`：实心 accent 底 + `#050914` 深色字 +
+  雷达图标；扫描中变半透明并显示转圈。其它页面的 OutlinedButton 不受影响。
+
+验证：
+
+- 新增布局用例「命中卡：名称很短时涨幅仍然贴右」，直接量坐标断言
+  `cardRight - pctRight < 20`（只应剩 13dp 内边距）。
+  已确认这条断言不是空的：把布局改回旧写法后它会失败，改回来才通过。
+- `flutter analyze` 无告警；`flutter test` 67 项通过。
+- `flutter build apk --release` 构建成功。

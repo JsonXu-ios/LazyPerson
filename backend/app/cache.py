@@ -165,6 +165,18 @@ class CacheStore:
             rows = conn.execute(sql, params).fetchall()
         return [dict(row) for row in rows]
 
+    def purge_non_a_share(self) -> int:
+        """删掉自选与清单里所有非 6 位数字代码的行（历史上种过的美股/黄金/加密）。
+        项目已收敛为纯 A 股，这些行留着会让整批行情请求失败。返回删除的自选条数。"""
+        with self._connection() as conn:
+            removed = conn.execute(
+                "delete from watchlist where symbol not glob '[0-9][0-9][0-9][0-9][0-9][0-9]'"
+            ).rowcount
+            conn.execute(
+                "delete from symbols where symbol not glob '[0-9][0-9][0-9][0-9][0-9][0-9]'"
+            )
+        return removed or 0
+
     def get_state(self, key: str) -> str | None:
         with self._connection() as conn:
             row = conn.execute("select value from app_state where key = ?", (key,)).fetchone()

@@ -66,8 +66,9 @@ class _WatchlistSheetState extends State<WatchlistSheet> {
         for (final bar in bars)
           if (bar.close != null) bar.close!,
       ];
-      _closes[item.symbol] =
-          values.length > 26 ? values.sublist(values.length - 26) : values;
+      _closes[item.symbol] = values.length > 26
+          ? values.sublist(values.length - 26)
+          : values;
     }
     if (mounted) setState(() {});
   }
@@ -76,8 +77,9 @@ class _WatchlistSheetState extends State<WatchlistSheet> {
   Widget build(BuildContext context) {
     final rows = [...controller.watchlist];
     double sortValue(String symbol, _SortKey key) {
-      final quote =
-          controller.quotes.where((item) => item.symbol == symbol).firstOrNull;
+      final quote = controller.quotes
+          .where((item) => item.symbol == symbol)
+          .firstOrNull;
       switch (key) {
         case _SortKey.pct:
           return quote?.pctChg ?? double.negativeInfinity;
@@ -91,8 +93,12 @@ class _WatchlistSheetState extends State<WatchlistSheet> {
     }
 
     if (_sortKey != _SortKey.custom) {
-      rows.sort((a, b) => sortValue(b.symbol, _sortKey)
-          .compareTo(sortValue(a.symbol, _sortKey)));
+      rows.sort(
+        (a, b) => sortValue(
+          b.symbol,
+          _sortKey,
+        ).compareTo(sortValue(a.symbol, _sortKey)),
+      );
     }
 
     var up = 0;
@@ -109,8 +115,9 @@ class _WatchlistSheetState extends State<WatchlistSheet> {
     return HudSheet(
       heightFactor: 0.81,
       child: Padding(
-        padding:
-            EdgeInsets.only(bottom: MediaQuery.of(context).viewInsets.bottom),
+        padding: EdgeInsets.only(
+          bottom: MediaQuery.of(context).viewInsets.bottom,
+        ),
         child: Column(
           crossAxisAlignment: CrossAxisAlignment.stretch,
           children: [
@@ -133,24 +140,36 @@ class _WatchlistSheetState extends State<WatchlistSheet> {
         crossAxisAlignment: CrossAxisAlignment.baseline,
         textBaseline: TextBaseline.alphabetic,
         children: [
-          const Text('自选资产',
-              style: TextStyle(
-                  fontSize: FontSize.screenTitle,
-                  fontWeight: FontWeight.w700,
-                  color: AppColors.text)),
+          const Text(
+            '自选资产',
+            style: TextStyle(
+              fontSize: FontSize.screenTitle,
+              fontWeight: FontWeight.w700,
+              color: AppColors.text,
+            ),
+          ),
           const SizedBox(width: 8),
-          Text('A SHARE · $total',
-              style: mono(
-                  size: FontSize.capsLabel,
-                  color: AppColors.accent,
-                  letterSpacing: 1.2)),
+          Text(
+            'A SHARE · $total',
+            style: mono(
+              size: FontSize.capsLabel,
+              color: AppColors.accent,
+              letterSpacing: 1.2,
+            ),
+          ),
           const Spacer(),
-          Text('涨 $up',
-              style: mono(size: FontSize.tableNumber, color: AppColors.rise)),
-          Text(' · ',
-              style: mono(size: FontSize.tableNumber, color: AppColors.textDim)),
-          Text('跌 $down',
-              style: mono(size: FontSize.tableNumber, color: AppColors.fall)),
+          Text(
+            '涨 $up',
+            style: mono(size: FontSize.tableNumber, color: AppColors.rise),
+          ),
+          Text(
+            ' · ',
+            style: mono(size: FontSize.tableNumber, color: AppColors.textDim),
+          ),
+          Text(
+            '跌 $down',
+            style: mono(size: FontSize.tableNumber, color: AppColors.fall),
+          ),
         ],
       ),
     );
@@ -171,21 +190,28 @@ class _WatchlistSheetState extends State<WatchlistSheet> {
                 controller: _searchController,
                 onChanged: controller.search,
                 style: const TextStyle(
-                    fontSize: FontSize.secondaryNumber, color: AppColors.text),
+                  fontSize: FontSize.secondaryNumber,
+                  color: AppColors.text,
+                ),
                 decoration: const InputDecoration(
                   isDense: true,
                   border: InputBorder.none,
                   hintText: '代码 / 名称 / 拼音首字母',
                   hintStyle: TextStyle(
-                      fontSize: FontSize.body, color: AppColors.textFaint),
+                    fontSize: FontSize.body,
+                    color: AppColors.textFaint,
+                  ),
                 ),
               ),
             ),
-            Text('SEARCH',
-                style: mono(
-                    size: FontSize.capsLabel,
-                    color: AppColors.accent,
-                    letterSpacing: 1.6)),
+            Text(
+              'SEARCH',
+              style: mono(
+                size: FontSize.capsLabel,
+                color: AppColors.accent,
+                letterSpacing: 1.6,
+              ),
+            ),
           ],
         ),
       ),
@@ -207,12 +233,18 @@ class _WatchlistSheetState extends State<WatchlistSheet> {
           for (final item in controller.searchResults)
             ListTile(
               dense: true,
-              title: Text(item.display,
-                  style: const TextStyle(
-                      fontSize: FontSize.secondaryNumber,
-                      color: AppColors.text)),
-              trailing:
-                  const Icon(Icons.add, size: 18, color: AppColors.accent),
+              title: Text(
+                item.display,
+                style: const TextStyle(
+                  fontSize: FontSize.secondaryNumber,
+                  color: AppColors.text,
+                ),
+              ),
+              trailing: const Icon(
+                Icons.add,
+                size: 18,
+                color: AppColors.accent,
+              ),
               onTap: () {
                 controller.addSymbol(item.symbol);
                 _searchController.clear();
@@ -233,8 +265,7 @@ class _WatchlistSheetState extends State<WatchlistSheet> {
             HudChip(
               label: label,
               active: _sortKey == key,
-              padding:
-                  const EdgeInsets.symmetric(horizontal: 12, vertical: 6),
+              padding: const EdgeInsets.symmetric(horizontal: 12, vertical: 6),
               onTap: () => setState(() => _sortKey = key),
             ),
             const SizedBox(width: 7),
@@ -258,8 +289,8 @@ class _WatchlistSheetState extends State<WatchlistSheet> {
         final tone = pct == null
             ? AppColors.textMuted
             : pct >= 0
-                ? AppColors.rise
-                : AppColors.fall;
+            ? AppColors.rise
+            : AppColors.fall;
         return Dismissible(
           key: ValueKey(item.symbol),
           direction: DismissDirection.endToStart,
@@ -288,17 +319,27 @@ class _WatchlistSheetState extends State<WatchlistSheet> {
                   child: Column(
                     crossAxisAlignment: CrossAxisAlignment.start,
                     children: [
-                      Text(quoteName(item.symbol, item.name),
-                          overflow: TextOverflow.ellipsis,
-                          style: const TextStyle(
-                              fontSize: FontSize.cardTitle,
-                              fontWeight: FontWeight.w600,
-                              color: AppColors.text)),
+                      // symbols 表（全市场同步）还没到位时退到行情里的名称，
+                      // 两个都空才显示代码
+                      Text(
+                        quoteName(
+                          item.symbol,
+                          item.name.isNotEmpty ? item.name : quote?.name,
+                        ),
+                        overflow: TextOverflow.ellipsis,
+                        style: const TextStyle(
+                          fontSize: FontSize.cardTitle,
+                          fontWeight: FontWeight.w600,
+                          color: AppColors.text,
+                        ),
+                      ),
                       const SizedBox(height: 3),
                       Text(
                         '${item.symbol} · ${formatNumber(quote?.amount)}',
                         style: mono(
-                            size: FontSize.legend, color: AppColors.textDim),
+                          size: FontSize.legend,
+                          color: AppColors.textDim,
+                        ),
                       ),
                     ],
                   ),
@@ -313,15 +354,19 @@ class _WatchlistSheetState extends State<WatchlistSheet> {
                 Column(
                   crossAxisAlignment: CrossAxisAlignment.end,
                   children: [
-                    Text(formatFullPrice(quote?.price),
-                        style: mono(
-                            size: FontSize.cardTitle,
-                            color: tone,
-                            weight: FontWeight.w700)),
+                    Text(
+                      formatFullPrice(quote?.price),
+                      style: mono(
+                        size: FontSize.cardTitle,
+                        color: tone,
+                        weight: FontWeight.w700,
+                      ),
+                    ),
                     const SizedBox(height: 3),
-                    Text(formatPercent(pct),
-                        style:
-                            mono(size: FontSize.secondaryNumber, color: tone)),
+                    Text(
+                      formatPercent(pct),
+                      style: mono(size: FontSize.secondaryNumber, color: tone),
+                    ),
                   ],
                 ),
               ],
@@ -339,11 +384,14 @@ class _WatchlistSheetState extends State<WatchlistSheet> {
         children: [
           Container(width: 16, height: 1, color: AppColors.accent),
           const SizedBox(width: 8),
-          Text('SWIPE LEFT TO REMOVE · TAP TO CHART',
-              style: mono(
-                  size: FontSize.capsLabel,
-                  color: AppColors.textDim,
-                  letterSpacing: 1.2)),
+          Text(
+            'SWIPE LEFT TO REMOVE · TAP TO CHART',
+            style: mono(
+              size: FontSize.capsLabel,
+              color: AppColors.textDim,
+              letterSpacing: 1.2,
+            ),
+          ),
         ],
       ),
     );

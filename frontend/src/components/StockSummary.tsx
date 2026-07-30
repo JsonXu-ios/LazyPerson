@@ -1,7 +1,7 @@
-import { RefreshCw, Trash2 } from "lucide-react";
+import { RefreshCw, Star, Trash2 } from "lucide-react";
 import type { DataQuality, KlineBar, Quote } from "../types";
-import type { AutoDrawing, AutoLineColorMap } from "../utils/autoDrawing";
-import { colorForLevel, trendLabel } from "../utils/autoDrawing";
+import type { AutoDrawing } from "../utils/autoDrawing";
+import { trendLabel } from "../utils/autoDrawing";
 import { formatNumber, formatPercent, formatTime, qualityText, qualityTone } from "../utils/format";
 import { FundamentalsPanel } from "./FundamentalsPanel";
 
@@ -12,9 +12,10 @@ type Props = {
   quoteQuality: DataQuality | null;
   klineQuality: DataQuality | null;
   autoDrawing: AutoDrawing | null;
-  lineColors: AutoLineColorMap;
-  onLineColorChange: (label: string, color: string) => void;
+  /// 当前标的是否已在自选（八档局点进来的通常不在）
+  inWatchlist: boolean;
   onRefresh: () => void;
+  onAdd: () => void;
   onRemove: () => void;
 };
 
@@ -25,9 +26,9 @@ export function StockSummary({
   quoteQuality,
   klineQuality,
   autoDrawing,
-  lineColors,
-  onLineColorChange,
+  inWatchlist,
   onRefresh,
+  onAdd,
   onRemove,
 }: Props) {
   const price = quote?.price ?? latestBar?.close;
@@ -45,9 +46,15 @@ export function StockSummary({
           <button className="icon-button" onClick={onRefresh} title="刷新资产">
             <RefreshCw size={16} />
           </button>
-          <button className="icon-button danger" onClick={onRemove} title="移除自选">
-            <Trash2 size={16} />
-          </button>
+          {inWatchlist ? (
+            <button className="icon-button danger" onClick={onRemove} title="移除自选">
+              <Trash2 size={16} />
+            </button>
+          ) : (
+            <button className="icon-button primary" onClick={onAdd} title="加入自选">
+              <Star size={16} />
+            </button>
+          )}
         </div>
       </div>
 
@@ -91,39 +98,6 @@ export function StockSummary({
             label="距线位"
             value={autoDrawing.nearestDistancePct === null ? "-" : `${autoDrawing.nearestDistancePct.toFixed(2)}%`}
           />
-          <div className="auto-line-list">
-            {autoDrawing.levels.map((level, index) => {
-              const color = colorForLevel(level, lineColors, index);
-              return (
-                <label key={level.label}>
-                  <input
-                    type="color"
-                    value={color}
-                    onChange={(event) => onLineColorChange(level.label, event.target.value)}
-                    aria-label={`选择 ${level.label} 颜色`}
-                    title={`${level.label} 颜色`}
-                  />
-                  <input
-                    className="color-hex-input"
-                    key={`${level.label}-${color}`}
-                    type="text"
-                    defaultValue={color}
-                    maxLength={7}
-                    spellCheck={false}
-                    onChange={(event) => {
-                      const nextColor = normalizeHexColor(event.target.value);
-                      if (nextColor) onLineColorChange(level.label, nextColor);
-                    }}
-                    aria-label={`输入 ${level.label} 颜色`}
-                    title={`${level.label} 颜色值`}
-                  />
-                  <span>
-                    {level.label} / {formatNumber(level.price)}
-                  </span>
-                </label>
-              );
-            })}
-          </div>
           <div className="auto-trend-list">
             {autoDrawing.trendSegments.map((segment) => (
               <span key={segment.id}>{segment.label}</span>
@@ -142,9 +116,4 @@ function Metric({ label, value }: { label: string; value: string }) {
       <strong>{value}</strong>
     </div>
   );
-}
-
-function normalizeHexColor(value: string) {
-  const normalized = value.trim().toLowerCase();
-  return /^#[0-9a-f]{6}$/.test(normalized) ? normalized : null;
 }

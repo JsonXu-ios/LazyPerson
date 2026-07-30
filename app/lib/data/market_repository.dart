@@ -33,6 +33,9 @@ class MarketRepository {
   static const defaultIndicators = ['macd', 'lon'];
   static const _seededKey = 'watchlist_seeded';
 
+  /// 历史版本种过美股/黄金/加密自选，删代码不会删数据，靠这个标记补一次清理
+  static const _aShareOnlyKey = 'a_share_only_migrated';
+
   static const _quoteTtl = Duration(seconds: 10);
   static const _minuteTtl = Duration(seconds: 60);
   static const _barDayTtl = Duration(hours: 1);
@@ -65,6 +68,10 @@ class MarketRepository {
   ];
 
   Future<void> ensureSeeded() async {
+    if (await store.getState(_aShareOnlyKey) != '1') {
+      await store.purgeNonAShare();
+      await store.setState(_aShareOnlyKey, '1');
+    }
     if (await store.getState(_seededKey) == '1') return;
     for (final item in defaultWatchlist) {
       await store.addWatchlist(item.symbol, item.groupName, note: item.note);
@@ -79,6 +86,22 @@ class MarketRepository {
 
   Future<List<WatchlistItem>> listWatchlist() => store.listWatchlist();
 
+  /// 把行情里的名称/市场落进 symbols 表。自选列表的名称是 join symbols 拿的，
+  /// 全市场同步没跑完时那张表还是空的，列表就只剩代码 —— 这里顺手补上。
+  Future<void> rememberQuoteNames(List<Quote> quotes) async {
+    final items = [
+      for (final quote in quotes)
+        if (quote.name.trim().isNotEmpty)
+          SymbolItem(
+            symbol: quote.symbol,
+            market: quote.market,
+            name: quote.name.trim(),
+          ),
+    ];
+    if (items.isEmpty) return;
+    await store.upsertSymbols(items);
+  }
+
   Future<void> addWatchlist(String symbol, String groupName) =>
       store.addWatchlist(normalizeSymbol(symbol), groupName);
 
@@ -89,10 +112,14 @@ class MarketRepository {
 
   Future<QuotesResult> realtimeQuotes(List<String> symbols,
       {bool refresh = false}) async {
+    // 只保留 A 股：历史自选里可能还残留美股/黄金/加密代码，
+    // 它们会让 TencentProvider 抛错，进而整批行情失败退化成日 K 兜底
     final clean = <String>[];
     for (final symbol in symbols) {
       final normalized = normalizeSymbol(symbol);
-      if (normalized.isNotEmpty && !clean.contains(normalized)) {
+      if (normalized.isNotEmpty &&
+          isAShareSymbol(normalized) &&
+          !clean.contains(normalized)) {
         clean.add(normalized);
       }
     }
@@ -126,8 +153,11 @@ class MarketRepository {
         if (bars.isEmpty) continue;
         final latest = bars.last;
         final preClose = bars.length > 1 ? bars[bars.length - 2].close : null;
+        final meta = await store.getSymbol(symbol);
         fallback.add(Quote(
           symbol: symbol,
+          market: meta?.market ?? '',
+          name: meta?.name ?? '',
           tradeTime: latest.time,
           price: latest.close,
           open: latest.open,

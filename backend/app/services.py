@@ -202,7 +202,15 @@ class MarketService:
         return rows, quality
 
     def realtime_quotes(self, symbols: list[str], refresh: bool = False) -> tuple[list[dict], DataQuality]:
-        clean_symbols = list(dict.fromkeys(normalize_symbol(symbol) for symbol in symbols if symbol.strip()))
+        # 只保留 A 股：历史自选里可能还残留美股/黄金/加密代码，
+        # 它们会让 TencentAdapter._market_symbol 抛错，进而整批行情失败退化成日 K 兜底
+        clean_symbols = list(
+            dict.fromkeys(
+                normalize_symbol(symbol)
+                for symbol in symbols
+                if symbol.strip() and is_a_share_symbol(normalize_symbol(symbol))
+            )
+        )
         if not clean_symbols:
             return [], DataQuality(source="unknown", updated_at=now_utc())
         try:
@@ -238,11 +246,13 @@ class MarketService:
                 previous = payload["bars"][-2] if len(payload["bars"]) > 1 else {}
                 close = latest.get("close")
                 pre_close = previous.get("close")
+                known = self.cache.search_symbols(symbol, limit=1)
+                meta = known[0] if known and known[0].get("symbol") == symbol else {}
                 rows.append(
                     {
                         "symbol": symbol,
-                        "market": "",
-                        "name": "",
+                        "market": meta.get("market", ""),
+                        "name": meta.get("name", ""),
                         "trade_time": latest.get("time"),
                         "price": close,
                         "open": latest.get("open"),
@@ -411,7 +421,17 @@ class MarketService:
             warnings=data.get("warnings", []),
         )
 
+    a_share_only_state_key = "a_share_only_migrated"
+
+    def _migrate_to_a_share_only(self) -> None:
+        """历史版本种过美股/黄金/加密自选，删代码不会删数据，这里补一次清理。"""
+        if self.cache.get_state(self.a_share_only_state_key) == "1":
+            return
+        self.cache.purge_non_a_share()
+        self.cache.set_state(self.a_share_only_state_key, "1")
+
     def list_watchlist(self, group_name: str | None = None) -> list[dict]:
+        self._migrate_to_a_share_only()
         rows = self.cache.list_watchlist(group_name)
         if rows and self.cache.get_state(self.default_watchlist_state_key) != "1":
             self.cache.set_state(self.default_watchlist_state_key, "1")

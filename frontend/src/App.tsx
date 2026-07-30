@@ -8,7 +8,7 @@ import { MoneyGrabPanel } from "./components/MoneyGrabPanel";
 import { StockSummary } from "./components/StockSummary";
 import { WatchlistPanel } from "./components/WatchlistPanel";
 import type { DataQuality, KlinePayload, Quote, SymbolItem, WatchlistItem } from "./types";
-import { computeAutoDrawing, loadLineColors, saveLineColors, type AutoLineColorMap } from "./utils/autoDrawing";
+import { computeAutoDrawing } from "./utils/autoDrawing";
 import { sliceDailyPayloadByCalendarDays } from "./utils/calendarWindow";
 import { normalizeError, qualityText } from "./utils/format";
 
@@ -44,7 +44,6 @@ export function App() {
   const [backendStatus, setBackendStatus] = useState("连接中");
   const [notice, setNotice] = useState("");
   const [loading, setLoading] = useState(false);
-  const [lineColors, setLineColors] = useState<AutoLineColorMap>(() => loadLineColors());
   const [drawer, setDrawer] = useState<"watchlist" | "summary" | "moneygrab" | null>(null);
   const quotesRequestRef = useRef(0);
   const detailRequestRef = useRef(0);
@@ -57,6 +56,8 @@ export function App() {
     return [...targets];
   }, [selected, symbols]);
   const selectedQuote = quotes.find((quote) => quote.symbol === selected);
+  // 八档局点进来的标的通常不在自选里，资产信息面板据此显示"加入"还是"移除"
+  const selectedInWatchlist = watchlist.some((item) => item.symbol === selected);
   const displayKline = useMemo(
     () => sliceDailyPayloadByCalendarDays(kline, aShareConfig.windowDays, aShareConfig.windowMode),
     [kline],
@@ -215,12 +216,6 @@ export function App() {
     }
   }
 
-  function updateLineColor(label: string, color: string) {
-    const next = { ...lineColors, [label]: color };
-    setLineColors(next);
-    saveLineColors(next);
-  }
-
   return (
     <main className="app-shell v2">
       <StatusBar
@@ -274,7 +269,6 @@ export function App() {
             symbol={selected}
             payload={displayKline}
             autoDrawing={autoDrawing}
-            lineColors={lineColors}
             windowDays={aShareConfig.windowDays}
             windowMode={aShareConfig.windowMode}
             majorLineStep={aShareConfig.majorLineStep}
@@ -325,9 +319,9 @@ export function App() {
                 quoteQuality={quoteQuality}
                 klineQuality={klineQuality}
                 autoDrawing={autoDrawing}
-                lineColors={lineColors}
-                onLineColorChange={updateLineColor}
+                inWatchlist={selectedInWatchlist}
                 onRefresh={refreshAll}
+                onAdd={() => addSymbol(selected)}
                 onRemove={() => removeSymbol(selected)}
               />
             )}

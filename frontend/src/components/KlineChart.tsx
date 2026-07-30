@@ -10,7 +10,7 @@ import {
 import { Plus, Trash2 } from "lucide-react";
 import { useEffect, useMemo, useRef, useState, type MouseEvent, type PointerEvent } from "react";
 import type { KlineBar, KlinePayload } from "../types";
-import type { AutoDrawing, AutoLineColorMap, AutoLineLevel } from "../utils/autoDrawing";
+import type { AutoDrawing, AutoLineLevel } from "../utils/autoDrawing";
 import { colorForLevel } from "../utils/autoDrawing";
 import { formatNumber, formatPercent } from "../utils/format";
 
@@ -18,7 +18,6 @@ type Props = {
   symbol: string;
   payload: KlinePayload | null;
   autoDrawing: AutoDrawing | null;
-  lineColors: AutoLineColorMap;
   windowDays: number;
   windowMode: "calendar" | "bars";
   majorLineStep?: number;
@@ -67,7 +66,6 @@ export function KlineChart({
   symbol,
   payload,
   autoDrawing,
-  lineColors,
   windowDays,
   windowMode,
   majorLineStep,
@@ -228,7 +226,7 @@ export function KlineChart({
         const highlight = isHighlightLevel(level, majorLineStep, majorLineMinPercent, majorLineAnchor);
         candle.createPriceLine({
           price: level.price,
-          color: lineColor(level, colorForLevel(level, lineColors, index), majorLineStep, majorLineMinPercent, majorLineAnchor),
+          color: lineColor(level, colorForLevel(level), majorLineStep, majorLineMinPercent, majorLineAnchor),
           lineWidth: highlight ? 3 : 1,
           lineStyle: LineStyle.Solid,
           axisLabelVisible: false,
@@ -324,7 +322,7 @@ export function KlineChart({
       updateLevelLabelPositions();
       updateTrendPointPositions();
     }, 60);
-  }, [autoDrawing, candleData, customLines, customTrendLines, lineColors, majorLineAnchor, majorLineMinPercent, majorLineStep, payload, useLogPriceScale, volumeData]);
+  }, [autoDrawing, candleData, customLines, customTrendLines, majorLineAnchor, majorLineMinPercent, majorLineStep, payload, useLogPriceScale, volumeData]);
 
   useEffect(() => {
     const resize = () => {
@@ -333,7 +331,7 @@ export function KlineChart({
     };
     window.addEventListener("resize", resize);
     return () => window.removeEventListener("resize", resize);
-  }, [autoDrawing, lineColors, majorLineAnchor, majorLineMinPercent, majorLineStep]);
+  }, [autoDrawing, majorLineAnchor, majorLineMinPercent, majorLineStep]);
 
   useEffect(() => {
     window.setTimeout(updateTrendPointPositions, 30);
@@ -385,7 +383,7 @@ export function KlineChart({
         return {
           key: `auto-${level.label}`,
           label: showLevelPrices ? `${level.label} ${formatFullPrice(level.price)}` : level.label,
-          color: lineColor(level, colorForLevel(level, lineColors, index), majorLineStep, majorLineMinPercent, majorLineAnchor),
+          color: lineColor(level, colorForLevel(level), majorLineStep, majorLineMinPercent, majorLineAnchor),
           textColor: labelTextColor(level, majorLineStep, majorLineMinPercent, majorLineAnchor),
           top: Number(coordinate),
           highlight: isHighlightLevel(level, majorLineStep, majorLineMinPercent, majorLineAnchor),

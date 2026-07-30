@@ -50,19 +50,24 @@ class BandRadar extends StatelessWidget {
             crossAxisAlignment: CrossAxisAlignment.baseline,
             textBaseline: TextBaseline.alphabetic,
             children: [
-              Text(
-                '档位分布 · 命中 $visibleTotal / $allTotal',
-                style: mono(
-                    size: FontSize.capsLabel,
-                    color: AppColors.textFaint,
-                    weight: FontWeight.w600,
-                    letterSpacing: 1.4),
+              // 命中数四位数时这行在 360dp 会顶出去，左侧允许被截
+              Flexible(
+                child: Text(
+                  '档位分布 · 命中 $visibleTotal / $allTotal',
+                  overflow: TextOverflow.ellipsis,
+                  softWrap: false,
+                  style: mono(
+                      size: FontSize.legend,
+                      color: AppColors.textFaint,
+                      weight: FontWeight.w600,
+                      letterSpacing: 1.2),
+                ),
               ),
-              const Spacer(),
+              const SizedBox(width: 10),
               Text(
                 '${bandGroupNames[activeGroup - 1]}档 ACTIVE',
                 style: mono(
-                    size: FontSize.capsLabel,
+                    size: FontSize.legend,
                     color: AppColors.accent,
                     weight: FontWeight.w600,
                     letterSpacing: 1.2),
@@ -131,7 +136,7 @@ class _RadarBar extends StatelessWidget {
             Text(
               '$count',
               style: mono(
-                size: FontSize.tableNumber,
+                size: FontSize.secondaryNumber,
                 color: hit ? AppColors.accent : AppColors.textDim,
                 weight: FontWeight.w600,
               ),
@@ -184,7 +189,7 @@ class _RadarBar extends StatelessWidget {
             Text(
               name,
               style: TextStyle(
-                fontSize: FontSize.secondaryNumber,
+                fontSize: FontSize.cardTitle,
                 fontWeight: active ? FontWeight.w700 : FontWeight.w500,
                 color: hit ? AppColors.text : AppColors.textDim,
               ),

@@ -16,7 +16,6 @@ import '../../utils/format.dart';
 class KlineChart extends StatefulWidget {
   final KlinePayload? payload;
   final AutoDrawing? autoDrawing;
-  final Map<String, String> lineColors;
   final int? majorLineStep;
   final double majorLineMinPercent;
   final int majorLineAnchor;
@@ -28,7 +27,6 @@ class KlineChart extends StatefulWidget {
     super.key,
     required this.payload,
     required this.autoDrawing,
-    required this.lineColors,
     this.majorLineStep,
     this.majorLineMinPercent = 0,
     this.majorLineAnchor = 0,
@@ -88,7 +86,6 @@ class _KlineChartState extends State<KlineChart> {
                         bars: bars,
                         period: widget.payload?.period ?? 'day',
                         autoDrawing: widget.autoDrawing,
-                        lineColors: widget.lineColors,
                         majorLineStep: widget.majorLineStep,
                         majorLineMinPercent: widget.majorLineMinPercent,
                         majorLineAnchor: widget.majorLineAnchor,
@@ -160,7 +157,6 @@ class _KlinePainter extends CustomPainter {
   final List<KlineBar> bars;
   final String period;
   final AutoDrawing? autoDrawing;
-  final Map<String, String> lineColors;
   final int? majorLineStep;
   final double majorLineMinPercent;
   final int majorLineAnchor;
@@ -175,7 +171,6 @@ class _KlinePainter extends CustomPainter {
     required this.bars,
     required this.period,
     required this.autoDrawing,
-    required this.lineColors,
     required this.majorLineStep,
     required this.majorLineMinPercent,
     required this.majorLineAnchor,
@@ -333,9 +328,7 @@ class _KlinePainter extends CustomPainter {
           majorLineAnchor: majorLineAnchor);
       final colorHex = levelLineColor(
         level,
-        lineColors[level.label] ??
-            defaultLineColors[level.label] ??
-            defaultYellow,
+        defaultLineColors[level.label] ?? defaultYellow,
         majorLineStep: majorLineStep,
         majorLineMinPercent: majorLineMinPercent,
         majorLineAnchor: majorLineAnchor,
@@ -471,7 +464,6 @@ class _KlinePainter extends CustomPainter {
   bool shouldRepaint(covariant _KlinePainter oldDelegate) {
     return oldDelegate.bars != bars ||
         oldDelegate.autoDrawing != autoDrawing ||
-        oldDelegate.lineColors != lineColors ||
         oldDelegate.hoverIndex != hoverIndex ||
         oldDelegate.period != period;
   }

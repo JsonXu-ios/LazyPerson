@@ -11,7 +11,7 @@ import 'package:flutter/material.dart';
 import 'package:flutter_test/flutter_test.dart';
 import 'package:lazyperson/logic/band_scanner.dart';
 import 'package:lazyperson/theme/app_theme.dart';
-import 'package:lazyperson/ui/widgets/band_hit_table.dart';
+import 'package:lazyperson/ui/widgets/band_hit_card.dart';
 import 'package:lazyperson/ui/widgets/band_radar.dart';
 
 /// 设计稿基准宽 + 常见窄屏
@@ -61,20 +61,54 @@ Future<void> _pumpAt(
 void main() {
   _sizes.forEach((label, size) {
     group('$label 不溢出', () {
-      testWidgets('命中表格（长名称 + 涨停 + 两个形态标记）', (tester) async {
+      testWidgets('命中卡（长名称 + 涨停 + 两个形态标记）', (tester) async {
         await _pumpAt(
           tester,
           size,
           Scaffold(
-            body: BandHitTable(
-              hits: [
-                _hit(limitUp: true, fromTop: true, vShape: true),
-                _hit(symbol: '600002', name: '名字特别长的一家上市公司股份有限公司'),
+            body: ListView(
+              padding: const EdgeInsets.symmetric(horizontal: 16),
+              children: [
+                BandHitCard(
+                  hit: _hit(limitUp: true, fromTop: true, vShape: true),
+                  index: 0,
+                  onTap: () {},
+                ),
+                BandHitCard(
+                  hit: _hit(
+                      symbol: '600002', name: '名字特别长的一家上市公司股份有限公司'),
+                  index: 1,
+                  onTap: () {},
+                ),
               ],
-              onSelect: (_) {},
             ),
           ),
         );
+      });
+
+      testWidgets('命中卡：名称很短时涨幅仍然贴右', (tester) async {
+        // 曾经写成 Flexible(名称) + Spacer，两者都是 flex 1、空间五五分，
+        // 名称短的时候 Flexible 用不完的那截留在中间，涨幅就浮在半路上
+        await _pumpAt(
+          tester,
+          size,
+          Scaffold(
+            body: Padding(
+              padding: const EdgeInsets.all(16),
+              child: BandHitCard(
+                hit: _hit(name: '中兴'),
+                index: 0,
+                onTap: () {},
+              ),
+            ),
+          ),
+        );
+
+        final cardRight = tester.getBottomRight(find.byType(BandHitCard)).dx;
+        final pctRight = tester.getBottomRight(find.text('+35.1%')).dx;
+
+        // 只应剩卡片自己的右内边距（13dp）
+        expect(cardRight - pctRight, lessThan(20));
       });
 
       testWidgets('八档雷达（八档都有命中）', (tester) async {

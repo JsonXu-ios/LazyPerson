@@ -93,3 +93,54 @@ class CacheTests(unittest.TestCase):
 
 if __name__ == "__main__":
     unittest.main()
+
+
+class AShareOnlyMigrationTests(unittest.TestCase):
+    """历史版本种过美股/黄金/加密自选，删代码不会删数据 —— 这里锁住那次数据迁移。
+    残留一条 SPY 就会让 TencentAdapter._market_symbol 抛错、整批行情退化成日 K 兜底
+    （name/market 变空，界面上标题退回代码），所以必须既清数据、又在入口过滤。"""
+
+    def test_purge_removes_non_a_share_rows(self):
+        with tempfile.TemporaryDirectory() as tmp:
+            cache = CacheStore(DummySettings(Path(tmp)))
+            cache.upsert_symbols(
+                [
+                    {"symbol": "600519", "market": "SH", "name": "贵州茅台", "pinyin": "", "listed_at": None},
+                    {"symbol": "SPY", "market": "US", "name": "标普500 ETF", "pinyin": "", "listed_at": None},
+                    {"symbol": "GC=F", "market": "FUT", "name": "COMEX 黄金期货", "pinyin": "", "listed_at": None},
+                ]
+            )
+            cache.add_watchlist("600519", "a_share")
+            cache.add_watchlist("SPY", "us")
+            cache.add_watchlist("BTC-USD", "crypto")
+
+            removed = cache.purge_non_a_share()
+
+            self.assertEqual(removed, 2)
+            self.assertEqual([row["symbol"] for row in cache.list_watchlist()], ["600519"])
+            self.assertEqual([row["symbol"] for row in cache.search_symbols("", 20)], ["600519"])
+
+    def test_list_watchlist_runs_migration_once(self):
+        with tempfile.TemporaryDirectory() as tmp:
+            settings = DummySettings(Path(tmp))
+            cache = CacheStore(settings)
+            service = MarketService(settings, cache)
+            # 模拟旧版本已经种过全球自选（种子标记也已置位）
+            cache.add_watchlist("SPY", "us")
+            cache.set_state(service.default_watchlist_state_key, "1")
+
+            rows = service.list_watchlist()
+
+            self.assertNotIn("SPY", [row["symbol"] for row in rows])
+            self.assertEqual(cache.get_state(service.a_share_only_state_key), "1")
+
+    def test_realtime_quotes_ignores_non_a_share_symbols(self):
+        # 不联网：给一个必然失败的假 symbol 列表，只验证过滤发生在请求之前
+        with tempfile.TemporaryDirectory() as tmp:
+            settings = DummySettings(Path(tmp))
+            service = MarketService(settings, CacheStore(settings))
+
+            rows, quality = service.realtime_quotes(["SPY", "GC=F", "BTC-USD"])
+
+            self.assertEqual(rows, [])
+            self.assertEqual(quality.source, "unknown")

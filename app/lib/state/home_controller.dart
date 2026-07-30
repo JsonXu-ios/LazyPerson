@@ -3,10 +3,8 @@
 library;
 
 import 'dart:async';
-import 'dart:convert';
 
 import 'package:flutter/foundation.dart';
-import 'package:shared_preferences/shared_preferences.dart';
 
 import '../data/market_repository.dart';
 import '../data/symbol_utils.dart';
@@ -16,8 +14,6 @@ import '../logic/calendar_window.dart';
 import '../logic/market_panels.dart';
 import '../models/models.dart';
 import '../utils/format.dart';
-
-const _lineColorsKey = 'lazy-person:auto-line-colors:v3';
 
 class HomeController extends ChangeNotifier {
   final MarketRepository repository;
@@ -33,7 +29,6 @@ class HomeController extends ChangeNotifier {
   DataQuality? klineQuality;
   String notice = '';
   bool loading = false;
-  Map<String, String> lineColors = Map.of(defaultLineColors);
   List<SymbolItem> searchResults = [];
   String query = '';
 
@@ -49,6 +44,10 @@ class HomeController extends ChangeNotifier {
   bool _disposed = false;
 
   MarketConfig get activeConfig => aShareConfig;
+
+  /// 当前标的是否已在自选里（八档局点进来的通常不在）
+  bool get selectedInWatchlist =>
+      watchlist.any((item) => item.symbol == selected);
 
   Quote? get selectedQuote {
     for (final quote in quotes) {
@@ -91,19 +90,6 @@ class HomeController extends ChangeNotifier {
   }
 
   Future<void> bootstrap() async {
-    final prefs = await SharedPreferences.getInstance();
-    final raw = prefs.getString(_lineColorsKey);
-    if (raw != null) {
-      try {
-        final saved = (jsonDecode(raw) as Map).cast<String, Object?>();
-        lineColors = {
-          ...defaultLineColors,
-          for (final entry in saved.entries) entry.key: '${entry.value}',
-        };
-      } catch (_) {
-        lineColors = Map.of(defaultLineColors);
-      }
-    }
     await loadWatchlist();
     await Future.wait([
       loadQuotes(refresh: false),
@@ -220,6 +206,7 @@ class HomeController extends ChangeNotifier {
       if (requestId != _quotesRequestId) return;
       quotes = result.quotes;
       quoteQuality = result.quality;
+      unawaited(repository.rememberQuoteNames(result.quotes));
       if (result.quality.fallback || result.quality.stale) {
         notice = result.quality.message.isNotEmpty
             ? result.quality.message
@@ -295,6 +282,7 @@ class HomeController extends ChangeNotifier {
     loading = true;
     _notify();
     try {
+      await repository.rememberQuoteNames(quotes);
       await repository.addWatchlist(symbol, aShareGroup);
       query = '';
       searchResults = [];
@@ -362,13 +350,6 @@ class HomeController extends ChangeNotifier {
     searchResults =
         results.where((item) => isAShareSymbol(item.symbol)).toList();
     _notify();
-  }
-
-  Future<void> updateLineColor(String label, String colorHex) async {
-    lineColors = {...lineColors, label: colorHex};
-    _notify();
-    final prefs = await SharedPreferences.getInstance();
-    await prefs.setString(_lineColorsKey, jsonEncode(lineColors));
   }
 
   void clearNotice() {

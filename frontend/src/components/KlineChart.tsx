@@ -144,23 +144,23 @@ export function KlineChart({
     const chart = createChart(element, {
       autoSize: true,
       layout: {
-        background: { type: ColorType.Solid, color: "#070b12" },
-        textColor: "#8f9bb0",
+        background: { type: ColorType.Solid, color: "#050914" },
+        textColor: "#8fb4e8",
         fontFamily: "Inter, system-ui, sans-serif",
       },
       grid: {
-        vertLines: { color: "#172033" },
-        horzLines: { color: "#172033" },
+        vertLines: { color: "#122038" },
+        horzLines: { color: "#122038" },
       },
       rightPriceScale: {
-        borderColor: "#28354a",
+        borderColor: "#1b3255",
         scaleMargins: {
           top: 0.08,
           bottom: 0.12,
         },
       },
       timeScale: {
-        borderColor: "#28354a",
+        borderColor: "#1b3255",
         timeVisible: true,
       },
       handleScroll: {
@@ -212,12 +212,12 @@ export function KlineChart({
     });
     seriesRef.current = [];
     const candle = chart.addCandlestickSeries({
-      upColor: "#f24d4d",
-      downColor: "#00a884",
-      borderUpColor: "#f24d4d",
-      borderDownColor: "#00a884",
-      wickUpColor: "#f24d4d",
-      wickDownColor: "#00a884",
+      upColor: "#ff4d6d",
+      downColor: "#00e5a0",
+      borderUpColor: "#ff4d6d",
+      borderDownColor: "#00e5a0",
+      wickUpColor: "#ff4d6d",
+      wickDownColor: "#00e5a0",
     });
     candle.setData(candleData);
     candleSeriesRef.current = candle;
@@ -238,7 +238,7 @@ export function KlineChart({
 
       autoDrawing.trendSegments.forEach((segment, index) => {
         const trend = chart.addLineSeries({
-          color: segment.direction === "up" ? "#f24d4d" : "#00a884",
+          color: segment.direction === "up" ? "#ff4d6d" : "#00e5a0",
           lineWidth: 3,
           priceLineVisible: false,
           lastValueVisible: false,

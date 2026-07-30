@@ -10,6 +10,7 @@ import '../../logic/auto_drawing.dart';
 import '../../logic/level_rules.dart';
 import '../../models/models.dart';
 import '../../theme/app_theme.dart';
+import '../../theme/hud.dart';
 import '../../utils/format.dart';
 
 class KlineChart extends StatefulWidget {
@@ -110,24 +111,40 @@ class _OhlcStrip extends StatelessWidget {
 
   @override
   Widget build(BuildContext context) {
-    final style = TextStyle(
-      color: isHover ? AppColors.warn : AppColors.textFaint,
-      fontSize: 11,
-    );
-    final items = [
-      if (isHover && bar != null) bar!.time,
-      '开 ${formatNumber(bar?.open)}',
-      '高 ${formatNumber(bar?.high)}',
-      '低 ${formatNumber(bar?.low)}',
-      '收 ${formatNumber(bar?.close)}',
-      '幅 ${formatPercent(bar?.pctChg)}',
-      '量 ${formatNumber(bar?.volume)}',
-    ];
+    final labelColor = isHover ? AppColors.warn : AppColors.textDim;
+    final valueColor = isHover ? AppColors.warn : AppColors.textFaint;
+    final pct = bar?.pctChg;
+    final pctColor = pct == null
+        ? valueColor
+        : pct >= 0
+            ? AppColors.rise
+            : AppColors.fall;
     return Padding(
-      padding: const EdgeInsets.symmetric(horizontal: 8, vertical: 4),
-      child: Wrap(
-        spacing: 10,
-        children: [for (final item in items) Text(item, style: style)],
+      padding: const EdgeInsets.symmetric(horizontal: 10, vertical: 5),
+      child: Row(
+        children: [
+          if (isHover && bar != null) ...[
+            Text(bar!.time, style: mono(size: 9.5, color: AppColors.warn)),
+            const SizedBox(width: 10),
+          ],
+          for (final (label, value) in [
+            ('O', formatNumber(bar?.open)),
+            ('H', formatNumber(bar?.high)),
+            ('L', formatNumber(bar?.low)),
+            ('C', formatNumber(bar?.close)),
+          ]) ...[
+            Text(label, style: mono(size: 9.5, color: labelColor)),
+            const SizedBox(width: 2),
+            Text(value, style: mono(size: 9.5, color: valueColor)),
+            const SizedBox(width: 9),
+          ],
+          Text(formatPercent(pct), style: mono(size: 9.5, color: pctColor)),
+          const Spacer(),
+          Text('VOL', style: mono(size: 9.5, color: labelColor)),
+          const SizedBox(width: 2),
+          Text(formatNumber(bar?.volume),
+              style: mono(size: 9.5, color: valueColor)),
+        ],
       ),
     );
   }
@@ -255,13 +272,13 @@ class _KlinePainter extends CustomPainter {
     // 成交量占底部 22%（scaleMargins top 0.78）
     final volumeTop = plotHeight * 0.78;
     final volumeHeight = plotHeight - volumeTop;
-    final bodyWidth = math.max(barWidth * 0.7, 1.0);
+    final bodyWidth = math.max(barWidth * 0.66, 1.0);
     for (var index = 0; index < bars.length; index++) {
       final bar = bars[index];
       if (bar.volume == null) continue;
       final up = (bar.close ?? 0) >= (bar.open ?? 0);
       final paint = Paint()
-        ..color = (up ? AppColors.rise : AppColors.fall).withValues(alpha: 0.46);
+        ..color = (up ? AppColors.rise : AppColors.fall).withValues(alpha: 0.42);
       final height = volumeHeight * (bar.volume! / maxVolume);
       final x = _indexToX(index, plotWidth);
       canvas.drawRect(
@@ -273,27 +290,31 @@ class _KlinePainter extends CustomPainter {
 
   void _paintCandles(
       Canvas canvas, double plotWidth, double plotHeight, double barWidth) {
-    final bodyWidth = math.max(barWidth * 0.7, 1.0);
+    final bodyWidth = math.max(barWidth * 0.66, 1.0);
     for (var index = 0; index < bars.length; index++) {
       final bar = bars[index];
       if (!bar.hasOhlc) continue;
       final up = bar.close! >= bar.open!;
       final color = up ? AppColors.rise : AppColors.fall;
-      final paint = Paint()..color = color;
       final x = _indexToX(index, plotWidth);
       final highY = _priceToY(bar.high!, plotHeight);
       final lowY = _priceToY(bar.low!, plotHeight);
       final openY = _priceToY(bar.open!, plotHeight);
       final closeY = _priceToY(bar.close!, plotHeight);
-      canvas.drawLine(Offset(x, highY), Offset(x, lowY),
-          paint..strokeWidth = math.max(barWidth * 0.12, 1.0));
+      drawGlowing(
+        canvas,
+        color,
+        (p) => canvas.drawLine(Offset(x, highY), Offset(x, lowY), p),
+        sigma: 2.0,
+        alpha: 0.45,
+        strokeWidth: math.max(barWidth * 0.12, 1.0),
+      );
       final top = math.min(openY, closeY);
       final bottom = math.max(openY, closeY);
-      canvas.drawRect(
-        Rect.fromLTWH(x - bodyWidth / 2, top, bodyWidth,
-            math.max(bottom - top, 1.0)),
-        paint,
-      );
+      final body = Rect.fromLTWH(
+          x - bodyWidth / 2, top, bodyWidth, math.max(bottom - top, 1.0));
+      drawGlowing(canvas, color, (p) => canvas.drawRect(body, p),
+          sigma: 2.4, alpha: 0.5);
     }
   }
 
@@ -323,8 +344,8 @@ class _KlinePainter extends CustomPainter {
           ..color = colorFromHex(colorHex)
           ..strokeWidth = highlight ? 3 : 1,
       );
-      // 只有 0% 与高亮线（主线/特殊位）显示数值标签，其余细线只画线
-      if (!highlight && level.percent != 0) continue;
+      // 对齐网页版 KlineChart.tsx：所有档位都生成标签候选，
+      // 由 avoidCrowdedLevelLabels 按 19px 间距 + priority 择优淘汰
       labelRows.add(LevelLabelRow(
         key: 'auto-${level.label}',
         label: showLevelPrices
@@ -377,19 +398,15 @@ class _KlinePainter extends CustomPainter {
       final startIndex = _indexForTime(segment.start.time, segment.start.index);
       final endIndex = _indexForTime(segment.end.time, segment.end.index);
       if (startIndex == null || endIndex == null) continue;
-      final paint = Paint()
-        ..color = segment.direction == AutoTrendDirection.up
-            ? AppColors.rise
-            : AppColors.fall
-        ..strokeWidth = 3
-        ..strokeCap = StrokeCap.round;
-      canvas.drawLine(
-        Offset(_indexToX(startIndex, plotWidth),
-            _priceToY(segment.start.price, plotHeight)),
-        Offset(_indexToX(endIndex, plotWidth),
-            _priceToY(segment.end.price, plotHeight)),
-        paint,
-      );
+      final color = segment.direction == AutoTrendDirection.up
+          ? AppColors.rise
+          : AppColors.fall;
+      final from = Offset(_indexToX(startIndex, plotWidth),
+          _priceToY(segment.start.price, plotHeight));
+      final to = Offset(_indexToX(endIndex, plotWidth),
+          _priceToY(segment.end.price, plotHeight));
+      drawGlowing(canvas, color, (p) => canvas.drawLine(from, to, p),
+          sigma: 3, strokeWidth: 3);
     }
   }
 

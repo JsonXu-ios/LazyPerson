@@ -17,6 +17,9 @@ export function MoneyGrabPanel({ onSelect }: { onSelect: (symbol: string) => voi
   const [activeGroup, setActiveGroup] = useState(1);
   const [capFilter, setCapFilter] = useState(true);
   const [limitUpFilter, setLimitUpFilter] = useState(true);
+  // 「从高处来」的两种形态默认不显示，勾选后并入列表（扫描已带标记，切换无需重扫）
+  const [showFromTop, setShowFromTop] = useState(false);
+  const [showVShape, setShowVShape] = useState(false);
   const timerRef = useRef<number | null>(null);
 
   const loadStatus = useCallback(async () => {
@@ -64,7 +67,10 @@ export function MoneyGrabPanel({ onSelect }: { onSelect: (symbol: string) => voi
 
   const running = status?.status === "running";
   const progress = status && status.total > 0 ? Math.round((status.done / status.total) * 100) : 0;
-  const visibleHits = (status?.hits || []).filter((hit) => !limitUpFilter || hit.limit_up);
+  const visibleHits = (status?.hits || []).filter(
+    (hit) =>
+      (!limitUpFilter || hit.limit_up) && (showFromTop || !hit.from_top) && (showVShape || !hit.v_shape),
+  );
   const groupCounts = new Map<number, number>();
   const groupHits = new Map<number, MoneyGrabHit[]>();
   visibleHits.forEach((hit) => {
@@ -81,7 +87,8 @@ export function MoneyGrabPanel({ onSelect }: { onSelect: (symbol: string) => voi
       <h3>八档局 · A股档位扫描</h3>
       <p className="moneygrab-desc">
         沪深主板（60/00）。90 日波段（低点→高点）分档：过主线（20/50/80/…）后再站上 10 个点才入档，
-        有效区一档 30~40%、二档 60~70%、三档 90~100%…；刚过主线不足10点、档间过渡区、从顶部跌破已站上线的都不要。
+        有效区一档 30~40%、二档 60~70%、三档 90~100%…；刚过主线不足10点、档间过渡区不入档。
+        「从高处来」的两种形态（从顶部跌破已站上线、V型反弹）默认隐藏，勾选上面的开关即可并入列表。
       </p>
       <div className="moneygrab-actions">
         <button className="terminal-button" disabled={running} onClick={startScan}>
@@ -104,10 +111,17 @@ export function MoneyGrabPanel({ onSelect }: { onSelect: (symbol: string) => voi
           />
           今日涨停
         </label>
+        <label className="moneygrab-filter" title="展示过滤：波段峰值曾站上某条档位线、现价已跌破的，勾选后并入列表">
+          <input type="checkbox" checked={showFromTop} onChange={(event) => setShowFromTop(event.target.checked)} />
+          含从顶部下来
+        </label>
+        <label className="moneygrab-filter" title="展示过滤：90日内先从高处跌到低点、反弹至今未超过下跌起点的，勾选后并入列表">
+          <input type="checkbox" checked={showVShape} onChange={(event) => setShowVShape(event.target.checked)} />
+          含V型反弹
+        </label>
         {status && (running || status.status === "done") && (
           <span className="moneygrab-meta">
-            {status.trade_date} · 命中 {visibleHits.length}
-            {limitUpFilter ? `（涨停）/ 全部 ${status.hits.length}` : ""}
+            {status.trade_date} · 命中 {visibleHits.length} / 全部 {status.hits.length}
             {status.status === "done" ? ` · 扫描 ${status.total}` : "（边扫边出）"}
             {status.min_market_cap != null ? ` · 市值>${status.min_market_cap}亿` : " · 未过滤市值"}
           </span>
@@ -156,6 +170,7 @@ export function MoneyGrabPanel({ onSelect }: { onSelect: (symbol: string) => voi
                   <th>低点日</th>
                   <th>过线日</th>
                   <th>超出</th>
+                  <th>形态</th>
                 </tr>
               </thead>
               <tbody>
@@ -170,11 +185,15 @@ export function MoneyGrabPanel({ onSelect }: { onSelect: (symbol: string) => voi
                     <td>{hit.low_date.slice(5)}</td>
                     <td>{hit.cross_date.slice(5)}</td>
                     <td className="moneygrab-over">+{hit.over.toFixed(1)}%</td>
+                    <td className="moneygrab-shape">
+                      {hit.from_top && <span title="波段峰值曾站上某条档位线，现价已跌破">顶部下来</span>}
+                      {hit.v_shape && <span title="90日内先跌到低点再反弹，未超过下跌起点">V型</span>}
+                    </td>
                   </tr>
                 ))}
                 {!activeHits.length && (
                   <tr>
-                    <td colSpan={9}>{running ? "本档暂无命中（扫描中…）" : "本档无命中"}</td>
+                    <td colSpan={10}>{running ? "本档暂无命中（扫描中…）" : "本档无命中"}</td>
                   </tr>
                 )}
               </tbody>

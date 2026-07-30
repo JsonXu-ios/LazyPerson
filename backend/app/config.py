@@ -18,6 +18,7 @@ class Settings:
     day_ttl_seconds: int = int(os.getenv("DAY_TTL_SECONDS", "1800"))
     symbols_ttl_seconds: int = int(os.getenv("SYMBOLS_TTL_SECONDS", "86400"))
     money_flow_ttl_seconds: int = int(os.getenv("MONEY_FLOW_TTL_SECONDS", "60"))
+    fundamentals_ttl_seconds: int = int(os.getenv("FUNDAMENTALS_TTL_SECONDS", "21600"))  # 财报日内不变，6 小时
     cors_origins: list[str] = [
         item.strip()
         for item in os.getenv(

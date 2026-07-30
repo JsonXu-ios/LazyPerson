@@ -36,3 +36,15 @@ flutter_launcher_icons:
 
 flutter:
   uses-material-design: true
+
+  # 数字/代码/日期走 IBMPlexMono（mono()），中文正文仍用系统字体
+  fonts:
+    - family: IBMPlexMono
+      fonts:
+        - asset: assets/fonts/IBMPlexMono-Regular.ttf
+        - asset: assets/fonts/IBMPlexMono-Medium.ttf
+          weight: 500
+        - asset: assets/fonts/IBMPlexMono-SemiBold.ttf
+          weight: 600
+        - asset: assets/fonts/IBMPlexMono-Bold.ttf
+          weight: 700

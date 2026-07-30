@@ -3,6 +3,7 @@ import type { DataQuality, KlineBar, Quote } from "../types";
 import type { AutoDrawing, AutoLineColorMap } from "../utils/autoDrawing";
 import { colorForLevel, trendLabel } from "../utils/autoDrawing";
 import { formatNumber, formatPercent, formatTime, qualityText, qualityTone } from "../utils/format";
+import { FundamentalsPanel } from "./FundamentalsPanel";
 
 type Props = {
   symbol: string;
@@ -71,6 +72,9 @@ export function StockSummary({
         <span className={`status-pill ${qualityTone(quoteQuality)}`}>{qualityText(quoteQuality)}</span>
         <span className={`status-pill ${qualityTone(klineQuality)}`}>{qualityText(klineQuality)}</span>
       </div>
+
+      {/* 代码不是 6 位数字（理论上不该出现）时不渲染财务区 */}
+      <FundamentalsPanel symbol={symbol} isAShare={/^\d{6}$/.test(symbol)} />
 
       {autoDrawing && (
         <div className={`auto-summary ${autoDrawing.direction}`}>

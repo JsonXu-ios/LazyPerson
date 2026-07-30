@@ -93,6 +93,67 @@ export type MoneyGrabHit = {
   limit_up: boolean;
   low_date: string;
   cross_date: string;
+  /** 从顶部下来：波段峰值曾站上某条档位线，现价已跌破 */
+  from_top: boolean;
+  /** V型反弹：90日内先从高处跌到低点，反弹至今未超过下跌起点 */
+  v_shape: boolean;
+};
+
+export type FundamentalValuation = {
+  price?: number | null;
+  /** 市盈率（动态） */
+  pe?: number | null;
+  pe_ttm?: number | null;
+  pb?: number | null;
+  /** 总市值（元） */
+  market_cap?: number | null;
+  float_market_cap?: number | null;
+};
+
+export type FundamentalReport = {
+  report_date: string;
+  /** 例："2025年 年报" */
+  report_type: string;
+  notice_date: string;
+  eps: number | null;
+  deduct_eps: number | null;
+  bps: number | null;
+  revenue: number | null;
+  revenue_yoy: number | null;
+  parent_netprofit: number | null;
+  parent_netprofit_yoy: number | null;
+  deduct_parent_netprofit: number | null;
+  /** 净利润（含少数股东）= 利润总额 - 所得税 */
+  netprofit: number | null;
+  total_profit: number | null;
+  income_tax: number | null;
+  roe: number | null;
+  gross_margin: number | null;
+  operating_cashflow_ps: number | null;
+};
+
+export type FundamentalDividend = {
+  report_date: string;
+  plan: string;
+  progress: string;
+  /** 每 10 股税前派息（元） */
+  pretax_bonus: number | null;
+  bonus_ratio: number | null;
+  it_ratio: number | null;
+  /** 股息率（小数） */
+  dividend_ratio: number | null;
+  plan_notice_date: string;
+  equity_record_date: string;
+  ex_dividend_date: string;
+};
+
+export type Fundamentals = {
+  symbol: string;
+  name: string;
+  valuation: FundamentalValuation;
+  reports: FundamentalReport[];
+  dividends: FundamentalDividend[];
+  warnings: string[];
 };
 
 export type MoneyGrabStatus = {

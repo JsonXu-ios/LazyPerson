@@ -78,31 +78,17 @@ class CacheTests(unittest.TestCase):
             self.assertEqual(cached_second[0].iloc[0]["close"], 200.0)
             self.assertNotEqual(cached_first[1]["path"], cached_second[1]["path"])
 
-    def test_default_watchlist_adds_global_assets(self):
+    def test_default_watchlist_is_a_share_only(self):
         with tempfile.TemporaryDirectory() as tmp:
             cache = CacheStore(DummySettings(Path(tmp)))
             service = MarketService(DummySettings(Path(tmp)), cache)
 
             rows = service.list_watchlist()
-            symbols = [row["symbol"] for row in rows]
 
-            self.assertIn("002138", symbols)
-            self.assertIn("SPY", symbols)
-            self.assertIn("GC=F", symbols)
-            self.assertIn("BTC-USD", symbols)
-
-    def test_builtin_global_assets_are_searchable(self):
-        with tempfile.TemporaryDirectory() as tmp:
-            cache = CacheStore(DummySettings(Path(tmp)))
-            service = MarketService(DummySettings(Path(tmp)), cache)
-
-            gold_rows, _ = service.search_symbols("黄金")
-            bitcoin_rows, _ = service.search_symbols("比特币")
-            us_rows, _ = service.search_symbols("美股")
-
-            self.assertIn("GC=F", [row["symbol"] for row in gold_rows])
-            self.assertIn("BTC-USD", [row["symbol"] for row in bitcoin_rows])
-            self.assertIn("SPY", [row["symbol"] for row in us_rows])
+            self.assertIn("002138", [row["symbol"] for row in rows])
+            # 只做 A 股：种子全部落在 a_share 分组，没有美股/黄金/加密
+            self.assertEqual({row["group_name"] for row in rows}, {"a_share"})
+            self.assertTrue(all(row["symbol"].isdigit() for row in rows))
 
 
 if __name__ == "__main__":

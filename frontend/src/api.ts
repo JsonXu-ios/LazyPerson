@@ -1,5 +1,6 @@
 import type {
   ApiResponse,
+  Fundamentals,
   KlinePayload,
   MoneyFlowPayload,
   MoneyGrabStatus,
@@ -46,6 +47,8 @@ export const api = {
         symbol,
       )}?period=${period}&indicators=macd,lon&refresh=${refresh}&limit=${limit || (["day", "week", "month"].includes(period) ? 140 : 1000)}`,
     ),
+  fundamentals: (symbol: string, refresh = false) =>
+    request<Fundamentals>(`/api/fundamentals/${encodeURIComponent(symbol)}?refresh=${refresh}`),
   moneyFlow: (symbol: string, refresh = false) =>
     request<MoneyFlowPayload>(`/api/money-flow/${encodeURIComponent(symbol)}?refresh=${refresh}`),
   startMoneyGrabScan: (refresh = false, minMarketCap?: number, limitUpOnly = false) =>

@@ -437,18 +437,24 @@ class TestFallingFromTop:
         # 峰值 35%（站上20主线），现价 22% ≥ 20 → 保留
         assert not is_falling_from_top(22.0, 35.0)
 
-    def test_evaluate_rejects_falling_stock(self):
-        # 收盘走出 40% → 85% → 65%：现价 16.5（65%）满足第二档阈值，但从 80 档跌破 70 → 排除
+    def test_evaluate_flags_falling_stock(self):
+        # 收盘走出 40% → 85% → 65%：现价 16.5（65%）满足第二档阈值，从 80 档跌破 70
+        # → 不再丢弃，打 from_top 标记交给展示层筛选
         bars = make_wave_bars(self.today, 10.0, [40, 85, 65])
-        assert evaluate_stock("000938", "紫光场景", 16.5, bars, today=self.today) is None
+        row = evaluate_stock("000938", "紫光场景", 16.5, bars, today=self.today)
+        assert row is not None
+        assert row["group"] == 2
+        assert row["from_top"] is True
+        assert row["v_shape"] is False
 
     def test_evaluate_keeps_holding_stock(self):
-        # 峰值 90%，今日现价 19.2（92% ∈ [90,100)）仍站在 80 上方 → 第三档保留
+        # 峰值 90%，今日现价 19.2（92% ∈ [90,100)）仍站在 80 上方 → 第三档保留且无标记
         bars = make_wave_bars(self.today, 10.0, [40, 85, 90])
         row = evaluate_stock("600001", "持稳股", 19.2, bars, today=self.today)
         assert row is not None
         assert row["group"] == 3
         assert row["max_pct"] >= 90.0
+        assert row["from_top"] is False
 
 
 class TestVShapeRebound:
@@ -474,19 +480,26 @@ class TestVShapeRebound:
             bar["high"] = rebound_close * 1.01
         return bars
 
-    def test_v_rebound_excluded(self):
-        # 从 40% 平台跌到底部，反弹到 35%（未超过下跌起点）→ 不要
+    def test_v_rebound_flagged(self):
+        # 从 40% 平台跌到底部，反弹到 35%（未超过下跌起点）→ 打 v_shape 标记，不丢弃
         bars = self._v_bars(13.2)
-        assert evaluate_stock("600001", "V型反弹", 13.5, bars, today=self.today) is None
+        row = evaluate_stock("600001", "V型反弹", 13.5, bars, today=self.today)
+        assert row is not None
+        assert row["group"] == 1
+        assert row["v_shape"] is True
 
     def test_recovery_beyond_prior_high_kept(self):
-        # 前段平台仅 12%（11.2），随后低点 10，反弹到 37% 创新高 → 保留
+        # 前段平台仅 12%（11.2），随后低点 10，反弹到 37% 创新高 → 无标记
         bars = make_wave_bars(self.today, 10.0, [5, 12, 30])
         row = evaluate_stock("600001", "新高突破", 13.7, bars, today=self.today)
         assert row is not None
         assert row["group"] == 1
+        assert row["v_shape"] is False
 
     def test_uptrend_low_at_start_kept(self):
         # 低点在窗口前段（make_wave_bars 平台低点在末尾前，前段无更高平台）→ 不受影响
         bars = make_wave_bars(self.today, 10.0, [5, 12, 18])
-        assert evaluate_stock("600001", "上行波段", 13.5, bars, today=self.today) is not None
+        row = evaluate_stock("600001", "上行波段", 13.5, bars, today=self.today)
+        assert row is not None
+        assert row["v_shape"] is False
+        assert row["from_top"] is False

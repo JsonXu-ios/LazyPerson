@@ -116,9 +116,7 @@ void main() {
     await repo.ensureSeeded();
     final rows = await store.listWatchlist();
     expect(rows.length, MarketRepository.defaultWatchlist.length);
-    final groups = rows.map((row) => row.groupName).toSet();
-    expect(groups, containsAll({'a_share', 'us', 'gold', 'crypto'}));
-    // 内置全球标的可被搜索
-    expect((await repo.searchSymbols('BTC')).single.symbol, 'BTC-USD');
+    // 只做 A 股，种子全部落在 a_share 分组
+    expect(rows.map((row) => row.groupName).toSet(), {'a_share'});
   });
 }

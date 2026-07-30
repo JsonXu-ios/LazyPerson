@@ -1,14 +1,16 @@
-/// 主界面：市场切换 → 信号条 → K 线主图 → MACD/LON 副图 → 底部操作。
-/// 布局对齐网页版 V3.2 行情终端（chart-first），按手机竖屏调整。
+/// 主界面（HUD 方案 1d，稿 09）：顶栏 → 同步条 → 标的头 → 周期/档位轨
+/// → K 线主图（取景框）→ MACD/LON 副图 → 底部操作浮层。
+/// 只做沪深 A 股，没有市场切换。
 library;
 
 import 'package:flutter/material.dart';
 
 import '../data/sync_service.dart';
-import '../logic/market_panels.dart';
+import '../logic/level_rules.dart';
 import '../state/band_scan_controller.dart';
 import '../state/home_controller.dart';
 import '../theme/app_theme.dart';
+import '../theme/hud.dart';
 import '../utils/format.dart';
 import 'band_scan_screen.dart';
 import 'widgets/indicator_chart.dart';
@@ -88,103 +90,59 @@ class _HomeScreenState extends State<HomeScreen> {
     final quote = controller.selectedQuote;
 
     return Scaffold(
-      body: SafeArea(
-        child: Column(
-          crossAxisAlignment: CrossAxisAlignment.stretch,
-          children: [
-            _StatusBar(controller: controller),
-            if (controller.syncProgress != null || controller.syncFailed)
-              _SyncStrip(controller: controller),
-            if (controller.notice.isNotEmpty)
-              _NoticeBar(
-                  notice: controller.notice, onClose: controller.clearNotice),
-            _MarketTabs(controller: controller),
-            Padding(
-              padding: const EdgeInsets.fromLTRB(10, 6, 10, 0),
-              child: Row(
-                children: [
-                  Expanded(
-                    child: Column(
-                      crossAxisAlignment: CrossAxisAlignment.start,
-                      children: [
-                        Text(
-                          quoteName(controller.selected, quote?.name),
-                          style: const TextStyle(
-                              fontSize: 17,
-                              fontWeight: FontWeight.w700,
-                              color: AppColors.text),
-                          overflow: TextOverflow.ellipsis,
-                        ),
-                        Text(
-                          '${controller.activeConfig.label} · ${controller.selected.isEmpty ? '暂无标的' : controller.selected} · ${qualityText(controller.klineQuality)}',
-                          style: const TextStyle(
-                              fontSize: 11, color: AppColors.textFaint),
-                          overflow: TextOverflow.ellipsis,
-                        ),
-                      ],
+      backgroundColor: Colors.transparent,
+      body: DecoratedBox(
+        decoration: const BoxDecoration(gradient: hudBackgroundGradient),
+        child: SafeArea(
+          child: Column(
+            crossAxisAlignment: CrossAxisAlignment.stretch,
+            children: [
+              _StatusBar(controller: controller),
+              if (controller.syncProgress != null || controller.syncFailed)
+                _SyncStrip(controller: controller),
+              if (controller.notice.isNotEmpty)
+                _NoticeBar(
+                    notice: controller.notice, onClose: controller.clearNotice),
+              _SymbolHead(controller: controller, quote: quote),
+              _PeriodSwitch(controller: controller),
+              Expanded(
+                flex: 5,
+                child: Padding(
+                  padding: const EdgeInsets.fromLTRB(14, 8, 14, 0),
+                  child: HudBrackets(
+                    child: ClipRRect(
+                      borderRadius: BorderRadius.circular(10),
+                      child: KlineChart(
+                        payload: displayKline,
+                        autoDrawing: controller.autoDrawing,
+                        lineColors: controller.lineColors,
+                        majorLineStep: controller.activeConfig.majorLineStep,
+                        majorLineMinPercent:
+                            controller.activeConfig.majorLineMinPercent ?? 0,
+                        majorLineAnchor:
+                            controller.activeConfig.majorLineAnchor,
+                        showLevelPrices:
+                            controller.activeConfig.showLevelPrices,
+                        hoverIndex: _hoverIndex,
+                        onHoverIndexChanged: (index) =>
+                            setState(() => _hoverIndex = index),
+                      ),
                     ),
                   ),
-                  if (quote?.price != null) ...[
-                    Column(
-                      crossAxisAlignment: CrossAxisAlignment.end,
-                      children: [
-                        Text(
-                          formatFullPrice(quote!.price),
-                          style: TextStyle(
-                              fontSize: 17,
-                              fontWeight: FontWeight.w700,
-                              color: (quote.pctChg ?? 0) >= 0
-                                  ? AppColors.rise
-                                  : AppColors.fall),
-                        ),
-                        Text(
-                          formatPercent(quote.pctChg),
-                          style: TextStyle(
-                              fontSize: 11,
-                              color: (quote.pctChg ?? 0) >= 0
-                                  ? AppColors.rise
-                                  : AppColors.fall),
-                        ),
-                      ],
-                    ),
-                  ],
-                ],
-              ),
-            ),
-            _PeriodSwitch(controller: controller),
-            Expanded(
-              flex: 5,
-              child: Padding(
-                padding: const EdgeInsets.symmetric(horizontal: 6),
-                child: KlineChart(
-                  payload: displayKline,
-                  autoDrawing: controller.autoDrawing,
-                  lineColors: controller.lineColors,
-                  majorLineStep: controller.activeConfig.majorLineStep,
-                  majorLineMinPercent:
-                      controller.activeConfig.majorLineMinPercent ?? 0,
-                  majorLineAnchor: controller.activeConfig.majorLineAnchor,
-                  showLevelPrices: controller.activeConfig.showLevelPrices,
-                  hoverIndex: _hoverIndex,
-                  onHoverIndexChanged: (index) =>
-                      setState(() => _hoverIndex = index),
                 ),
               ),
-            ),
-            Padding(
-              padding: const EdgeInsets.fromLTRB(6, 4, 6, 4),
-              child: IndicatorPanel(
-                  kline: displayKline, hoverIndex: _hoverIndex),
-            ),
-            _BottomActions(
-              onWatchlist: _openWatchlist,
-              onSummary: _openSummary,
-              // 八档局入口仅 A 股面板显示
-              onBandScan: controller.activePanel == PanelKey.aShare
-                  ? _openBandScan
-                  : null,
-            ),
-          ],
+              Padding(
+                padding: const EdgeInsets.fromLTRB(14, 8, 14, 2),
+                child: IndicatorPanel(
+                    kline: displayKline, hoverIndex: _hoverIndex),
+              ),
+              _BottomActions(
+                onWatchlist: _openWatchlist,
+                onSummary: _openSummary,
+                onBandScan: _openBandScan,
+              ),
+            ],
+          ),
         ),
       ),
     );
@@ -198,45 +156,49 @@ class _StatusBar extends StatelessWidget {
 
   @override
   Widget build(BuildContext context) {
-    return Container(
-      padding: const EdgeInsets.symmetric(horizontal: 10, vertical: 5),
-      color: AppColors.panel,
-      child: Row(
-        children: [
-          const Icon(Icons.candlestick_chart, size: 16, color: AppColors.warn),
-          const SizedBox(width: 6),
-          const Text('LazyPerson',
-              style: TextStyle(
-                  fontSize: 13,
-                  fontWeight: FontWeight.w700,
-                  color: AppColors.text)),
-          const Spacer(),
-          Text(qualityText(controller.quoteQuality),
-              style:
-                  const TextStyle(fontSize: 10, color: AppColors.textFaint)),
-          const SizedBox(width: 8),
-          SizedBox(
-            width: 30,
-            height: 30,
-            child: IconButton(
-              padding: EdgeInsets.zero,
-              iconSize: 16,
-              onPressed: controller.loading ? null : controller.refreshAll,
-              icon: controller.loading
-                  ? const SizedBox(
-                      width: 14,
-                      height: 14,
-                      child: CircularProgressIndicator(strokeWidth: 2))
-                  : const Icon(Icons.refresh, color: AppColors.textMuted),
+    return Padding(
+      padding: const EdgeInsets.fromLTRB(14, 10, 14, 0),
+      child: HudPanel(
+        radius: 10,
+        padding: const EdgeInsets.symmetric(horizontal: 12, vertical: 8),
+        child: Row(
+          children: [
+            const Icon(Icons.candlestick_chart, size: 24, color: AppColors.warn),
+            const SizedBox(width: 8),
+            const Text('LazyPerson',
+                style: TextStyle(
+                    fontSize: 14,
+                    fontWeight: FontWeight.w700,
+                    color: AppColors.text)),
+            const SizedBox(width: 8),
+            Text('MARKET HUD v3.2',
+                style: mono(
+                    size: 8, color: AppColors.accent, letterSpacing: 3.8)),
+            const Spacer(),
+            HudLiveBadge(live: !controller.loading),
+            SizedBox(
+              width: 30,
+              height: 30,
+              child: IconButton(
+                padding: EdgeInsets.zero,
+                iconSize: 16,
+                onPressed: controller.loading ? null : controller.refreshAll,
+                icon: controller.loading
+                    ? const SizedBox(
+                        width: 14,
+                        height: 14,
+                        child: CircularProgressIndicator(strokeWidth: 2))
+                    : const Icon(Icons.refresh, color: AppColors.accent),
+              ),
             ),
-          ),
-        ],
+          ],
+        ),
       ),
     );
   }
 }
 
-/// 顶部全市场同步条：进度 + 文案，失败可点按重试
+/// 顶部全市场同步条：分段进度 + 文案，失败可点按重试
 class _SyncStrip extends StatelessWidget {
   final HomeController controller;
 
@@ -261,49 +223,47 @@ class _SyncStrip extends StatelessWidget {
   @override
   Widget build(BuildContext context) {
     final failed = controller.syncFailed;
+    final progress = controller.syncProgress;
+    final ratio = progress?.phase == SyncPhase.idle ? null : progress?.ratio;
     return GestureDetector(
       onTap: failed ? controller.retrySync : null,
-      child: Container(
-        color: failed
-            ? AppColors.rise.withValues(alpha: 0.12)
-            : AppColors.panel,
+      child: Padding(
+        padding: const EdgeInsets.fromLTRB(14, 8, 14, 0),
         child: Column(
+          crossAxisAlignment: CrossAxisAlignment.stretch,
           children: [
-            if (!failed)
-              LinearProgressIndicator(
-                value: controller.syncProgress?.phase == SyncPhase.idle
-                    ? null
-                    : controller.syncProgress?.ratio,
-                minHeight: 3,
-                backgroundColor: AppColors.grid,
-                color: AppColors.warn,
-              ),
-            Padding(
-              padding: const EdgeInsets.symmetric(horizontal: 10, vertical: 3),
-              child: Row(
-                children: [
-                  Icon(
-                    failed ? Icons.error_outline : Icons.cloud_download_outlined,
-                    size: 12,
-                    color: failed ? AppColors.rise : AppColors.warn,
+            Row(
+              children: [
+                Text('SYNC',
+                    style: mono(
+                        size: 8.5,
+                        color: failed ? AppColors.rise : AppColors.warn,
+                        weight: FontWeight.w600,
+                        letterSpacing: 2.6)),
+                const SizedBox(width: 8),
+                Expanded(
+                  child: Text(
+                    _text,
+                    style: TextStyle(
+                        fontSize: 10,
+                        color: failed ? AppColors.rise : AppColors.textMuted),
+                    overflow: TextOverflow.ellipsis,
                   ),
-                  const SizedBox(width: 5),
-                  Expanded(
-                    child: Text(
-                      _text,
-                      style: TextStyle(
-                          fontSize: 10,
-                          color: failed ? AppColors.rise : AppColors.textMuted),
-                      overflow: TextOverflow.ellipsis,
-                    ),
-                  ),
-                  if ((controller.syncProgress?.errorCount ?? 0) > 0)
-                    Text('${controller.syncProgress!.errorCount} 只失败',
-                        style: const TextStyle(
-                            fontSize: 10, color: AppColors.warn)),
+                ),
+                if (ratio != null && !failed)
+                  Text('${(ratio * 100).toStringAsFixed(0)}%',
+                      style: mono(size: 9, color: AppColors.warn)),
+                if ((progress?.errorCount ?? 0) > 0) ...[
+                  const SizedBox(width: 6),
+                  Text('${progress!.errorCount} 只失败',
+                      style: mono(size: 9, color: AppColors.rise)),
                 ],
-              ),
+              ],
             ),
+            if (!failed) ...[
+              const SizedBox(height: 5),
+              HudSegmentBar(ratio: ratio),
+            ],
           ],
         ),
       ),
@@ -319,80 +279,157 @@ class _NoticeBar extends StatelessWidget {
 
   @override
   Widget build(BuildContext context) {
-    return Container(
-      color: AppColors.warn.withValues(alpha: 0.12),
-      padding: const EdgeInsets.symmetric(horizontal: 10, vertical: 4),
-      child: Row(
-        children: [
-          Expanded(
-            child: Text(notice,
-                maxLines: 2,
-                overflow: TextOverflow.ellipsis,
-                style: const TextStyle(fontSize: 11, color: AppColors.warn)),
-          ),
-          GestureDetector(
-            onTap: onClose,
-            child: const Icon(Icons.close, size: 14, color: AppColors.warn),
-          ),
-        ],
+    return Padding(
+      padding: const EdgeInsets.fromLTRB(14, 8, 14, 0),
+      child: HudPanel(
+        radius: 10,
+        tint: AppColors.warn,
+        padding: const EdgeInsets.symmetric(horizontal: 11, vertical: 7),
+        child: Row(
+          children: [
+            Expanded(
+              child: Text(notice,
+                  maxLines: 2,
+                  overflow: TextOverflow.ellipsis,
+                  style: const TextStyle(fontSize: 11, color: AppColors.warn)),
+            ),
+            GestureDetector(
+              onTap: onClose,
+              child: const Icon(Icons.close, size: 14, color: AppColors.warn),
+            ),
+          ],
+        ),
       ),
     );
   }
 }
 
-class _MarketTabs extends StatelessWidget {
+/// 标的头：名称 + 代码/市场/数据源 + 现价（发光）+ 涨跌实心徽标
+class _SymbolHead extends StatelessWidget {
   final HomeController controller;
+  final dynamic quote;
 
-  const _MarketTabs({required this.controller});
+  const _SymbolHead({required this.controller, required this.quote});
 
   @override
   Widget build(BuildContext context) {
+    final pct = quote?.pctChg as double?;
+    final tone = (pct ?? 0) >= 0 ? AppColors.rise : AppColors.fall;
+    final market = quote?.market as String?;
+    final source = controller.klineQuality?.source ?? '';
+    final subParts = [
+      controller.selected.isEmpty ? '暂无标的' : controller.selected,
+      if (market != null && market.isNotEmpty) market,
+      if (source.isNotEmpty) source.toUpperCase(),
+    ];
+
     return Padding(
-      padding: const EdgeInsets.fromLTRB(10, 8, 10, 0),
+      padding: const EdgeInsets.fromLTRB(14, 12, 14, 0),
       child: Row(
+        crossAxisAlignment: CrossAxisAlignment.start,
         children: [
-          for (final panel in marketPanels) ...[
-            Expanded(
-              child: GestureDetector(
-                onTap: () => controller.setPanel(panel.key),
-                child: Container(
-                  padding: const EdgeInsets.symmetric(vertical: 6),
-                  decoration: BoxDecoration(
-                    color: controller.activePanel == panel.key
-                        ? AppColors.panelBorder
-                        : AppColors.panel,
-                    borderRadius: BorderRadius.circular(6),
-                    border: Border.all(
-                      color: controller.activePanel == panel.key
-                          ? AppColors.accent
-                          : AppColors.panelBorder,
-                    ),
-                  ),
-                  child: Column(
-                    children: [
-                      Text(panel.label,
-                          style: TextStyle(
-                              fontSize: 12,
-                              fontWeight: FontWeight.w600,
-                              color: controller.activePanel == panel.key
-                                  ? AppColors.text
-                                  : AppColors.textMuted)),
-                      Text(
-                        '${controller.watchlist.where((item) => panelForAsset(symbol: item.symbol, market: item.market, groupName: item.groupName, note: item.note) == panel.key).length} 个',
-                        style: const TextStyle(
-                            fontSize: 9, color: AppColors.textFaint),
-                      ),
-                    ],
-                  ),
+          Expanded(
+            child: Column(
+              crossAxisAlignment: CrossAxisAlignment.start,
+              children: [
+                Text(
+                  quoteName(controller.selected, quote?.name as String?),
+                  style: const TextStyle(
+                      fontSize: 21,
+                      fontWeight: FontWeight.w700,
+                      height: 1.1,
+                      color: AppColors.text),
+                  overflow: TextOverflow.ellipsis,
                 ),
-              ),
+                const SizedBox(height: 4),
+                Text(
+                  subParts.join(' · '),
+                  style: mono(
+                      size: 9.5, color: AppColors.textFaint, letterSpacing: 1),
+                  overflow: TextOverflow.ellipsis,
+                ),
+              ],
             ),
-            if (panel != marketPanels.last) const SizedBox(width: 6),
-          ],
+          ),
+          if (quote?.price != null)
+            Column(
+              crossAxisAlignment: CrossAxisAlignment.end,
+              children: [
+                GlowText(formatFullPrice(quote.price as double?),
+                    size: 30, color: tone),
+                const SizedBox(height: 6),
+                Row(
+                  children: [
+                    Text(
+                      _signed(quote.change as double?),
+                      style: mono(size: 10.5, color: tone),
+                    ),
+                    const SizedBox(width: 6),
+                    Container(
+                      padding: const EdgeInsets.symmetric(
+                          horizontal: 6, vertical: 2),
+                      decoration: BoxDecoration(
+                        color: tone,
+                        borderRadius: BorderRadius.circular(3),
+                      ),
+                      child: Text(
+                        _signedPercent(pct),
+                        style: mono(
+                            size: 10,
+                            color: const Color(0xFF050914),
+                            weight: FontWeight.w700),
+                      ),
+                    ),
+                  ],
+                ),
+              ],
+            ),
         ],
       ),
     );
   }
+
+  String _signed(double? value) {
+    if (value == null) return '-';
+    return '${value >= 0 ? '+' : ''}${value.toStringAsFixed(3)}';
+  }
+
+  String _signedPercent(double? value) {
+    if (value == null) return '-';
+    return '${value >= 0 ? '+' : ''}${value.toStringAsFixed(2)}%';
+  }
+}
+
+/// 顶部档位轨要显示的“已站上的最高主线”。判定沿用 level_rules 的
+/// isMajorLevel，不新写规则：主线按 percent 升序排成八格轨，
+/// 现价涨幅（相对 0% 基准）过了哪条就点亮哪格。
+class _CrossedLevel {
+  final int railIndex;
+  final double pct;
+
+  const _CrossedLevel(this.railIndex, this.pct);
+}
+
+_CrossedLevel? _crossedLevel(HomeController controller) {
+  final auto = controller.autoDrawing;
+  final close = auto?.latest.close;
+  final base = auto?.base.price;
+  if (auto == null || close == null || base == null || base <= 0) return null;
+  final config = controller.activeConfig;
+  final majors = auto.levels
+      .where((level) => isMajorLevel(level,
+          majorLineStep: config.majorLineStep,
+          majorLineMinPercent: config.majorLineMinPercent ?? 0,
+          majorLineAnchor: config.majorLineAnchor))
+      .toList()
+    ..sort((a, b) => a.percent.compareTo(b.percent));
+  if (majors.isEmpty) return null;
+  final pct = (close / base - 1) * 100;
+  var index = -1;
+  for (var i = 0; i < majors.length; i++) {
+    if (pct >= majors[i].percent) index = i;
+  }
+  return _CrossedLevel(index.clamp(0, 7), pct);
 }
 
 class _PeriodSwitch extends StatelessWidget {
@@ -402,35 +439,58 @@ class _PeriodSwitch extends StatelessWidget {
 
   @override
   Widget build(BuildContext context) {
+    final crossed = _crossedLevel(controller);
     return Padding(
-      padding: const EdgeInsets.fromLTRB(10, 6, 10, 0),
+      padding: const EdgeInsets.fromLTRB(14, 12, 14, 0),
       child: Row(
         children: [
-          for (final item in _periods) ...[
-            Expanded(
-              child: GestureDetector(
-                onTap: () => controller.setPeriod(item),
-                child: Container(
-                  padding: const EdgeInsets.symmetric(vertical: 4),
-                  decoration: BoxDecoration(
-                    color: controller.period == item
-                        ? AppColors.axisBorder
-                        : Colors.transparent,
-                    borderRadius: BorderRadius.circular(4),
-                  ),
-                  child: Text(
-                    _periodLabels[item] ?? item,
-                    textAlign: TextAlign.center,
-                    style: TextStyle(
-                        fontSize: 11,
-                        color: controller.period == item
-                            ? AppColors.text
-                            : AppColors.textFaint),
-                  ),
-                ),
-              ),
+          Container(
+            padding: const EdgeInsets.all(3),
+            decoration: BoxDecoration(
+              color: AppColors.panel.withValues(alpha: 0.8),
+              borderRadius: BorderRadius.circular(8),
             ),
-            if (item != _periods.last) const SizedBox(width: 4),
+            child: Row(
+              children: [
+                for (final item in _periods) ...[
+                  GestureDetector(
+                    onTap: () => controller.setPeriod(item),
+                    child: Container(
+                      padding: const EdgeInsets.symmetric(
+                          horizontal: 12, vertical: 5),
+                      decoration: BoxDecoration(
+                        color: controller.period == item
+                            ? AppColors.hudFillActive
+                            : Colors.transparent,
+                        borderRadius: BorderRadius.circular(6),
+                      ),
+                      child: Text(
+                        _periodLabels[item] ?? item,
+                        style: TextStyle(
+                            fontSize: 11.5,
+                            fontWeight: controller.period == item
+                                ? FontWeight.w700
+                                : FontWeight.w500,
+                            color: controller.period == item
+                                ? AppColors.text
+                                : AppColors.textFaint),
+                      ),
+                    ),
+                  ),
+                  if (item != _periods.last) const SizedBox(width: 2),
+                ],
+              ],
+            ),
+          ),
+          const Spacer(),
+          if (crossed != null) ...[
+            HudLevelRail(activeIndex: crossed.railIndex),
+            const SizedBox(width: 8),
+            Text(
+              '${crossed.pct >= 0 ? '+' : ''}${crossed.pct.toStringAsFixed(1)}%',
+              style: mono(
+                  size: 11, color: AppColors.warn, weight: FontWeight.w600),
+            ),
           ],
         ],
       ),
@@ -441,47 +501,93 @@ class _PeriodSwitch extends StatelessWidget {
 class _BottomActions extends StatelessWidget {
   final VoidCallback onWatchlist;
   final VoidCallback onSummary;
-  final VoidCallback? onBandScan;
+  final VoidCallback onBandScan;
 
   const _BottomActions({
     required this.onWatchlist,
     required this.onSummary,
-    this.onBandScan,
+    required this.onBandScan,
   });
 
   @override
   Widget build(BuildContext context) {
-    return Container(
-      padding: const EdgeInsets.fromLTRB(10, 4, 10, 8),
-      child: Row(
-        children: [
-          Expanded(
-            child: OutlinedButton.icon(
-              onPressed: onWatchlist,
-              icon: const Icon(Icons.search, size: 15),
-              label: const Text('自选资产', style: TextStyle(fontSize: 12)),
-            ),
-          ),
-          const SizedBox(width: 8),
-          Expanded(
-            child: OutlinedButton.icon(
-              onPressed: onSummary,
-              icon: const Icon(Icons.star_border, size: 15),
-              label: const Text('资产信息', style: TextStyle(fontSize: 12)),
-            ),
-          ),
-          if (onBandScan != null) ...[
-            const SizedBox(width: 8),
+    return Padding(
+      padding: const EdgeInsets.fromLTRB(14, 6, 14, 10),
+      child: HudPanel(
+        radius: 16,
+        padding: const EdgeInsets.all(8),
+        child: Row(
+          children: [
             Expanded(
-              child: OutlinedButton.icon(
-                onPressed: onBandScan,
-                icon: const Icon(Icons.grid_view, size: 15),
-                label: const Text('八档局', style: TextStyle(fontSize: 12)),
+              child: _ActionCell(
+                icon: Icons.search,
+                label: '自选资产',
+                onTap: onWatchlist,
+              ),
+            ),
+            Expanded(
+              child: _ActionCell(
+                icon: Icons.insights_outlined,
+                label: '资产信息',
+                onTap: onSummary,
+              ),
+            ),
+            Expanded(
+              child: _ActionCell(
+                icon: Icons.grid_view,
+                label: '八档局',
+                onTap: onBandScan,
+                highlight: true,
               ),
             ),
           ],
-        ],
+        ),
       ),
+    );
+  }
+}
+
+class _ActionCell extends StatelessWidget {
+  final IconData icon;
+  final String label;
+  final VoidCallback onTap;
+  final bool highlight;
+
+  const _ActionCell({
+    required this.icon,
+    required this.label,
+    required this.onTap,
+    this.highlight = false,
+  });
+
+  @override
+  Widget build(BuildContext context) {
+    final color = highlight ? AppColors.accent : AppColors.textMuted;
+    final cell = Column(
+      mainAxisSize: MainAxisSize.min,
+      children: [
+        Icon(icon, size: 18, color: color),
+        const SizedBox(height: 4),
+        Text(label, style: TextStyle(fontSize: 11, color: color)),
+      ],
+    );
+    if (!highlight) {
+      return InkWell(
+        onTap: onTap,
+        borderRadius: BorderRadius.circular(10),
+        child: Padding(
+          padding: const EdgeInsets.symmetric(vertical: 8),
+          child: cell,
+        ),
+      );
+    }
+    return HudPanel(
+      radius: 10,
+      active: true,
+      glow: true,
+      padding: const EdgeInsets.symmetric(vertical: 8),
+      onTap: onTap,
+      child: cell,
     );
   }
 }

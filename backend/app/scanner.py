@@ -61,6 +61,15 @@ def is_falling_from_top(pct: float, max_pct: float) -> bool:
     return pct < highest_crossed
 
 
+def is_v_shape_rebound(window: list[dict], low_index: int, low90: float, pct: float) -> bool:
+    """V型反弹判定：90日内先从高处跌到波段低点、反弹至今仍未超过下跌起点
+    （低点之前的最高收盘涨幅 >= 现价涨幅）→ True。低点在窗口开头的纯上行波段恒为 False。"""
+    closes_before_low = [float(bar["close"]) for bar in window[:low_index] if bar.get("close") is not None]
+    if not closes_before_low:
+        return False
+    return (max(closes_before_low) / low90 - 1) * 100 >= pct
+
+
 def is_limit_up(price: float | None, pre_close: float | None, ratio: float = 1.1) -> bool:
     """主板涨停判定：现价（收盘后即收盘价）等于 round(昨收×1.1, 2)。ST 已被排除，不考虑 5% 档。"""
     if price is None or pre_close is None or pre_close <= 0:
@@ -114,7 +123,9 @@ def evaluate_stock(
     today: date | None = None,
 ) -> dict | None:
     """90日波段（低点→现在，时间顺序）分档：
-    第 k 档 = 波段内先过 (阈值-10)%，最后一天（可为今日）至少过阈值%，阈值 = 20+30*(k-1)。"""
+    第 k 档 = 波段内先过 (阈值-10)%，最后一天（可为今日）至少过阈值%，阈值 = 20+30*(k-1)。
+    「从高处来」的两种形态（from_top 跌破已站上线、v_shape V型反弹）只打标记不丢弃，
+    由调用方/展示层的筛选开关决定是否显示。"""
     if price is None:
         return None
     today = today or date.today()
@@ -142,14 +153,9 @@ def evaluate_stock(
 
     closes_after_low = [float(bar["close"]) for bar in window[low_index:] if bar.get("close") is not None]
     max_pct = max([(c / low90 - 1) * 100 for c in closes_after_low] + [pct])
-    if is_falling_from_top(pct, max_pct):
-        return None  # 从顶部下来（跌破曾站上的先过线）的不要
-
-    closes_before_low = [float(bar["close"]) for bar in window[:low_index] if bar.get("close") is not None]
-    if closes_before_low:
-        before_high_pct = (max(closes_before_low) / low90 - 1) * 100
-        if before_high_pct >= pct:
-            return None  # 90日内先下降到底部再反弹、且未超过下跌起点 → V型反弹不要
+    # 「从高处来」的两条不再丢弃，只打标记，由展示层筛选开关决定是否显示
+    from_top = is_falling_from_top(pct, max_pct)
+    v_shape = is_v_shape_rebound(window, low_index, low90, pct)
 
     threshold = group_threshold(group)
     pre_level = low90 * (1 + (threshold - GROUP_PRE_OFFSET) / 100)
@@ -175,10 +181,12 @@ def evaluate_stock(
         "max_pct": round(max_pct, 2),
         "low_date": str(window[low_index]["time"])[:10],
         "cross_date": cross_date,
+        "from_top": from_top,
+        "v_shape": v_shape,
     }
 
 
-STATE_KEY = "moneygrab:last_scan:v3"  # v3: 命中行含 limit_up 字段，旧结果结构不兼容
+STATE_KEY = "moneygrab:last_scan:v4"  # v4: 命中行含 from_top / v_shape 标记，旧结果结构不兼容
 
 
 @dataclass

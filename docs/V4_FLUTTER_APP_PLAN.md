@@ -1,5 +1,9 @@
 # V4 Flutter 安卓应用实现方案
 
+> 部分内容已作废（2026-07-30）：项目收敛为纯沪深 A 股，`yahoo_provider.dart` 与美股/黄金/比特币面板已删除，
+> 界面换成 HUD 方案 1d。下文 4.2 节（Yahoo 数据源）、市场面板相关设计仅作历史记录，
+> 现状见 `docs/UPDATES.md` 的「2026-07-30：收敛为纯 A 股 + HUD 主题（方案 1d）」与 `handoff/HANDOFF.md`。
+
 ## 1. 目标与范围
 
 把现有网页版行情终端转换为独立的 Android Flutter 应用（应用名 LazyPerson，logo 由 AI 生成）。

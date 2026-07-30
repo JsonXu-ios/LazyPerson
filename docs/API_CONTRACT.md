@@ -204,6 +204,86 @@
 }
 ```
 
+## 财务
+
+### GET /api/fundamentals/{symbol}
+
+仅 A 股（6 位数字代码）可用，非 A 股返回 503。数据源为东方财富 datacenter（业绩报表 `RPT_LICO_FN_CPD`、利润表 `RPT_DMSK_FN_INCOME`、分红送配 `RPT_SHAREBONUS_DET`）与 push2 估值快照，缓存 6 小时（`FUNDAMENTALS_TTL_SECONDS`）。
+
+查询参数：
+
+| 参数 | 类型 | 必填 | 说明 |
+| --- | --- | --- | --- |
+| refresh | boolean | 否 | 是否强制刷新，忽略 TTL |
+
+响应（`reports` / `dividends` 各最多 8 期，按报告期倒序）：
+
+```json
+{
+  "data": {
+    "symbol": "600519",
+    "name": "贵州茅台",
+    "valuation": {
+      "price": 1361.76,
+      "pe": 15.62,
+      "pe_ttm": 20.58,
+      "pb": 7.22,
+      "market_cap": 1702311120978.0,
+      "float_market_cap": 1702311120978.0
+    },
+    "reports": [
+      {
+        "report_date": "2025-12-31",
+        "report_type": "2025年 年报",
+        "notice_date": "2026-04-17",
+        "eps": 65.66,
+        "deduct_eps": 65.64,
+        "bps": 195.36,
+        "revenue": 172054171890.91,
+        "revenue_yoy": -1.2,
+        "parent_netprofit": 82320067101.68,
+        "parent_netprofit_yoy": -4.53,
+        "deduct_parent_netprofit": 82293107655.25,
+        "netprofit": 85310324833.67,
+        "total_profit": 114755261605.08,
+        "income_tax": 29444936771.41,
+        "roe": 32.53,
+        "gross_margin": 91.18,
+        "operating_cashflow_ps": 49.13
+      }
+    ],
+    "dividends": [
+      {
+        "report_date": "2025-12-31",
+        "plan": "10派280.2423元(含税)",
+        "progress": "实施分配",
+        "pretax_bonus": 280.2423,
+        "bonus_ratio": null,
+        "it_ratio": null,
+        "dividend_ratio": 0.0231,
+        "plan_notice_date": "2026-04-17",
+        "equity_record_date": "2026-06-25",
+        "ex_dividend_date": "2026-06-26"
+      }
+    ],
+    "warnings": []
+  },
+  "quality": {
+    "source": "eastmoney",
+    "from_cache": false,
+    "updated_at": "2026-07-30T10:00:00Z",
+    "stale": false,
+    "warnings": []
+  }
+}
+```
+
+说明：
+
+- `netprofit`（净利润，含少数股东）= 利润表 `TOTAL_PROFIT - INCOME_TAX`；业绩报表本身只给归母口径。利润表缺该报告期时为 `null`，不做近似。
+- `dividend_ratio` 是小数（0.0231 = 2.31%）。
+- 估值失败（push2 不可达）不影响财务部分，`valuation` 为 `{}` 并在 `warnings` 里记 `valuation:...`。
+
 ## 自选股
 
 ### GET /api/watchlist

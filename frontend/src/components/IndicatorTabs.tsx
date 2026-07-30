@@ -17,7 +17,7 @@ export function IndicatorTabs({ kline }: Props) {
 
   useIndicatorChart(macdRef, () => ({
     ...baseOption(times),
-    color: ["#38bdf8", "#f2c94c", "#f24d4d"],
+    color: ["#4cc9ff", "#ffb84c", "#ff4d6d"],
     legend: legendOption(["DIF", "DEA", "MACD"]),
     series: [
       { name: "DIF", type: "line", showSymbol: false, data: macd.dif || [] },
@@ -28,7 +28,7 @@ export function IndicatorTabs({ kline }: Props) {
 
   useIndicatorChart(lonRef, () => ({
     ...baseOption(times),
-    color: ["#e8eef7", "#f2a93b"],
+    color: ["#e8f0ff", "#ffb84c"],
     legend: legendOption(["LON", "LONMA"]),
     series: [
       // 东财龙系长线画法：对零轴的红绿柱 + LON 线 + LONMA 均线
@@ -74,32 +74,32 @@ function useIndicatorChart(
 
 function baseOption(times: string[]): echarts.EChartsOption {
   return {
-    backgroundColor: "#080d16",
-    tooltip: { trigger: "axis", backgroundColor: "#101722", borderColor: "#2a3850", textStyle: { color: "#d6deea" } },
+    backgroundColor: "transparent",
+    tooltip: { trigger: "axis", backgroundColor: "#0c1a33", borderColor: "#1b3255", textStyle: { color: "#e8f0ff" } },
     grid: { left: 46, right: 18, top: 28, bottom: 22 },
     xAxis: {
       type: "category",
       data: times,
-      axisLabel: { color: "#76849a", fontSize: 10 },
-      axisLine: { lineStyle: { color: "#28354a" } },
+      axisLabel: { color: "#5d7ca8", fontSize: 10 },
+      axisLine: { lineStyle: { color: "#1b3255" } },
     },
     yAxis: {
       type: "value",
-      axisLabel: { color: "#76849a" },
-      splitLine: { lineStyle: { color: "#172033" } },
+      axisLabel: { color: "#5d7ca8" },
+      splitLine: { lineStyle: { color: "#122038" } },
     },
   };
 }
 
 function legendOption(data: string[]) {
-  return { top: 0, right: 8, data, textStyle: { color: "#8f9bb0" } };
+  return { top: 0, right: 8, data, textStyle: { color: "#8fb4e8" } };
 }
 
 function coloredBars(values: Array<number | null>) {
   return values.map((value) => ({
     value,
     itemStyle: {
-      color: value === null || value >= 0 ? "#f24d4d" : "#00a884",
+      color: value === null || value >= 0 ? "#ff4d6d" : "#00e5a0",
     },
   }));
 }

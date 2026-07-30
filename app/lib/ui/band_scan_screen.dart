@@ -1,4 +1,5 @@
-/// 八档局 · A股档位扫描页面，交互对齐 frontend/src/components/MoneyGrabPanel.tsx。
+/// 八档局 · 档位雷达（HUD 方案 1d，稿 10）：雷达选档 → 命中列表（表格/卡片双视图）。
+/// 交互对齐 frontend/src/components/MoneyGrabPanel.tsx。
 library;
 
 import 'package:flutter/material.dart';
@@ -6,8 +7,9 @@ import 'package:flutter/material.dart';
 import '../logic/band_scanner.dart';
 import '../state/band_scan_controller.dart';
 import '../theme/app_theme.dart';
-
-const _groupNames = ['一', '二', '三', '四', '五', '六', '七', '八'];
+import '../theme/hud.dart';
+import 'widgets/band_hit_table.dart';
+import 'widgets/band_radar.dart';
 
 class BandScanScreen extends StatefulWidget {
   final BandScanController controller;
@@ -24,6 +26,9 @@ class BandScanScreen extends StatefulWidget {
 }
 
 class _BandScanScreenState extends State<BandScanScreen> {
+  /// 纯展示偏好，不进 controller
+  bool _tableView = true;
+
   BandScanController get controller => widget.controller;
 
   @override
@@ -50,44 +55,125 @@ class _BandScanScreenState extends State<BandScanScreen> {
     final showResult = hasAnyHits || controller.status == BandScanStatus.done;
 
     return Scaffold(
-      appBar: AppBar(
-        title: const Text('八档局 · A股档位扫描',
-            style: TextStyle(fontSize: 15, fontWeight: FontWeight.w700)),
-      ),
-      body: SafeArea(
-        child: Column(
-          crossAxisAlignment: CrossAxisAlignment.stretch,
-          children: [
-            const Padding(
-              padding: EdgeInsets.fromLTRB(12, 4, 12, 0),
-              child: Text(
-                '沪深主板（60/00）。90 日波段（低点→高点）分档：过主线（20/50/80/…）后再站上 10 个点才入档，'
-                '有效区一档 30~40%、二档 60~70%、三档 90~100%…；'
-                '刚过主线不足10点、档间过渡区、从顶部跌破已站上线的都不要。',
-                style: TextStyle(fontSize: 10, color: AppColors.textFaint),
-              ),
-            ),
-            _buildActions(running),
-            if (controller.status == BandScanStatus.failed)
-              Padding(
-                padding: const EdgeInsets.symmetric(horizontal: 12),
-                child: Text('扫描失败：${controller.error ?? ''}',
-                    style:
-                        const TextStyle(fontSize: 11, color: AppColors.rise)),
-              ),
-            if (running) _buildProgress(),
-            if (showResult) _buildGroupTabs(),
-            if (showResult) _buildTableHeader(),
-            if (showResult)
-              Expanded(child: _buildRows(running))
-            else
-              const Expanded(
-                child: Center(
-                  child: Text('点击“开始扫描”用本地日线数据计算档位',
-                      style: TextStyle(
-                          fontSize: 12, color: AppColors.textFaint)),
+      backgroundColor: Colors.transparent,
+      body: DecoratedBox(
+        decoration: const BoxDecoration(gradient: hudBackgroundGradient),
+        child: SafeArea(
+          child: Column(
+            crossAxisAlignment: CrossAxisAlignment.stretch,
+            children: [
+              _appBar(),
+              _rules(),
+              _buildActions(running),
+              if (controller.status == BandScanStatus.failed)
+                Padding(
+                  padding: const EdgeInsets.fromLTRB(16, 6, 16, 0),
+                  child: HudPanel(
+                    radius: 10,
+                    tint: AppColors.rise,
+                    padding: const EdgeInsets.symmetric(
+                        horizontal: 11, vertical: 8),
+                    child: Text('扫描失败：${controller.error ?? ''}',
+                        style: const TextStyle(
+                            fontSize: 11, color: AppColors.rise)),
+                  ),
                 ),
-              ),
+              if (running) _buildProgress(),
+              if (showResult) ...[
+                const SizedBox(height: 10),
+                BandRadar(
+                  counts: controller.groupCounts,
+                  activeGroup: controller.activeGroup,
+                  onSelect: controller.setActiveGroup,
+                  visibleTotal: controller.visibleHits.length,
+                  allTotal: controller.hits.length,
+                ),
+                _listHead(),
+                Expanded(
+                  child: _tableView
+                      ? BandHitTable(
+                          hits: controller.activeHits,
+                          running: running,
+                          onSelect: widget.onSelect,
+                        )
+                      : _buildHitCards(running),
+                ),
+              ] else
+                Expanded(
+                  child: Center(
+                    child: Text('点击“开始扫描”用本地日线数据计算档位',
+                        style: mono(size: 11, color: AppColors.textFaint)),
+                  ),
+                ),
+            ],
+          ),
+        ),
+      ),
+    );
+  }
+
+  Widget _appBar() {
+    return Padding(
+      padding: const EdgeInsets.fromLTRB(6, 6, 16, 0),
+      child: Row(
+        children: [
+          IconButton(
+            iconSize: 20,
+            onPressed: () => Navigator.of(context).maybePop(),
+            icon: const Icon(Icons.arrow_back, color: AppColors.textMuted),
+          ),
+          Column(
+            crossAxisAlignment: CrossAxisAlignment.start,
+            children: [
+              const Text('八档局 · 档位雷达',
+                  style: TextStyle(
+                      fontSize: 15,
+                      fontWeight: FontWeight.w700,
+                      color: AppColors.text)),
+              const SizedBox(height: 2),
+              Text('SHSZ MAIN · 90D BAND SCAN',
+                  style: mono(
+                      size: 8.5,
+                      color: AppColors.accent,
+                      weight: FontWeight.w600,
+                      letterSpacing: 2.6)),
+            ],
+          ),
+        ],
+      ),
+    );
+  }
+
+  Widget _rules() {
+    const bodyStyle = TextStyle(
+        fontSize: 10, height: 1.7, color: AppColors.textMuted);
+    return Container(
+      margin: const EdgeInsets.fromLTRB(16, 10, 16, 0),
+      padding: const EdgeInsets.fromLTRB(11, 8, 12, 8),
+      decoration: BoxDecoration(
+        color: AppColors.hudPanel,
+        borderRadius: const BorderRadius.only(
+          topRight: Radius.circular(8),
+          bottomRight: Radius.circular(8),
+        ),
+        border: Border(
+          left: BorderSide(color: AppColors.accent, width: 2),
+        ),
+      ),
+      child: RichText(
+        text: const TextSpan(
+          style: bodyStyle,
+          children: [
+            TextSpan(
+                text: '沪深主板（60/00）。90 日波段（低点→高点）分档：过主线（20/50/80/…）后再站上 '),
+            TextSpan(
+                text: '10 个点',
+                style: TextStyle(
+                    color: AppColors.accent, fontWeight: FontWeight.w700)),
+            TextSpan(
+                text: '才入档，有效区一档 30~40%、二档 60~70%、三档 90~100%…；'
+                    '刚过主线不足10点、档间过渡区不入档。'
+                    '「从高处来」的两种形态（从顶部跌破已站上线、V型反弹）默认隐藏，勾选开关即可并入列表。'),
           ],
         ),
       ),
@@ -95,63 +181,74 @@ class _BandScanScreenState extends State<BandScanScreen> {
   }
 
   Widget _buildActions(bool running) {
-    final meta = _metaText();
     return Padding(
-      padding: const EdgeInsets.fromLTRB(12, 8, 12, 4),
-      child: Wrap(
-        spacing: 10,
-        runSpacing: 4,
-        crossAxisAlignment: WrapCrossAlignment.center,
+      padding: const EdgeInsets.fromLTRB(16, 10, 16, 0),
+      child: Row(
+        crossAxisAlignment: CrossAxisAlignment.start,
         children: [
-          SizedBox(
-            height: 30,
-            child: OutlinedButton(
-              onPressed: running ? null : controller.startScan,
-              child: Text(
-                running
-                    ? '扫描中…'
-                    : controller.status == BandScanStatus.done
-                        ? '重新扫描'
-                        : '开始扫描',
-                style: const TextStyle(fontSize: 12),
-              ),
+          Expanded(
+            child: Wrap(
+              spacing: 12,
+              runSpacing: 6,
+              crossAxisAlignment: WrapCrossAlignment.center,
+              children: [
+                SizedBox(
+                  height: 30,
+                  child: OutlinedButton(
+                    onPressed: running ? null : controller.startScan,
+                    child: Text(
+                      running
+                          ? '扫描中…'
+                          : controller.status == BandScanStatus.done
+                              ? '重新扫描'
+                              : '开始扫描',
+                      style: const TextStyle(fontSize: 12),
+                    ),
+                  ),
+                ),
+                _checkbox(
+                  label: '总市值 > ${BandScanController.marketCapMin.toInt()} 亿',
+                  value: controller.capFilter,
+                  onChanged: running ? null : controller.setCapFilter,
+                ),
+                _checkbox(
+                  label: '今日涨停',
+                  value: controller.limitUpFilter,
+                  onChanged: controller.setLimitUpFilter,
+                ),
+                _checkbox(
+                  label: '含从顶部下来',
+                  value: controller.showFromTop,
+                  onChanged: controller.setShowFromTop,
+                ),
+                _checkbox(
+                  label: '含V型反弹',
+                  value: controller.showVShape,
+                  onChanged: controller.setShowVShape,
+                ),
+              ],
             ),
           ),
-          _checkbox(
-            label: '总市值 > ${BandScanController.marketCapMin.toInt()} 亿',
-            value: controller.capFilter,
-            onChanged: running ? null : controller.setCapFilter,
+          const SizedBox(width: 8),
+          Column(
+            crossAxisAlignment: CrossAxisAlignment.end,
+            children: [
+              Text(controller.tradeDate ?? '',
+                  style: mono(size: 9, color: AppColors.textFaint)),
+              const SizedBox(height: 2),
+              Text(
+                controller.status == BandScanStatus.done
+                    ? 'SCAN ${controller.total}'
+                    : controller.minMarketCap != null
+                        ? 'CAP>${controller.minMarketCap!.toInt()}亿'
+                        : 'CAP ALL',
+                style: mono(size: 9, color: AppColors.textDim),
+              ),
+            ],
           ),
-          _checkbox(
-            label: '今日涨停',
-            value: controller.limitUpFilter,
-            onChanged: controller.setLimitUpFilter,
-          ),
-          if (meta.isNotEmpty)
-            Text(meta,
-                style:
-                    const TextStyle(fontSize: 10, color: AppColors.textFaint)),
         ],
       ),
     );
-  }
-
-  String _metaText() {
-    if (controller.status != BandScanStatus.done && !controller.running) {
-      return '';
-    }
-    final visible = controller.visibleHits.length;
-    final all = controller.hits.length;
-    final buffer = StringBuffer()
-      ..write('${controller.tradeDate ?? ''} · 命中 $visible');
-    if (controller.limitUpFilter) buffer.write('（涨停）/ 全部 $all');
-    buffer.write(controller.status == BandScanStatus.done
-        ? ' · 扫描 ${controller.total}'
-        : '（边扫边出）');
-    buffer.write(controller.minMarketCap != null
-        ? ' · 市值>${controller.minMarketCap!.toInt()}亿'
-        : ' · 未过滤市值');
-    return buffer.toString();
   }
 
   Widget _checkbox({
@@ -159,21 +256,35 @@ class _BandScanScreenState extends State<BandScanScreen> {
     required bool value,
     required ValueChanged<bool>? onChanged,
   }) {
+    final enabled = onChanged != null;
     return GestureDetector(
-      onTap: onChanged == null ? null : () => onChanged(!value),
+      onTap: enabled ? () => onChanged(!value) : null,
       child: Row(
         mainAxisSize: MainAxisSize.min,
         children: [
-          Icon(
-            value ? Icons.check_box : Icons.check_box_outline_blank,
-            size: 15,
-            color: onChanged == null
-                ? AppColors.textFaint
-                : (value ? AppColors.accent : AppColors.textMuted),
+          Container(
+            width: 12,
+            height: 12,
+            decoration: BoxDecoration(
+              borderRadius: BorderRadius.circular(3),
+              color: value
+                  ? (enabled ? AppColors.accent : AppColors.textFaint)
+                  : Colors.transparent,
+              border: Border.all(
+                color: value
+                    ? Colors.transparent
+                    : (enabled ? AppColors.hudBorderActive : AppColors.hudBorder),
+              ),
+            ),
+            child: value
+                ? const Icon(Icons.check, size: 9, color: Color(0xFF050914))
+                : null,
           ),
-          const SizedBox(width: 3),
+          const SizedBox(width: 5),
           Text(label,
-              style: const TextStyle(fontSize: 11, color: AppColors.textMuted)),
+              style: TextStyle(
+                  fontSize: 10,
+                  color: enabled ? AppColors.textMuted : AppColors.textDim)),
         ],
       ),
     );
@@ -186,185 +297,198 @@ class _BandScanScreenState extends State<BandScanScreen> {
         ? '正在拉取全市场行情快照…'
         : '本地日线计算档位 ${controller.done} / $total';
     return Padding(
-      padding: const EdgeInsets.fromLTRB(12, 2, 12, 4),
+      padding: const EdgeInsets.fromLTRB(16, 10, 16, 0),
       child: Column(
         crossAxisAlignment: CrossAxisAlignment.stretch,
         children: [
-          LinearProgressIndicator(
-            value: ratio,
-            minHeight: 3,
-            backgroundColor: AppColors.grid,
-            color: AppColors.warn,
-          ),
-          const SizedBox(height: 3),
-          Text(text,
-              style:
-                  const TextStyle(fontSize: 10, color: AppColors.textMuted)),
+          HudSegmentBar(ratio: ratio),
+          const SizedBox(height: 4),
+          Text(text, style: mono(size: 9.5, color: AppColors.textMuted)),
         ],
       ),
     );
   }
 
-  Widget _buildGroupTabs() {
-    final counts = controller.groupCounts;
-    return SizedBox(
-      height: 34,
-      child: ListView(
-        scrollDirection: Axis.horizontal,
-        padding: const EdgeInsets.symmetric(horizontal: 10),
+  Widget _listHead() {
+    return Padding(
+      padding: const EdgeInsets.fromLTRB(16, 10, 16, 6),
+      child: Row(
         children: [
-          for (var group = 1; group <= maxGroups; group++)
-            Padding(
-              padding: const EdgeInsets.only(right: 6, top: 2, bottom: 2),
-              child: GestureDetector(
-                onTap: () => controller.setActiveGroup(group),
-                child: Container(
-                  padding:
-                      const EdgeInsets.symmetric(horizontal: 8, vertical: 4),
-                  decoration: BoxDecoration(
-                    color: controller.activeGroup == group
-                        ? AppColors.panelBorder
-                        : AppColors.panel,
-                    borderRadius: BorderRadius.circular(5),
-                    border: Border.all(
-                      color: controller.activeGroup == group
-                          ? AppColors.accent
-                          : AppColors.panelBorder,
-                    ),
-                  ),
-                  child: Row(
-                    children: [
-                      Text(
-                        '${_groupNames[group - 1]}档 '
-                        '${(groupThreshold(group) + 10).toInt()}~${(groupThreshold(group) + 20).toInt()}%',
-                        style: TextStyle(
-                            fontSize: 11,
-                            color: controller.activeGroup == group
-                                ? AppColors.text
-                                : AppColors.textMuted),
-                      ),
-                      const SizedBox(width: 4),
-                      Container(
-                        padding: const EdgeInsets.symmetric(
-                            horizontal: 4, vertical: 1),
-                        decoration: BoxDecoration(
-                          color: (counts[group] ?? 0) > 0
-                              ? AppColors.accent.withValues(alpha: 0.2)
-                              : AppColors.grid,
-                          borderRadius: BorderRadius.circular(7),
-                        ),
-                        child: Text('${counts[group] ?? 0}',
-                            style: const TextStyle(
-                                fontSize: 9, color: AppColors.text)),
-                      ),
-                    ],
-                  ),
-                ),
-              ),
-            ),
+          Text(
+            '${bandGroupNames[controller.activeGroup - 1]}档命中 ${controller.activeHits.length}',
+            style: mono(
+                size: 9.5, color: AppColors.textFaint, letterSpacing: 1.2),
+          ),
+          const Spacer(),
+          BandViewToggle(
+            table: _tableView,
+            onChanged: (value) => setState(() => _tableView = value),
+          ),
         ],
       ),
     );
   }
 
-  static const _columns = [
-    ('代码', 52.0),
-    ('名称', 64.0),
-    ('最新价', 52.0),
-    ('90日低点', 56.0),
-    ('涨幅', 48.0),
-    ('波段高', 48.0),
-    ('低点日', 46.0),
-    ('过线日', 46.0),
-    ('超出', 46.0),
-  ];
-
-  Widget _buildTableHeader() {
-    return Container(
-      color: AppColors.panel,
-      padding: const EdgeInsets.symmetric(vertical: 5),
-      child: _rowLayout([
-        for (final (label, _) in _columns)
-          Text(label,
-              style: const TextStyle(
-                  fontSize: 10,
-                  fontWeight: FontWeight.w600,
-                  color: AppColors.textMuted)),
-      ]),
-    );
-  }
-
-  Widget _rowLayout(List<Widget> cells) {
-    assert(cells.length == _columns.length);
-    return Row(
-      children: [
-        const SizedBox(width: 8),
-        for (var index = 0; index < cells.length; index++)
-          index == 1
-              ? Expanded(child: cells[index])
-              : SizedBox(width: _columns[index].$2, child: cells[index]),
-        const SizedBox(width: 8),
-      ],
-    );
-  }
-
-  Widget _buildRows(bool running) {
+  Widget _buildHitCards(bool running) {
     final rows = controller.activeHits;
     if (rows.isEmpty) {
       return Center(
         child: Text(running ? '本档暂无命中（扫描中…）' : '本档无命中',
-            style:
-                const TextStyle(fontSize: 12, color: AppColors.textFaint)),
+            style: const TextStyle(fontSize: 12, color: AppColors.textFaint)),
       );
     }
     return ListView.separated(
+      padding: const EdgeInsets.symmetric(horizontal: 16),
       itemCount: rows.length,
-      separatorBuilder: (_, _) =>
-          const Divider(height: 1, color: AppColors.grid),
-      itemBuilder: (context, index) {
-        final hit = rows[index];
-        const cellStyle = TextStyle(fontSize: 10, color: AppColors.text);
-        return InkWell(
-          onTap: () => widget.onSelect(hit.symbol),
-          child: Padding(
-            padding: const EdgeInsets.symmetric(vertical: 7),
-            child: _rowLayout([
-              Text(hit.symbol, style: cellStyle),
-              Row(
-                mainAxisSize: MainAxisSize.min,
-                children: [
-                  Flexible(
-                    child: Text(hit.name,
-                        style: cellStyle, overflow: TextOverflow.ellipsis),
-                  ),
-                  if (hit.limitUp)
-                    const Padding(
-                      padding: EdgeInsets.only(left: 2),
-                      child: Text('涨停',
-                          style:
-                              TextStyle(fontSize: 8, color: AppColors.rise)),
-                    ),
-                ],
-              ),
-              Text(hit.price.toStringAsFixed(2), style: cellStyle),
-              Text(hit.low90.toStringAsFixed(2), style: cellStyle),
-              Text('${hit.pct.toStringAsFixed(1)}%',
-                  style: const TextStyle(
-                      fontSize: 10,
-                      color: AppColors.rise,
-                      fontWeight: FontWeight.w600)),
-              Text('${hit.maxPct.toStringAsFixed(1)}%', style: cellStyle),
-              Text(_shortDate(hit.lowDate), style: cellStyle),
-              Text(_shortDate(hit.crossDate), style: cellStyle),
-              Text('+${hit.over.toStringAsFixed(1)}%',
-                  style:
-                      const TextStyle(fontSize: 10, color: AppColors.warn)),
-            ]),
-          ),
-        );
-      },
+      separatorBuilder: (_, _) => const SizedBox(height: 8),
+      itemBuilder: (context, index) => _hitCard(rows[index], index),
     );
   }
+
+  Widget _hitCard(BandHit hit, int index) {
+    return HudPanel(
+      radius: 12,
+      tint: hit.limitUp ? AppColors.rise : null,
+      glow: index == 0,
+      padding: const EdgeInsets.fromLTRB(12, 10, 12, 11),
+      onTap: () => widget.onSelect(hit.symbol),
+      child: Column(
+        crossAxisAlignment: CrossAxisAlignment.stretch,
+        children: [
+          Row(
+            crossAxisAlignment: CrossAxisAlignment.center,
+            children: [
+              Flexible(
+                child: Text(hit.name,
+                    overflow: TextOverflow.ellipsis,
+                    style: const TextStyle(
+                        fontSize: 14,
+                        fontWeight: FontWeight.w700,
+                        color: AppColors.text)),
+              ),
+              const SizedBox(width: 6),
+              Text(hit.symbol, style: mono(size: 9, color: AppColors.textDim)),
+              if (hit.limitUp) ...[
+                const SizedBox(width: 6),
+                Container(
+                  padding:
+                      const EdgeInsets.symmetric(horizontal: 5, vertical: 1),
+                  decoration: BoxDecoration(
+                    color: AppColors.rise,
+                    borderRadius: BorderRadius.circular(3),
+                  ),
+                  child: Text('涨停',
+                      style: mono(
+                          size: 8.5,
+                          color: const Color(0xFF050914),
+                          weight: FontWeight.w700)),
+                ),
+              ],
+              const Spacer(),
+              GlowText('+${hit.pct.toStringAsFixed(1)}%',
+                  size: 18, color: AppColors.rise, blur: 16),
+            ],
+          ),
+          const SizedBox(height: 9),
+          _bandProgress(hit),
+          const SizedBox(height: 8),
+          Row(
+            children: [
+              Text('波段高 ${hit.maxPct.toStringAsFixed(1)}%',
+                  style: mono(size: 9, color: AppColors.textFaint)),
+              const SizedBox(width: 8),
+              Text('低点 ${_shortDate(hit.lowDate)}',
+                  style: mono(size: 9, color: AppColors.textFaint)),
+              const SizedBox(width: 8),
+              Text('过线 ${_shortDate(hit.crossDate)}',
+                  style: mono(size: 9, color: AppColors.textFaint)),
+              const Spacer(),
+              Text('超出 +${hit.over.toStringAsFixed(1)}%',
+                  style: mono(
+                      size: 9, color: AppColors.warn, weight: FontWeight.w600)),
+            ],
+          ),
+          if (hit.fromTop || hit.vShape) ...[
+            const SizedBox(height: 6),
+            Row(
+              children: [
+                if (hit.fromTop) _shapeTag('顶部下来'),
+                if (hit.vShape) _shapeTag('V型'),
+              ],
+            ),
+          ],
+        ],
+      ),
+    );
+  }
+
+  /// 波段进度条：填充 = pct/maxPct，轨上两根针 = 主线与入档线（主线+10）
+  Widget _bandProgress(BandHit hit) {
+    final span = hit.maxPct <= 0 ? 1.0 : hit.maxPct;
+    double at(double pct) => (pct / span).clamp(0.0, 1.0);
+    final threshold = groupThreshold(hit.group);
+    return Column(
+      crossAxisAlignment: CrossAxisAlignment.stretch,
+      children: [
+        LayoutBuilder(
+          builder: (context, box) => SizedBox(
+            height: 5,
+            child: Stack(
+              children: [
+                Container(
+                  decoration: BoxDecoration(
+                    borderRadius: BorderRadius.circular(3),
+                    color: AppColors.panelBorder.withValues(alpha: 0.7),
+                  ),
+                ),
+                FractionallySizedBox(
+                  widthFactor: at(hit.pct),
+                  child: Container(
+                    decoration: BoxDecoration(
+                      borderRadius: BorderRadius.circular(3),
+                      gradient: LinearGradient(colors: [
+                        AppColors.rise.withValues(alpha: 0.35),
+                        AppColors.rise,
+                      ]),
+                    ),
+                  ),
+                ),
+                _needle(box.maxWidth * at(threshold), AppColors.yellowLine),
+                _needle(box.maxWidth * at(threshold + 10),
+                    AppColors.text.withValues(alpha: 0.8)),
+              ],
+            ),
+          ),
+        ),
+        const SizedBox(height: 4),
+        Row(
+          children: [
+            Text(hit.low90.toStringAsFixed(2),
+                style: mono(size: 9, color: AppColors.textDim)),
+            const Spacer(),
+            Text(hit.price.toStringAsFixed(2),
+                style: mono(size: 9, color: AppColors.text)),
+          ],
+        ),
+      ],
+    );
+  }
+
+  Widget _needle(double left, Color color) => Positioned(
+        left: left,
+        top: -1,
+        child: Container(width: 1.5, height: 7, color: color),
+      );
+
+  Widget _shapeTag(String label) => Container(
+        margin: const EdgeInsets.only(right: 4),
+        padding: const EdgeInsets.symmetric(horizontal: 5, vertical: 1),
+        decoration: BoxDecoration(
+          borderRadius: BorderRadius.circular(3),
+          border: Border.all(color: AppColors.hudBorder),
+        ),
+        child: Text(label, style: mono(size: 8.5, color: AppColors.textFaint)),
+      );
 
   String _shortDate(String date) => date.length >= 10 ? date.substring(5) : date;
 }

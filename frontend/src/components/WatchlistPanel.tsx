@@ -11,7 +11,6 @@ type Props = {
   quotes: Quote[];
   selected: string;
   sortKey: SortKey;
-  panelLabel: string;
   onQueryChange: (value: string) => void;
   onSortChange: (value: SortKey) => void;
   onAdd: (symbol: string) => void;
@@ -26,7 +25,6 @@ export function WatchlistPanel({
   quotes,
   selected,
   sortKey,
-  panelLabel,
   onQueryChange,
   onSortChange,
   onAdd,
@@ -48,7 +46,7 @@ export function WatchlistPanel({
       <div className="panel-title">
         <div>
           <h2>自选资产</h2>
-          <span>{watchlist.length} 个</span>
+          <span className="mono-label">A SHARE · {watchlist.length}</span>
         </div>
         <select value={sortKey} onChange={(event) => onSortChange(event.target.value as SortKey)}>
           <option value="custom">自定义</option>
@@ -63,7 +61,7 @@ export function WatchlistPanel({
         <input
           value={query}
           onChange={(event) => onQueryChange(event.target.value)}
-          placeholder={`在${panelLabel}中搜索代码 / 名称`}
+          placeholder="代码 / 名称 / 拼音首字母"
         />
       </div>
 

@@ -115,6 +115,18 @@ def create_app() -> FastAPI:
         except ProviderError as exc:
             raise provider_http_error(exc) from exc
 
+    @app.get("/api/fundamentals/{symbol}", response_model=ApiResponse)
+    def fundamentals(
+        symbol: str,
+        refresh: bool = False,
+        service: MarketService = Depends(get_market_service),
+    ) -> ApiResponse:
+        try:
+            data, quality = service.fundamentals(symbol, refresh=refresh)
+            return ApiResponse(data=data, quality=quality)
+        except ProviderError as exc:
+            raise provider_http_error(exc) from exc
+
     @app.get("/api/watchlist", response_model=ApiResponse)
     def list_watchlist(
         group_name: str | None = None,

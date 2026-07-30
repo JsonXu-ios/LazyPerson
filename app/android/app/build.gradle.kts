@@ -35,6 +35,13 @@ android {
             // TODO: Add your own signing config for the release build.
             // Signing with the debug keys for now, so `flutter run --release` works.
             signingConfig = signingConfigs.getByName("debug")
+
+            // 只打包 arm64-v8a，避免 fat APK 把三套 ABI 的引擎都塞进来（55MB -> 约 20MB）。
+            // debug 不做限制，模拟器（x86_64）照常可用。
+            ndk {
+                abiFilters.clear()
+                abiFilters.add("arm64-v8a")
+            }
         }
     }
 }

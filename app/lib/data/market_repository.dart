@@ -5,12 +5,13 @@ library;
 import 'dart:convert';
 
 import '../logic/indicators.dart';
+import '../logic/market_panels.dart';
 import '../models/models.dart';
 import 'local_store.dart';
 import 'provider_error.dart';
+import 'providers/eastmoney_fundamentals_provider.dart';
 import 'providers/eastmoney_provider.dart';
 import 'providers/tencent_provider.dart';
-import 'providers/yahoo_provider.dart';
 import 'symbol_utils.dart';
 import 'sync_service.dart';
 
@@ -34,51 +35,36 @@ class MarketRepository {
 
   static const _quoteTtl = Duration(seconds: 10);
   static const _minuteTtl = Duration(seconds: 60);
-  static const _globalDayTtl = Duration(hours: 1);
+  static const _barDayTtl = Duration(hours: 1);
+
+  /// 财报日内不变，6 小时（对齐 backend FUNDAMENTALS_TTL_SECONDS）
+  static const _fundamentalsTtl = Duration(hours: 6);
 
   final LocalStore store;
   final SyncService sync;
   final TencentProvider tencent;
-  final YahooProvider yahoo;
+  final EastmoneyFundamentalsProvider fundamentalsProvider;
   final DateTime Function() now;
 
   MarketRepository({
     required this.store,
     required this.sync,
     TencentProvider? tencent,
-    YahooProvider? yahoo,
+    EastmoneyFundamentalsProvider? fundamentalsProvider,
     DateTime Function()? now,
   })  : tencent = tencent ?? TencentProvider(),
-        yahoo = yahoo ?? YahooProvider(),
+        fundamentalsProvider =
+            fundamentalsProvider ?? EastmoneyFundamentalsProvider(),
         now = now ?? DateTime.now;
 
   static const defaultWatchlist = [
-    WatchlistItem(symbol: '002138', market: 'SZ', name: '顺络电子', groupName: 'a_share', sortOrder: 1),
-    WatchlistItem(symbol: '600519', market: 'SH', name: '贵州茅台', groupName: 'a_share', sortOrder: 2),
-    WatchlistItem(symbol: '000001', market: 'SZ', name: '平安银行', groupName: 'a_share', sortOrder: 3),
-    WatchlistItem(symbol: '300750', market: 'SZ', name: '宁德时代', groupName: 'a_share', sortOrder: 4),
-    WatchlistItem(symbol: 'SPY', market: 'US', name: '标普500 ETF', groupName: 'us', sortOrder: 1, note: '美股'),
-    WatchlistItem(symbol: 'QQQ', market: 'US', name: '纳指100 ETF', groupName: 'us', sortOrder: 2, note: '美股'),
-    WatchlistItem(symbol: 'GC=F', market: 'FUT', name: 'COMEX 黄金期货', groupName: 'gold', sortOrder: 1, note: '黄金'),
-    WatchlistItem(symbol: 'BTC-USD', market: 'CRYPTO', name: '比特币 / 美元', groupName: 'crypto', sortOrder: 1, note: '比特币'),
-  ];
-
-  static const builtinSymbols = [
-    SymbolItem(symbol: 'SPY', market: 'US', name: '标普500 ETF'),
-    SymbolItem(symbol: 'QQQ', market: 'US', name: '纳指100 ETF'),
-    SymbolItem(symbol: 'GC=F', market: 'FUT', name: 'COMEX 黄金期货'),
-    SymbolItem(symbol: 'BTC-USD', market: 'CRYPTO', name: '比特币 / 美元'),
-    SymbolItem(symbol: 'AAPL', market: 'US', name: 'Apple 苹果'),
-    SymbolItem(symbol: 'MSFT', market: 'US', name: 'Microsoft 微软'),
-    SymbolItem(symbol: 'NVDA', market: 'US', name: 'NVIDIA 英伟达'),
-    SymbolItem(symbol: 'TSLA', market: 'US', name: 'Tesla 特斯拉'),
-    SymbolItem(symbol: 'GLD', market: 'US', name: '黄金 ETF'),
-    SymbolItem(symbol: 'XAUUSD=X', market: 'FX', name: '现货黄金 / 美元'),
-    SymbolItem(symbol: 'ETH-USD', market: 'CRYPTO', name: '以太坊 / 美元'),
+    WatchlistItem(symbol: '002138', market: 'SZ', name: '顺络电子', groupName: aShareGroup, sortOrder: 1),
+    WatchlistItem(symbol: '600519', market: 'SH', name: '贵州茅台', groupName: aShareGroup, sortOrder: 2),
+    WatchlistItem(symbol: '000001', market: 'SZ', name: '平安银行', groupName: aShareGroup, sortOrder: 3),
+    WatchlistItem(symbol: '300750', market: 'SZ', name: '宁德时代', groupName: aShareGroup, sortOrder: 4),
   ];
 
   Future<void> ensureSeeded() async {
-    await store.upsertSymbols(builtinSymbols);
     if (await store.getState(_seededKey) == '1') return;
     for (final item in defaultWatchlist) {
       await store.addWatchlist(item.symbol, item.groupName, note: item.note);
@@ -114,41 +100,22 @@ class MarketRepository {
       return QuotesResult(const [], _quality('unknown'));
     }
 
-    final aSymbols = clean.where(isAShareSymbol).toList();
-    final globalSymbols = clean.where((s) => !isAShareSymbol(s)).toList();
     final quotes = <Quote>[];
     final qualities = <DataQuality>[];
     final warnings = <String>[];
 
-    if (aSymbols.isNotEmpty) {
-      final result = await _cachedQuotes(
-        'quote:a:${(aSymbols.toList()..sort()).join(',')}',
-        aSymbols,
-        () => tencent.realtimeQuotes(aSymbols),
-        TencentProvider.source,
-        refresh: refresh,
-      );
-      if (result != null) {
-        quotes.addAll(result.quotes);
-        qualities.add(result.quality);
-      } else {
-        warnings.add('a_quotes_unavailable');
-      }
-    }
-    if (globalSymbols.isNotEmpty) {
-      final result = await _cachedQuotes(
-        'quote:global:${(globalSymbols.toList()..sort()).join(',')}',
-        globalSymbols,
-        () => yahoo.realtimeQuotes(globalSymbols),
-        YahooProvider.source,
-        refresh: refresh,
-      );
-      if (result != null) {
-        quotes.addAll(result.quotes);
-        qualities.add(result.quality);
-      } else {
-        warnings.add('global_quotes_unavailable');
-      }
+    final result = await _cachedQuotes(
+      'quote:a:${(clean.toList()..sort()).join(',')}',
+      clean,
+      () => tencent.realtimeQuotes(clean),
+      TencentProvider.source,
+      refresh: refresh,
+    );
+    if (result != null) {
+      quotes.addAll(result.quotes);
+      qualities.add(result.quality);
+    } else {
+      warnings.add('a_quotes_unavailable');
     }
 
     if (quotes.isEmpty) {
@@ -292,7 +259,7 @@ class MarketRepository {
     );
   }
 
-  /// 分钟 K 与全球标的：frames 短期缓存 + 在线拉取
+  /// 周/月 K 与分钟 K：frames 短期缓存 + 在线拉取（日 K 走 _aShareDaily）
   Future<KlineResult> _frameKline(
     String symbol,
     String period, {
@@ -300,11 +267,10 @@ class MarketRepository {
     int? limit,
     required List<String> indicators,
   }) async {
-    final isAShare = isAShareSymbol(symbol);
-    final adjust = isAShare ? 'qfq' : 'none';
+    const adjust = 'qfq';
     final cacheKey = 'kline:$symbol:$period:$adjust';
-    final isDaily = period == 'day' || period == 'week' || period == 'month';
-    final ttl = isDaily ? _globalDayTtl : _minuteTtl;
+    final isBarPeriod = period == 'day' || period == 'week' || period == 'month';
+    final ttl = isBarPeriod ? _barDayTtl : _minuteTtl;
 
     if (!refresh) {
       final cached = await store.readFrame(cacheKey, allowStale: false);
@@ -320,14 +286,10 @@ class MarketRepository {
     List<KlineBar>? bars;
     String source = 'unknown';
     final warnings = <String>[];
-    final fetchers = isAShare
-        ? <(String, Future<List<KlineBar>> Function())>[
-            (TencentProvider.source, () => tencent.kline(symbol, period, adjust: adjust)),
-            (EastmoneyProvider.source, () => sync.eastmoney.kline(symbol, period, adjust: adjust)),
-          ]
-        : <(String, Future<List<KlineBar>> Function())>[
-            (YahooProvider.source, () => yahoo.kline(symbol, period)),
-          ];
+    final fetchers = <(String, Future<List<KlineBar>> Function())>[
+      (TencentProvider.source, () => tencent.kline(symbol, period, adjust: adjust)),
+      (EastmoneyProvider.source, () => sync.eastmoney.kline(symbol, period, adjust: adjust)),
+    ];
     for (final (name, fetcher) in fetchers) {
       try {
         final fetched = await fetcher();
@@ -358,7 +320,7 @@ class MarketRepository {
 
     await store.writeFrame(
       cacheKey: cacheKey,
-      dataType: isDaily ? 'kline_$period' : 'kline_minute',
+      dataType: isBarPeriod ? 'kline_$period' : 'kline_minute',
       payloadJson: jsonEncode(bars.map((bar) => bar.toJson()).toList()),
       source: source,
       symbol: symbol,
@@ -420,6 +382,50 @@ class MarketRepository {
     );
   }
 
+  // ---------- 财务 ----------
+
+  /// 分红 + 业绩 + 估值。仅 A 股有；结构是嵌套的，用 state 表存 JSON 做 TTL 缓存
+  /// （语义对齐 backend/app/services.py::MarketService.fundamentals）。
+  Future<Fundamentals> fundamentals(String symbol,
+      {bool refresh = false}) async {
+    final clean = normalizeSymbol(symbol);
+    if (!isAShareSymbol(clean)) {
+      throw ProviderError('财务数据仅支持 A 股', 'local');
+    }
+    final stateKey = 'fundamentals:$clean';
+
+    Fundamentals? cached;
+    final raw = await store.getState(stateKey);
+    if (raw != null) {
+      try {
+        final decoded = (jsonDecode(raw) as Map).cast<String, Object?>();
+        final fetchedAt = DateTime.parse(decoded['fetched_at'] as String);
+        cached = Fundamentals.fromJson(
+            (decoded['data'] as Map).cast<String, Object?>());
+        if (!refresh && now().difference(fetchedAt) < _fundamentalsTtl) {
+          return cached;
+        }
+      } catch (_) {
+        cached = null; // 缓存损坏按无缓存处理
+      }
+    }
+
+    try {
+      final data = await fundamentalsProvider.fundamentals(clean);
+      await store.setState(
+        stateKey,
+        jsonEncode({
+          'fetched_at': now().toIso8601String(),
+          'data': data.toJson(),
+        }),
+      );
+      return data;
+    } catch (exc) {
+      if (cached != null) return cached; // 远端不可用时回落到过期缓存
+      rethrow;
+    }
+  }
+
   // ---------- 数据质量 ----------
 
   static String _messageFor(String source,
@@ -432,12 +438,8 @@ class MarketRepository {
         return '腾讯行情数据';
       case 'eastmoney':
         return '东方财富数据';
-      case 'yahoo':
-        return 'Yahoo Finance 数据';
       case 'local':
         return '本地数据';
-      case 'mixed':
-        return '多市场数据';
     }
     return '数据已更新';
   }

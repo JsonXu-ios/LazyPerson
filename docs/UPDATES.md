@@ -666,3 +666,94 @@
 - 命中条件覆盖面较宽（约四成个股满足"区间上半段"），如需收敛可加"当日刚突破档位中线"或成交额过滤，二期考虑。
 - 东财可达的环境未实测 efinance/akshare 快照路径。
 - 设计文档：docs/superpowers/specs/2026-07-27-moneygrab-scan-design.md。
+
+## 2026-07-30：八档局「从高处来」改为可选 + 资产信息财务概览
+
+类型：实现更新
+
+完成内容：
+
+- 八档局：`is_falling_from_top`（从顶部跌破已站上线）与 V 型反弹两条规则不再 `return None` 丢弃，改为在命中行上打 `from_top` / `v_shape` 标记；V 型判定抽成 `is_v_shape_rebound()`。展示层新增「含从顶部下来」「含V型反弹」两个筛选开关（默认不勾选，与改动前看到的列表一致），切换即时生效无需重扫；结果表新增「形态」列。
+- 结果结构变了，扫描结果缓存键升版：后端 `moneygrab:last_scan:v3 → v4`，App `band_scan:last:v1 → v2`（旧结果自动作废重扫）。
+- Flutter 端 `band_scanner.dart` / `band_scan_controller.dart` / `band_scan_screen.dart` 同步，逻辑与 Python 侧逐条对齐。
+- 新增财务数据源 `backend/app/providers/eastmoney_adapter.py`（东财 datacenter）：业绩报表 `RPT_LICO_FN_CPD`、利润表 `RPT_DMSK_FN_INCOME`、分红送配 `RPT_SHAREBONUS_DET`，估值走 push2 `ulist.np`（PE/PE-TTM/PB/总市值/流通市值）。净利润（含少数股东）由 利润总额 - 所得税 推出，业绩报表本身只有归母口径。
+- 新增 `GET /api/fundamentals/{symbol}`（仅 A 股）。结构是嵌套的，不走 `write_frame` 的表格缓存，改用 state 表存 JSON + `fetched_at` 判 TTL（默认 6 小时，`FUNDAMENTALS_TTL_SECONDS`）；远端不可用时回落到过期缓存并标 stale。
+- 网页版：`FundamentalsPanel.tsx` 挂进资产信息抽屉，展示估值、最新业绩（营收/归母净利润/扣非归母/净利润/EPS/ROE/毛利率/每股经营现金流）、历史业绩表、分红方案表。
+- App：`eastmoney_fundamentals_provider.dart` 直连同样的东财接口（不经后端，与其他 provider 一致），`MarketRepository.fundamentals()` 做 6 小时 JSON 缓存，`fundamentals_section.dart` 挂进资产信息弹层。
+- 估值接口主域名 push2 在部分网络下只会静静超时，超时压到 6 秒尽快降级 push2delay；估值失败只记 warning，不影响财务部分。
+
+验证：
+
+- `python -m pytest tests/` 60 项全部通过（新增 `tests/test_eastmoney_fundamentals.py` 8 项：字段映射、净利润推导、报告期错位不硬凑、估值失败降级）。
+- `flutter analyze` 无告警，`flutter test` 49 项全部通过。
+- `npx tsc --noEmit` 与 `npm run build`（frontend）通过。
+- 真实接口冒烟：`GET /api/fundamentals/600519` 返回 8 期业绩 + 8 条分红 + 完整估值；`GET /api/fundamentals/AAPL` 按预期 503。
+
+遗留问题：
+
+- 财务只覆盖 A 股，美股/黄金/加密走 Yahoo 无对应接口，面板直接不渲染。
+- 只做了业绩 + 分红 + 估值；资产负债表与现金流量表科目未纳入。
+
+## 2026-07-30：收敛为纯 A 股 + HUD 主题（方案 1d）
+
+类型：方案更新 + 实现更新
+
+### 一、只保留 A 股，移除美股/黄金/加密
+
+- 后端：删除 `backend/app/providers/yahoo_adapter.py` 与 `tests/test_yahoo_adapter.py`；`MarketService` 去掉 `global_watchlist` / `builtin_symbols` / `_upsert_builtin_symbols` / `_should_search_yahoo_symbols` / `_combine_quality`；`realtime_quotes` 与 `kline` 不再按 A 股/非 A 股分流，只走腾讯→efinance→akshare（日线再加 baostock）；`utils.guess_market` 只判 SH/SZ/BJ，`normalize_symbol` 去掉 `.US` 后缀。
+- App：删除 `lib/data/providers/yahoo_provider.dart`；`market_panels.dart` 的 `PanelKey` 四值枚举 + `panelForAsset` + `panelGroupName` 换成单个 `aShareConfig` 常量；`HomeController` 的 `activePanel` / `selectedByPanel` / `setPanel` 收敛为一个 `selected` 字段，搜索不再走 Yahoo 在线补全；默认自选只留 4 只 A 股。
+- 网页版：`App.tsx` 的 `marketPanels` / `defaultSelectedByPanel` / `panelForAsset` / `panelConfig` / `fillSelectedPanels` 全部删除，换成 `aShareConfig`；市场切换 Tab 与对应 CSS 一并移除；`WatchlistPanel` 去掉 `panelLabel` 入参。
+- 八档局入口不再判面板，始终显示。
+
+### 二、HUD 主题（handoff/ 方案 1d，稿 09/10/11）
+
+- `lib/theme/app_theme.dart` 整体替换为 HUD 配色（深蓝底 #050914 + 青 accent #4CC9FF + 涨 #FF4D6D / 跌 #00E5A0），新增 `lib/theme/hud.dart` 视觉基元：`HudPanel`、`GlowText`、`HudBrackets`、`HudSegmentBar`、`HudChip`、`HudLiveBadge`、`HudLevelRail`、`drawGlowing`。
+- 新增 widget：`band_radar.dart`（八档竖轨雷达，替代原横向 Tab）、`band_hit_table.dart`（九列冻结前两列 + 表头表体同步横滚）、`sparkline.dart`（自选行迷你走势线，无日线缓存时退化成涨跌幅强度块）、`hud_sheet.dart`（两个浮层共用的 sheet 外壳）。
+- 字体：IBM Plex Mono 四个字重打进 `app/assets/fonts/`，网页版用 woff2 放 `frontend/public/fonts/`，两端都本地打包不联网；只有数字/代码/日期走 mono，中文正文仍用系统字体。
+- 逐屏：主行情屏（顶栏 HudPanel + LIVE 徽标、同步条改分段进度、标的头现价发光 + 涨跌实心徽标、周期切换旁加档位轨、K 线四角取景框、底部操作条浮层化）；K 线蜡烛与趋势线走 `drawGlowing`，OHLC 条改单行 O/H/L/C；副图卡片化（110→96dp，标题行显示当前值取代色块图例）；八档局改雷达 + 表格/卡片双视图（切换态存在 State，不进 controller）；自选与资产信息换 HUD sheet 外壳。
+- 档位轨的「已站上最高档」在 `home_screen.dart` 用 `level_rules.isMajorLevel` 现成判定算出，没有新写规则，`lib/logic` 未改动。
+- 网页版同步这套视觉语言：`styles.css` 换 HUD 调色板与 `--hud-*` 变量、径向渐变背景、chip 化按钮与周期切换、八档局入口常亮发光、数字统一 mono + tabular-nums、现价发光；`KlineChart.tsx` 与 `IndicatorTabs.tsx` 的图表底色/网格/轴/涨跌色跟着换。
+- logo 未改动。
+
+验证：
+
+- `flutter analyze` 无告警；`flutter test` 49 项全部通过。
+- `python -m pytest tests/` 55 项全部通过（删掉 Yahoo 适配器 5 项，全球自选 2 项改为 A 股断言）。
+- `npx tsc --noEmit` 与 `npm run build`（frontend）通过，woff2 已进 dist。
+- `flutter build apk --release` 构建成功。
+
+遗留问题：
+
+- 真机/模拟器 UI 未实跑：411×880dp 下的溢出、表头与表体横滚对位、发光在中端机上的绘制开销都还没实测，需要装机走一遍。
+- `frontend/tsconfig.json` 之前被去掉了 `moduleResolution`，与 `module: ESNext` 组合会报 TS5070，本次补成 `Bundler` 才能过类型检查。
+- 沪深清单里非 6 位数字的历史脏数据（若有）不会再被展示层归类，只是不显示，未做清理迁移。
+
+## 2026-07-30（修复）：App 财务概览拿不到数据
+
+类型：实现更新
+
+问题：App 的「资产信息 → 财务概览」始终空白。原因是东财 datacenter（`datacenter-web.eastmoney.com/api/data/v1/get`）
+返回的 `Content-Type` 是 `text/plain;charset=UTF-8`，而 Dio 默认只对 `application/json` 反序列化，
+`_dio.get<Map<String, dynamic>>` 拿到的是字符串、泛型转换抛 `DioException`，业绩/利润表/分红三个请求全部失败。
+push2 系（clist / ulist.np / kline）返回的是 `application/json`，所以其他 provider 不受影响；
+Python 端 `response.json()` 不看 content-type，网页版也不受影响 —— 这也是只测后端接口时没暴露的原因。
+
+修复内容：
+
+- `eastmoney_fundamentals_provider.dart` 的 `_getJson` 改为 `ResponseType.plain` 收响应后自己 `jsonDecode`，不依赖服务端 content-type。
+- 估值改用独立的 `_quoteDio`（connect/receive 各 6 秒）。原先用 `Options(receiveTimeout:)` 想压短超时，
+  但 `connectTimeout` 无法按请求覆盖，push2 连不上时仍要等 BaseOptions 的 15 秒才降级到 push2delay。
+- 新增 `app/test/eastmoney_fundamentals_provider_test.dart`（9 项）：用假 HttpClientAdapter 覆盖 text/plain 与
+  application/json 两种响应、字段映射、净利润推导、报告期错位留空、估值降级、空数据抛错；
+  另有一条「前提」测试锁住 Dio 对 text/plain 的默认行为，说明这个手动 jsonDecode 为什么必须存在。
+
+验证：
+
+- `flutter analyze` 无告警；`flutter test` 58 项全部通过。
+- `dart run tool/smoke_providers.dart` 联网冒烟：东财财务返回「贵州茅台 8期业绩 8条分红，最新 2026年 一季报 归母=27242512886.45」，东财估值 PE/PB/市值正常。
+- `flutter build apk --release` 构建成功（19.6MB）。
+
+遗留问题：
+
+- `eastmoney_provider.dart` 的单只 K 线兜底走 `push2his.eastmoney.com`，没有像 clist 那样配 push2delay 主备；
+  在 push2 不通的网络下这条兜底恒超时 15 秒（腾讯是主源，故只影响腾讯也失败的情况）。冒烟里的「东财 日K 300750」失败就是这个。

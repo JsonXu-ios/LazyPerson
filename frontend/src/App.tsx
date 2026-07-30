@@ -15,79 +15,25 @@ import { normalizeError, qualityText } from "./utils/format";
 const periods = ["day", "week", "month"];
 const periodLabels: Record<string, string> = { day: "日 K", week: "周 K", month: "月 K" };
 type SortKey = "custom" | "pct" | "amount" | "price";
-type PanelKey = "a_share" | "us" | "gold" | "crypto";
-const marketPanels: Array<{
-  key: PanelKey;
-  label: string;
-  fallback: string;
-  windowDays: number;
-  windowMode?: "calendar" | "bars";
-  lineStep: number;
-  majorLineStep?: number;
-  majorLineMinPercent?: number;
-  majorLineAnchor?: number;
-  showLevelPrices?: boolean;
-  extendLevelsBeyond100?: boolean;
-}> = [
-  {
-    key: "a_share",
-    label: "A 股",
-    fallback: "002138",
-    windowDays: 90,
-    windowMode: "calendar",
-    lineStep: 10,
-    majorLineStep: 30,
-    majorLineAnchor: 20,
-    showLevelPrices: true,
-    extendLevelsBeyond100: true,
-  },
-  {
-    key: "us",
-    label: "美股",
-    fallback: "SPY",
-    windowDays: 180,
-    windowMode: "bars",
-    lineStep: 5,
-    majorLineStep: 10,
-    showLevelPrices: true,
-    extendLevelsBeyond100: true,
-  },
-  {
-    key: "gold",
-    label: "黄金",
-    fallback: "GC=F",
-    windowDays: 180,
-    windowMode: "bars",
-    lineStep: 5,
-    majorLineStep: 10,
-    showLevelPrices: true,
-    extendLevelsBeyond100: true,
-  },
-  {
-    key: "crypto",
-    label: "比特币",
-    fallback: "BTC-USD",
-    windowDays: 180,
-    windowMode: "bars",
-    lineStep: 5,
-    majorLineStep: 10,
-    showLevelPrices: true,
-    extendLevelsBeyond100: true,
-  },
-];
 
-const defaultSelectedByPanel: Record<PanelKey, string> = {
-  a_share: "002138",
-  us: "SPY",
-  gold: "GC=F",
-  crypto: "BTC-USD",
+/// 只做沪深 A 股。画线参数与 app/lib/logic/market_panels.dart::aShareConfig 一致。
+const A_SHARE_GROUP = "a_share";
+const aShareConfig = {
+  label: "A 股",
+  fallback: "002138",
+  windowDays: 90,
+  windowMode: "calendar" as const,
+  lineStep: 10,
+  majorLineStep: 30,
+  majorLineAnchor: 20,
+  showLevelPrices: true,
+  extendLevelsBeyond100: true,
 };
 
 export function App() {
   const [watchlist, setWatchlist] = useState<WatchlistItem[]>([]);
   const [quotes, setQuotes] = useState<Quote[]>([]);
-  const [activePanel, setActivePanel] = useState<PanelKey>("a_share");
-  const [selectedByPanel, setSelectedByPanel] = useState<Record<PanelKey, string>>(defaultSelectedByPanel);
+  const [selected, setSelected] = useState(aShareConfig.fallback);
   const [query, setQuery] = useState("");
   const [results, setResults] = useState<SymbolItem[]>([]);
   const [period, setPeriod] = useState("day");
@@ -103,18 +49,8 @@ export function App() {
   const quotesRequestRef = useRef(0);
   const detailRequestRef = useRef(0);
 
-  const panelWatchlist = useMemo(
-    () => watchlist.filter((item) => panelForAsset(item) === activePanel),
-    [activePanel, watchlist],
-  );
-  const panelResults = useMemo(
-    () => results.filter((item) => panelForAsset(item) === activePanel),
-    [activePanel, results],
-  );
-  const selected = selectedByPanel[activePanel];
-  const activePanelConfig = panelConfig(activePanel);
-  const activePanelLabel = activePanelConfig.label;
-  const symbols = useMemo(() => panelWatchlist.map((item) => item.symbol), [panelWatchlist]);
+  const aShareResults = useMemo(() => results.filter((item) => isAShareSymbol(item.symbol)), [results]);
+  const symbols = useMemo(() => watchlist.map((item) => item.symbol), [watchlist]);
   const quoteTargets = useMemo(() => {
     const targets = new Set(symbols);
     if (selected) targets.add(selected);  // 非自选股（如八档局点入）也要拉行情，否则没有名称
@@ -122,24 +58,24 @@ export function App() {
   }, [selected, symbols]);
   const selectedQuote = quotes.find((quote) => quote.symbol === selected);
   const displayKline = useMemo(
-    () => sliceDailyPayloadByCalendarDays(kline, activePanelConfig.windowDays, activePanelConfig.windowMode || "calendar"),
-    [activePanelConfig.windowDays, activePanelConfig.windowMode, kline],
+    () => sliceDailyPayloadByCalendarDays(kline, aShareConfig.windowDays, aShareConfig.windowMode),
+    [kline],
   );
   const latestBar = displayKline?.bars[displayKline.bars.length - 1];
   const autoDrawing = useMemo(() => {
     if (displayKline?.period !== "day") return null;
     return computeAutoDrawing(
       displayKline?.bars || [],
-      activePanelConfig.windowDays,
-      activePanelConfig.lineStep,
-      Boolean(activePanelConfig.extendLevelsBeyond100),
+      aShareConfig.windowDays,
+      aShareConfig.lineStep,
+      aShareConfig.extendLevelsBeyond100,
     );
-  }, [activePanelConfig.extendLevelsBeyond100, activePanelConfig.lineStep, activePanelConfig.windowDays, displayKline]);
+  }, [displayKline]);
 
   const loadWatchlist = useCallback(async () => {
     const response = await api.listWatchlist();
     setWatchlist(response.data);
-    setSelectedByPanel((current) => fillSelectedPanels(current, response.data));
+    setSelected((current) => fillSelected(current, response.data));
   }, []);
 
   const loadQuotesFor = useCallback(async (targets: string[], refresh = false) => {
@@ -165,7 +101,7 @@ export function App() {
       setKline(null);
       setKlineQuality(null);
     }
-    const dayLimit = panelConfig(activePanel).windowDays === 180 ? 240 : 140;
+    const dayLimit = aShareConfig.windowDays === 180 ? 240 : 140;
     const klineResponse = await Promise.resolve(api.kline(symbol, nextPeriod, refresh, nextPeriod === "day" ? dayLimit : 1000))
       .then((value) => ({ status: "fulfilled" as const, value }))
       .catch((reason) => ({ status: "rejected" as const, reason }));
@@ -176,7 +112,7 @@ export function App() {
     } else {
       setNotice(normalizeError(klineResponse.reason));
     }
-  }, [activePanel]);
+  }, []);
 
   const loadDetail = useCallback(async (refresh = false) => {
     await loadDetailFor(selected, period, refresh);
@@ -190,22 +126,9 @@ export function App() {
   }, [loadWatchlist]);
 
   useEffect(() => {
-    if (!panelWatchlist.length) return;
-    if (panelWatchlist.some((item) => item.symbol === selected)) return;
-    if (selected) return;
-    selectPanelSymbol(panelWatchlist[0].symbol);
-  }, [panelWatchlist, selected]);
-
-  useEffect(() => {
-    setQuery("");
-    setResults([]);
-    setPeriod("day");
-    setQuotes([]);
-    setKline(null);
-    setQuoteQuality(null);
-    setKlineQuality(null);
-    setDrawer(null);
-  }, [activePanel]);
+    if (!watchlist.length || selected) return;
+    setSelected(watchlist[0].symbol);
+  }, [selected, watchlist]);
 
   useEffect(() => {
     loadQuotes(false)
@@ -239,8 +162,8 @@ export function App() {
   async function addSymbol(symbol: string) {
     setLoading(true);
     try {
-      await api.addWatchlist(symbol, activePanel);
-      selectPanelSymbol(symbol);
+      await api.addWatchlist(symbol, A_SHARE_GROUP);
+      setSelected(symbol);
       setPeriod("day");
       setQuery("");
       setResults([]);
@@ -251,11 +174,9 @@ export function App() {
         setNotice(normalizeError(exc));
       });
       loadDetailFor(symbol, "day", true, false).catch((exc) => setNotice(normalizeError(exc)));
-      const nextPanelSymbols = response.data
-        .filter((item) => panelForAsset(item) === activePanel)
-        .map((item) => item.symbol);
-      await loadQuotesFor(nextPanelSymbols, false);
-      loadQuotesFor(nextPanelSymbols, true).catch((exc) => setNotice(normalizeError(exc)));
+      const nextSymbols = response.data.map((item) => item.symbol);
+      await loadQuotesFor(nextSymbols, false);
+      loadQuotesFor(nextSymbols, true).catch((exc) => setNotice(normalizeError(exc)));
     } catch (exc) {
       setNotice(normalizeError(exc));
     } finally {
@@ -271,8 +192,8 @@ export function App() {
       setWatchlist(response.data);
       setQuotes((current) => current.filter((quote) => quote.symbol !== symbol));
       if (selected === symbol) {
-        const next = response.data.find((item) => item.symbol !== symbol && panelForAsset(item) === activePanel);
-        selectPanelSymbol(next?.symbol || "");
+        const next = response.data.find((item) => item.symbol !== symbol);
+        setSelected(next?.symbol || "");
         if (!next) setKline(null);
       }
     } catch (exc) {
@@ -319,25 +240,12 @@ export function App() {
 
       <section className="terminal-layout chart-first">
         <section className="chart-workbench">
-          <div className="market-panel-switch">
-            {marketPanels.map((item) => {
-              const count = watchlist.filter((asset) => panelForAsset(asset) === item.key).length;
-              return (
-                <button
-                  className={activePanel === item.key ? "active" : ""}
-                  key={item.key}
-                  onClick={() => setActivePanel(item.key)}
-                >
-                  <strong>{item.label}</strong>
-                  <span>{count} 个</span>
-                </button>
-              );
-            })}
-          </div>
           <div className="workbench-head">
             <div>
-              <h2>{selectedQuote?.name || selected || activePanelLabel}</h2>
-              <span>{activePanelLabel} · {selected || "暂无标的"} · {qualityText(klineQuality)}</span>
+              <h2>{selectedQuote?.name || selected || aShareConfig.label}</h2>
+              <span className="workbench-sub">
+                {selected || "暂无标的"} · {selectedQuote?.market || "--"} · {qualityText(klineQuality)}
+              </span>
             </div>
             <div className="workbench-actions">
               <button className="terminal-button" onClick={() => setDrawer("watchlist")}>
@@ -348,12 +256,10 @@ export function App() {
                 <Star size={15} />
                 资产信息
               </button>
-              {activePanel === "a_share" && (
-                <button className="terminal-button" onClick={() => setDrawer("moneygrab")}>
-                  <Zap size={15} />
-                  八档局
-                </button>
-              )}
+              <button className="terminal-button accent" onClick={() => setDrawer("moneygrab")}>
+                <Zap size={15} />
+                八档局
+              </button>
               <div className="period-switch">
                 {periods.map((item) => (
                   <button className={period === item ? "active" : ""} key={item} onClick={() => setPeriod(item)}>
@@ -369,12 +275,11 @@ export function App() {
             payload={displayKline}
             autoDrawing={autoDrawing}
             lineColors={lineColors}
-            windowDays={activePanelConfig.windowDays}
-            windowMode={activePanelConfig.windowMode || "calendar"}
-            majorLineStep={activePanelConfig.majorLineStep}
-            majorLineMinPercent={activePanelConfig.majorLineMinPercent}
-            majorLineAnchor={activePanelConfig.majorLineAnchor}
-            showLevelPrices={Boolean(activePanelConfig.showLevelPrices)}
+            windowDays={aShareConfig.windowDays}
+            windowMode={aShareConfig.windowMode}
+            majorLineStep={aShareConfig.majorLineStep}
+            majorLineAnchor={aShareConfig.majorLineAnchor}
+            showLevelPrices={aShareConfig.showLevelPrices}
           />
           <IndicatorTabs kline={displayKline} />
         </section>
@@ -389,18 +294,17 @@ export function App() {
             {drawer === "watchlist" ? (
               <WatchlistPanel
                 query={query}
-                results={panelResults}
-                watchlist={panelWatchlist}
+                results={aShareResults}
+                watchlist={watchlist}
                 quotes={quotes}
                 selected={selected}
                 sortKey={sortKey}
-                panelLabel={activePanelLabel}
                 onQueryChange={setQuery}
                 onSortChange={setSortKey}
                 onAdd={addSymbol}
                 onRemove={removeSymbol}
                 onSelect={(symbol) => {
-                  selectPanelSymbol(symbol);
+                  setSelected(symbol);
                   setPeriod("day");
                   setDrawer(null);
                 }}
@@ -408,7 +312,7 @@ export function App() {
             ) : drawer === "moneygrab" ? (
               <MoneyGrabPanel
                 onSelect={(symbol) => {
-                  selectPanelSymbol(symbol);
+                  setSelected(symbol);
                   setPeriod("day");
                   setDrawer(null);
                 }}
@@ -432,45 +336,16 @@ export function App() {
       )}
     </main>
   );
-
-  function selectPanelSymbol(symbol: string) {
-    setSelectedByPanel((current) => ({ ...current, [activePanel]: symbol }));
-  }
 }
 
-function fillSelectedPanels(current: Record<PanelKey, string>, rows: WatchlistItem[]) {
-  const next = { ...current };
-  marketPanels.forEach((panel) => {
-    const currentAsset = rows.find((item) => item.symbol === next[panel.key] && panelForAsset(item) === panel.key);
-    const firstAsset = rows.find((item) => panelForAsset(item) === panel.key);
-    next[panel.key] = currentAsset?.symbol || firstAsset?.symbol || panel.fallback;
-  });
-  return next;
+/// 选中标的失效（被删/首次加载）时落到自选首项，再退到内置标的
+function fillSelected(current: string, rows: WatchlistItem[]) {
+  if (rows.some((item) => item.symbol === current)) return current;
+  return rows[0]?.symbol || aShareConfig.fallback;
 }
 
-function panelConfig(panel: PanelKey) {
-  return marketPanels.find((item) => item.key === panel) || marketPanels[0];
-}
-
-function panelForAsset(item: Pick<WatchlistItem | SymbolItem, "symbol" | "market"> & { group_name?: string; note?: string }): PanelKey {
-  const group = item.group_name;
-  if (group === "a_share" || group === "us" || group === "gold" || group === "crypto") return group;
-
-  const symbol = item.symbol.toUpperCase();
-  const market = item.market.toUpperCase();
-  const note = item.note || "";
-  if (market === "CRYPTO" || symbol.endsWith("-USD") || note.includes("比特币")) return "crypto";
-  if (
-    market === "FUT" ||
-    market === "FX" ||
-    symbol === "GC=F" ||
-    symbol === "GLD" ||
-    symbol === "XAUUSD=X" ||
-    note.includes("黄金")
-  ) {
-    return "gold";
-  }
-  if (market === "US" || /^[A-Z]{1,5}$/.test(symbol)) return "us";
-  return "a_share";
+/// 沪深 A 股 = 6 位数字代码（与后端 utils.is_a_share_symbol 同口径）
+function isAShareSymbol(symbol: string) {
+  return /^\d{6}$/.test(symbol);
 }
 

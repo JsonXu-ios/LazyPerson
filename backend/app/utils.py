@@ -21,21 +21,14 @@ def safe_float(value: Any) -> float | None:
 
 def normalize_symbol(symbol: str) -> str:
     clean = symbol.strip().upper()
-    for suffix in (".SH", ".SZ", ".BJ", ".SS", ".US"):
+    for suffix in (".SH", ".SZ", ".BJ", ".SS"):
         clean = clean.replace(suffix, "")
     return clean
 
 
 def guess_market(symbol: str) -> str:
+    """只判沪深北，项目不做非 A 股标的。"""
     clean = normalize_symbol(symbol)
-    if clean.endswith("-USD"):
-        return "CRYPTO"
-    if clean.endswith("=F"):
-        return "FUT"
-    if clean.endswith("=X"):
-        return "FX"
-    if clean.isalpha() and 1 <= len(clean) <= 5:
-        return "US"
     if clean.startswith(("5", "6", "9")):
         return "SH"
     if clean.startswith(("0", "2", "3")):

@@ -1,4 +1,4 @@
-/// 资产信息弹层：现价摘要、关键位、线位颜色设置、删除自选。
+/// 资产信息浮层（HUD 方案 1d）：现价摘要、财务概览、关键位、线位颜色、删除自选。
 /// 对齐 frontend/src/components/StockSummary.tsx。
 library;
 
@@ -7,8 +7,13 @@ import 'package:flutter/material.dart';
 import '../../logic/auto_drawing.dart';
 import '../../state/home_controller.dart';
 import '../../theme/app_theme.dart';
+import '../../theme/hud.dart';
 import '../../utils/format.dart';
+import 'fundamentals_section.dart';
+import 'hud_sheet.dart';
 
+/// 色值与 logic/level_rules.dart 的固定色、defaultLineColors 保持一致，
+/// 否则默认档位选不中（选中圈按 hex 精确比对）。
 const _colorChoices = [
   '#f6d36b',
   '#f24d4d',
@@ -54,24 +59,38 @@ class _SummarySheetState extends State<SummarySheet> {
     final latest = controller.latestBar;
     final auto = controller.autoDrawing;
 
-    return DraggableScrollableSheet(
-      expand: false,
-      initialChildSize: 0.75,
-      maxChildSize: 0.95,
-      builder: (context, scrollController) => ListView(
-        controller: scrollController,
-        padding: const EdgeInsets.all(14),
+    return HudSheet(
+      heightFactor: 0.88,
+      child: ListView(
+        padding: const EdgeInsets.fromLTRB(16, 4, 16, 16),
         children: [
-          Text(
-            '${quoteName(controller.selected, quote?.name)} · ${controller.selected}',
-            style: const TextStyle(
-                fontSize: 15, fontWeight: FontWeight.w700, color: AppColors.text),
+          Row(
+            crossAxisAlignment: CrossAxisAlignment.baseline,
+            textBaseline: TextBaseline.alphabetic,
+            children: [
+              Flexible(
+                child: Text(
+                  quoteName(controller.selected, quote?.name),
+                  overflow: TextOverflow.ellipsis,
+                  style: const TextStyle(
+                      fontSize: 16,
+                      fontWeight: FontWeight.w700,
+                      color: AppColors.text),
+                ),
+              ),
+              const SizedBox(width: 8),
+              Text(controller.selected,
+                  style: mono(
+                      size: 9.5, color: AppColors.accent, letterSpacing: 1.2)),
+            ],
           ),
           const SizedBox(height: 4),
-          Text('行情：${qualityText(controller.quoteQuality)} · K线：${qualityText(controller.klineQuality)}',
-              style: const TextStyle(fontSize: 10, color: AppColors.textFaint)),
+          Text(
+            '行情 ${qualityText(controller.quoteQuality)} · K线 ${qualityText(controller.klineQuality)}',
+            style: mono(size: 9, color: AppColors.textDim),
+          ),
           const SizedBox(height: 12),
-          _kvGrid([
+          _metricGrid([
             ('现价', formatFullPrice(quote?.price ?? latest?.close)),
             ('涨跌幅', formatPercent(quote?.pctChg ?? latest?.pctChg)),
             ('今开', formatFullPrice(quote?.open ?? latest?.open)),
@@ -81,16 +100,20 @@ class _SummarySheetState extends State<SummarySheet> {
             ('成交量', formatNumber(quote?.volume ?? latest?.volume)),
             ('成交额', formatNumber(quote?.amount ?? latest?.amount)),
           ]),
-          const SizedBox(height: 14),
+          FundamentalsSection(
+            repository: controller.repository,
+            symbol: controller.selected,
+          ),
           if (auto != null) ...[
-            const Text('自动画线',
-                style: TextStyle(
-                    fontSize: 13,
-                    fontWeight: FontWeight.w700,
-                    color: AppColors.text)),
-            const SizedBox(height: 6),
-            _kvGrid([
-              ('趋势', trendLabel(auto.direction)),
+            const SizedBox(height: 16),
+            _sectionTitle('自动画线', status: trendLabel(auto.direction),
+                statusColor: auto.direction == AutoTrendDirection.up
+                    ? AppColors.rise
+                    : auto.direction == AutoTrendDirection.down
+                        ? AppColors.fall
+                        : AppColors.textMuted),
+            const SizedBox(height: 8),
+            _metricGrid([
               ('窗口', '${auto.windowSize} 根'),
               (auto.base.label, formatFullPrice(auto.base.price)),
               (auto.target.label, formatFullPrice(auto.target.price)),
@@ -100,57 +123,12 @@ class _SummarySheetState extends State<SummarySheet> {
               if (auto.nearestDistancePct != null)
                 ('距关键位', formatPercent(auto.nearestDistancePct)),
             ]),
-            const SizedBox(height: 14),
-            const Text('线位颜色',
-                style: TextStyle(
-                    fontSize: 13,
-                    fontWeight: FontWeight.w700,
-                    color: AppColors.text)),
-            const SizedBox(height: 6),
-            for (final level in auto.levels)
-              Padding(
-                padding: const EdgeInsets.symmetric(vertical: 3),
-                child: Row(
-                  children: [
-                    SizedBox(
-                      width: 64,
-                      child: Text(level.label,
-                          style: const TextStyle(
-                              fontSize: 12, color: AppColors.textMuted)),
-                    ),
-                    Expanded(
-                      child: Wrap(
-                        spacing: 6,
-                        children: [
-                          for (final hex in _colorChoices)
-                            GestureDetector(
-                              onTap: () =>
-                                  controller.updateLineColor(level.label, hex),
-                              child: Container(
-                                width: 20,
-                                height: 20,
-                                decoration: BoxDecoration(
-                                  color: colorFromHex(hex),
-                                  shape: BoxShape.circle,
-                                  border: Border.all(
-                                    width: 2,
-                                    color: (controller.lineColors[level.label] ??
-                                                defaultLineColors[level.label]) ==
-                                            hex
-                                        ? AppColors.accent
-                                        : Colors.transparent,
-                                  ),
-                                ),
-                              ),
-                            ),
-                        ],
-                      ),
-                    ),
-                  ],
-                ),
-              ),
+            const SizedBox(height: 16),
+            _sectionTitle('线位颜色'),
+            const SizedBox(height: 8),
+            for (final level in auto.levels) _colorRow(level.label),
           ],
-          const SizedBox(height: 16),
+          const SizedBox(height: 18),
           Row(
             children: [
               Expanded(
@@ -163,11 +141,15 @@ class _SummarySheetState extends State<SummarySheet> {
                   label: const Text('强制刷新', style: TextStyle(fontSize: 12)),
                 ),
               ),
-              const SizedBox(width: 8),
+              const SizedBox(width: 10),
               Expanded(
                 child: OutlinedButton.icon(
                   style: OutlinedButton.styleFrom(
-                      foregroundColor: AppColors.rise),
+                    foregroundColor: AppColors.rise,
+                    side: BorderSide(
+                        color: AppColors.rise.withValues(alpha: 0.5)),
+                    backgroundColor: AppColors.rise.withValues(alpha: 0.12),
+                  ),
                   onPressed: () {
                     controller.removeSymbol(controller.selected);
                     Navigator.of(context).pop();
@@ -183,28 +165,120 @@ class _SummarySheetState extends State<SummarySheet> {
     );
   }
 
-  Widget _kvGrid(List<(String, String)> items) {
+  /// 段标题：粗体 + 1px 横线 + 可选状态词
+  Widget _sectionTitle(String title, {String? status, Color? statusColor}) {
+    return Row(
+      children: [
+        Text(title,
+            style: const TextStyle(
+                fontSize: 12.5,
+                fontWeight: FontWeight.w700,
+                color: AppColors.text)),
+        const SizedBox(width: 10),
+        Expanded(child: Container(height: 1, color: AppColors.hudBorder)),
+        if (status != null) ...[
+          const SizedBox(width: 10),
+          Text(status,
+              style: mono(
+                  size: 9.5,
+                  color: statusColor ?? AppColors.textMuted,
+                  weight: FontWeight.w600)),
+        ],
+      ],
+    );
+  }
+
+  /// 两列 HudPanel 网格（label 10 textFaint / value mono 11.5）
+  Widget _metricGrid(List<(String, String)> items) {
     return Wrap(
-      runSpacing: 6,
+      spacing: 8,
+      runSpacing: 8,
       children: [
         for (final (label, value) in items)
-          FractionallySizedBox(
-            widthFactor: 0.5,
-            child: Row(
+          _MetricCell(label: label, value: value),
+      ],
+    );
+  }
+
+  Widget _colorRow(String label) {
+    final current =
+        controller.lineColors[label] ?? defaultLineColors[label];
+    return Padding(
+      padding: const EdgeInsets.symmetric(vertical: 4),
+      child: Row(
+        children: [
+          SizedBox(
+            width: 62,
+            child: Text(label, style: mono(size: 11, color: AppColors.textMuted)),
+          ),
+          Expanded(
+            child: Wrap(
+              spacing: 7,
               children: [
-                Text('$label ',
-                    style: const TextStyle(
-                        fontSize: 11, color: AppColors.textFaint)),
-                Expanded(
-                  child: Text(value,
-                      overflow: TextOverflow.ellipsis,
-                      style: const TextStyle(
-                          fontSize: 12, color: AppColors.text)),
-                ),
+                for (final hex in _colorChoices)
+                  GestureDetector(
+                    onTap: () => controller.updateLineColor(label, hex),
+                    child: Container(
+                      width: 19,
+                      height: 19,
+                      decoration: BoxDecoration(
+                        color: colorFromHex(hex),
+                        shape: BoxShape.circle,
+                        boxShadow: current == hex
+                            ? [
+                                const BoxShadow(
+                                  color: AppColors.background,
+                                  blurRadius: 0,
+                                  spreadRadius: 2,
+                                ),
+                                BoxShadow(
+                                  color: AppColors.accent,
+                                  blurRadius: 0,
+                                  spreadRadius: 3.5,
+                                ),
+                              ]
+                            : null,
+                      ),
+                    ),
+                  ),
               ],
             ),
           ),
-      ],
+        ],
+      ),
+    );
+  }
+}
+
+class _MetricCell extends StatelessWidget {
+  final String label;
+  final String value;
+
+  const _MetricCell({required this.label, required this.value});
+
+  @override
+  Widget build(BuildContext context) {
+    return LayoutBuilder(
+      builder: (context, _) => SizedBox(
+        // 两列：父级 ListView 宽度减去 spacing 后二等分
+        width: (MediaQuery.of(context).size.width - 32 - 8) / 2,
+        child: HudPanel(
+          radius: 10,
+          padding: const EdgeInsets.symmetric(horizontal: 10, vertical: 8),
+          child: Column(
+            crossAxisAlignment: CrossAxisAlignment.start,
+            children: [
+              Text(label,
+                  style: const TextStyle(
+                      fontSize: 10, color: AppColors.textFaint)),
+              const SizedBox(height: 3),
+              Text(value,
+                  overflow: TextOverflow.ellipsis,
+                  style: mono(size: 11.5, color: AppColors.text)),
+            ],
+          ),
+        ),
+      ),
     );
   }
 }

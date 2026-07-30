@@ -246,7 +246,7 @@ void main() {
     });
   });
 
-  group('isFallingFromTop（从顶部下来排除）', () {
+  group('isFallingFromTop（从顶部下来标记）', () {
     test('先过线与主线都算已站上线', () {
       // 紫光场景：曾到 85%（站上80主线），现价 65% 跌破 → 排除
       expect(isFallingFromTop(65.0, 85.0), isTrue);
@@ -264,15 +264,18 @@ void main() {
       expect(isFallingFromTop(22.0, 35.0), isFalse);
     });
 
-    test('收盘走出 40%→85%→65%：现价 65% 从顶部下来 → 排除', () {
+    test('收盘走出 40%→85%→65%：现价 65% 从顶部下来 → 打 fromTop 标记不丢弃', () {
       final bars =
           _seal(_makeWaveBars(_defaultToday, closesPct: [40, 85, 65]));
-      expect(
-          evaluateStock('000938', '紫光场景', 16.5, bars, today: _defaultToday),
-          isNull);
+      final row =
+          evaluateStock('000938', '紫光场景', 16.5, bars, today: _defaultToday);
+      expect(row, isNotNull);
+      expect(row!.group, 2);
+      expect(row.fromTop, isTrue);
+      expect(row.vShape, isFalse);
     });
 
-    test('峰值 90% 现价 92% 仍站在 80 上方 → 第三档保留', () {
+    test('峰值 90% 现价 92% 仍站在 80 上方 → 第三档保留且无标记', () {
       final bars =
           _seal(_makeWaveBars(_defaultToday, closesPct: [40, 85, 90]));
       final row =
@@ -280,10 +283,11 @@ void main() {
       expect(row, isNotNull);
       expect(row!.group, 3);
       expect(row.maxPct, greaterThanOrEqualTo(90.0));
+      expect(row.fromTop, isFalse);
     });
   });
 
-  group('V 型反弹排除', () {
+  group('V 型反弹标记', () {
     final today = _defaultToday;
 
     /// 前段高位平台（40%）→ 跌到低点 10 → 反弹到 reboundClose 的 V 型走势
@@ -310,23 +314,29 @@ void main() {
       return _seal(bars);
     }
 
-    test('从 40% 平台跌到底部，反弹 35% 未超下跌起点 → 不要', () {
-      expect(evaluateStock('600001', 'V型反弹', 13.5, vBars(13.2), today: today),
-          isNull);
+    test('从 40% 平台跌到底部，反弹 35% 未超下跌起点 → 打 vShape 标记不丢弃', () {
+      final row =
+          evaluateStock('600001', 'V型反弹', 13.5, vBars(13.2), today: today);
+      expect(row, isNotNull);
+      expect(row!.group, 1);
+      expect(row.vShape, isTrue);
     });
 
-    test('反弹创新高（超过前段平台）→ 保留', () {
+    test('反弹创新高（超过前段平台）→ 无标记', () {
       // 前段平台仅 12%（11.2），随后低点 10，反弹到 37% 创新高
       final bars = _seal(_makeWaveBars(today, closesPct: [5, 12, 30]));
       final row = evaluateStock('600001', '新高突破', 13.7, bars, today: today);
       expect(row, isNotNull);
       expect(row!.group, 1);
+      expect(row.vShape, isFalse);
     });
 
     test('低点在窗口前段的上行波段不受影响', () {
       final bars = _seal(_makeWaveBars(today, closesPct: [5, 12, 18]));
-      expect(evaluateStock('600001', '上行波段', 13.5, bars, today: today),
-          isNotNull);
+      final row = evaluateStock('600001', '上行波段', 13.5, bars, today: today);
+      expect(row, isNotNull);
+      expect(row!.vShape, isFalse);
+      expect(row.fromTop, isFalse);
     });
   });
 }

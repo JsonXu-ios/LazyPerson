@@ -7,6 +7,8 @@ import 'package:flutter/material.dart';
 
 import '../../models/models.dart';
 import '../../theme/app_theme.dart';
+import '../../theme/hud.dart';
+import '../../utils/format.dart';
 
 class IndicatorPanel extends StatelessWidget {
   final KlinePayload? kline;
@@ -26,12 +28,12 @@ class IndicatorPanel extends StatelessWidget {
           count: count,
           hoverIndex: hoverIndex,
           lines: [
-            _LineSeries('DIF', macd['dif'] ?? const [], AppColors.accent),
-            _LineSeries('DEA', macd['dea'] ?? const [], AppColors.warn),
+            _LineSeries('DIF', macd['dif'] ?? const [], AppColors.difLine),
+            _LineSeries('DEA', macd['dea'] ?? const [], AppColors.deaLine),
           ],
           histogram: macd['hist'] ?? const [],
         ),
-        const SizedBox(height: 6),
+        const SizedBox(height: 8),
         // 东财龙系长线画法：对零轴红绿柱（正红负绿）+ LON 白线 + LONMA 均线，
         // 对齐 IndicatorTabs.tsx 的 LON 配置
         _IndicatorBlock(
@@ -39,8 +41,8 @@ class IndicatorPanel extends StatelessWidget {
           count: count,
           hoverIndex: hoverIndex,
           lines: [
-            _LineSeries('LON', lon['lon'] ?? const [], _lonLineColor),
-            _LineSeries('LONMA', lon['lonma'] ?? const [], _lonmaLineColor),
+            _LineSeries('LON', lon['lon'] ?? const [], AppColors.lonLine),
+            _LineSeries('LONMA', lon['lonma'] ?? const [], AppColors.lonmaLine),
           ],
           histogram: lon['lon'] ?? const [],
         ),
@@ -48,10 +50,6 @@ class IndicatorPanel extends StatelessWidget {
     );
   }
 }
-
-/// LON 线 #e8eef7 / LONMA 线 #f2a93b（IndicatorTabs.tsx 的 color 数组）
-const _lonLineColor = Color(0xFFE8EEF7);
-const _lonmaLineColor = Color(0xFFF2A93B);
 
 class _LineSeries {
   final String name;
@@ -76,51 +74,61 @@ class _IndicatorBlock extends StatelessWidget {
     this.hoverIndex,
   });
 
+  /// 标题行展示的当前值：有十字线取该位，否则取最后一个有效值
+  double? _valueOf(_LineSeries line) {
+    final values = line.values;
+    if (values.isEmpty) return null;
+    final index = hoverIndex;
+    if (index != null && index < values.length) return values[index];
+    for (var i = values.length - 1; i >= 0; i--) {
+      final value = values[i];
+      if (value != null && !value.isNaN) return value;
+    }
+    return null;
+  }
+
   @override
   Widget build(BuildContext context) {
-    return Container(
-      height: 110,
-      decoration: BoxDecoration(
-        color: AppColors.chartBackground,
-        border: Border.all(color: AppColors.grid),
-        borderRadius: BorderRadius.circular(6),
-      ),
-      child: Column(
-        crossAxisAlignment: CrossAxisAlignment.start,
-        children: [
-          Padding(
-            padding: const EdgeInsets.only(left: 8, top: 4),
-            child: Row(
-              children: [
-                Text(title,
-                    style: const TextStyle(
-                        color: AppColors.textMuted,
-                        fontSize: 10,
-                        fontWeight: FontWeight.w600)),
-                const SizedBox(width: 10),
-                for (final line in lines) ...[
-                  Container(width: 8, height: 2, color: line.color),
-                  const SizedBox(width: 3),
-                  Text(line.name,
-                      style: const TextStyle(
-                          color: AppColors.textFaint, fontSize: 9)),
-                  const SizedBox(width: 8),
+    return SizedBox(
+      height: 96,
+      child: HudPanel(
+        radius: 10,
+        padding: EdgeInsets.zero,
+        child: Column(
+          crossAxisAlignment: CrossAxisAlignment.start,
+          children: [
+            Padding(
+              padding: const EdgeInsets.fromLTRB(10, 6, 10, 0),
+              child: Row(
+                children: [
+                  Text(title,
+                      style: mono(
+                          size: 9,
+                          color: AppColors.textMuted,
+                          weight: FontWeight.w600,
+                          letterSpacing: 1.4)),
+                  const Spacer(),
+                  for (final line in lines) ...[
+                    Text('${line.name} ${formatNumber(_valueOf(line))}',
+                        style: mono(size: 9, color: line.color)),
+                    const SizedBox(width: 9),
+                  ],
                 ],
-              ],
-            ),
-          ),
-          Expanded(
-            child: CustomPaint(
-              size: Size.infinite,
-              painter: _IndicatorPainter(
-                count: count,
-                lines: lines,
-                histogram: histogram,
-                hoverIndex: hoverIndex,
               ),
             ),
-          ),
-        ],
+            Expanded(
+              child: CustomPaint(
+                size: Size.infinite,
+                painter: _IndicatorPainter(
+                  count: count,
+                  lines: lines,
+                  histogram: histogram,
+                  hoverIndex: hoverIndex,
+                ),
+              ),
+            ),
+          ],
+        ),
       ),
     );
   }
@@ -190,12 +198,8 @@ class _IndicatorPainter extends CustomPainter {
       );
     }
 
-    // 线
+    // 线（发光）
     for (final line in lines) {
-      final paint = Paint()
-        ..color = line.color
-        ..strokeWidth = 1.4
-        ..style = PaintingStyle.stroke;
       final path = Path();
       var started = false;
       for (var index = 0; index < count && index < line.values.length; index++) {
@@ -213,7 +217,8 @@ class _IndicatorPainter extends CustomPainter {
           path.lineTo(x, y);
         }
       }
-      canvas.drawPath(path, paint);
+      drawGlowing(canvas, line.color, (p) => canvas.drawPath(path, p),
+          sigma: 2, alpha: 0.4, strokeWidth: 1.5);
     }
 
     if (hoverIndex != null && hoverIndex! < count) {

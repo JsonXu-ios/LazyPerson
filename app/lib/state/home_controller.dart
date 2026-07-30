@@ -9,6 +9,7 @@ import 'package:flutter/foundation.dart';
 import 'package:shared_preferences/shared_preferences.dart';
 
 import '../data/market_repository.dart';
+import '../data/symbol_utils.dart';
 import '../data/sync_service.dart';
 import '../logic/auto_drawing.dart';
 import '../logic/calendar_window.dart';
@@ -25,10 +26,7 @@ class HomeController extends ChangeNotifier {
 
   List<WatchlistItem> watchlist = [];
   List<Quote> quotes = [];
-  PanelKey activePanel = PanelKey.aShare;
-  final Map<PanelKey, String> selectedByPanel = {
-    for (final panel in marketPanels) panel.key: panel.fallback,
-  };
+  String selected = aShareConfig.fallback;
   String period = 'day';
   KlinePayload? kline;
   DataQuality? quoteQuality;
@@ -50,19 +48,7 @@ class HomeController extends ChangeNotifier {
   int _searchRequestId = 0;
   bool _disposed = false;
 
-  MarketPanelConfig get activeConfig => panelConfig(activePanel);
-
-  String get selected => selectedByPanel[activePanel] ?? '';
-
-  List<WatchlistItem> get panelWatchlist => watchlist
-      .where((item) =>
-          panelForAsset(
-              symbol: item.symbol,
-              market: item.market,
-              groupName: item.groupName,
-              note: item.note) ==
-          activePanel)
-      .toList();
+  MarketConfig get activeConfig => aShareConfig;
 
   Quote? get selectedQuote {
     for (final quote in quotes) {
@@ -204,29 +190,20 @@ class HomeController extends ChangeNotifier {
 
   Future<void> loadWatchlist() async {
     watchlist = await repository.listWatchlist();
-    _fillSelectedPanels();
+    _fillSelected();
     _notify();
   }
 
-  void _fillSelectedPanels() {
-    for (final panel in marketPanels) {
-      final rows = watchlist.where((item) =>
-          panelForAsset(
-              symbol: item.symbol,
-              market: item.market,
-              groupName: item.groupName,
-              note: item.note) ==
-          panel.key);
-      final current = selectedByPanel[panel.key];
-      final hasCurrent = rows.any((item) => item.symbol == current);
-      selectedByPanel[panel.key] = hasCurrent
-          ? current!
-          : (rows.isNotEmpty ? rows.first.symbol : panel.fallback);
-    }
+  /// 选中标的失效（被删/首次启动）时落到自选首项，再退到内置标的
+  void _fillSelected() {
+    if (watchlist.any((item) => item.symbol == selected)) return;
+    selected = watchlist.isNotEmpty
+        ? watchlist.first.symbol
+        : aShareConfig.fallback;
   }
 
   List<String> get _quoteTargets {
-    final symbols = panelWatchlist.map((item) => item.symbol).toList();
+    final symbols = watchlist.map((item) => item.symbol).toList();
     // 非自选股（如八档局点击进来的）也拉行情，保证名称/现价可显示
     if (selected.isNotEmpty && !symbols.contains(selected)) {
       symbols.add(selected);
@@ -297,22 +274,6 @@ class HomeController extends ChangeNotifier {
     return 1000;
   }
 
-  void setPanel(PanelKey panel) {
-    if (panel == activePanel) return;
-    activePanel = panel;
-    period = 'day';
-    quotes = [];
-    kline = null;
-    quoteQuality = null;
-    klineQuality = null;
-    query = '';
-    searchResults = [];
-    _notify();
-    unawaited(loadQuotes(refresh: false).then((_) => loadQuotes(refresh: true)));
-    unawaited(loadDetail(refresh: false, clearBeforeLoad: true)
-        .then((_) => loadDetail(refresh: true, clearBeforeLoad: false)));
-  }
-
   void setPeriod(String next) {
     if (next == period) return;
     period = next;
@@ -322,7 +283,7 @@ class HomeController extends ChangeNotifier {
   }
 
   void selectSymbol(String symbol, {bool resetPeriod = true}) {
-    selectedByPanel[activePanel] = symbol;
+    selected = symbol;
     if (resetPeriod) period = 'day';
     _notify();
     unawaited(loadDetail(refresh: false, clearBeforeLoad: true)
@@ -334,7 +295,7 @@ class HomeController extends ChangeNotifier {
     loading = true;
     _notify();
     try {
-      await repository.addWatchlist(symbol, panelGroupName(activePanel));
+      await repository.addWatchlist(symbol, aShareGroup);
       query = '';
       searchResults = [];
       await loadWatchlist();
@@ -355,11 +316,10 @@ class HomeController extends ChangeNotifier {
       await repository.removeWatchlist(symbol);
       quotes = quotes.where((quote) => quote.symbol != symbol).toList();
       await loadWatchlist();
-      if (selected == symbol || !panelWatchlist.any((i) => i.symbol == selected)) {
-        final next = panelWatchlist.isNotEmpty
-            ? panelWatchlist.first.symbol
-            : activeConfig.fallback;
-        selectSymbol(next);
+      if (selected == symbol || !watchlist.any((i) => i.symbol == selected)) {
+        selectSymbol(watchlist.isNotEmpty
+            ? watchlist.first.symbol
+            : aShareConfig.fallback);
       }
       } catch (exc) {
       _setNotice(normalizeError(exc));
@@ -396,26 +356,11 @@ class HomeController extends ChangeNotifier {
       return;
     }
     final requestId = ++_searchRequestId;
-    // A 股面板查本地全量表；其他面板本地内置 + Yahoo 在线搜索
-    var results = await repository.searchSymbols(clean, limit: 8);
-    if (activePanel != PanelKey.aShare && results.length < 8) {
-      try {
-        final online = await repository.yahoo.searchSymbols(clean, limit: 8);
-        final seen = results.map((item) => item.symbol).toSet();
-        results = [
-          ...results,
-          ...online.where((item) => !seen.contains(item.symbol)),
-        ];
-      } catch (_) {
-        // 在线搜索失败时只用本地结果
-      }
-    }
+    // 全量沪深清单已由 sync_service 同步到本地，搜索只查本地表
+    final results = await repository.searchSymbols(clean, limit: 8);
     if (requestId != _searchRequestId) return;
-    searchResults = results
-        .where((item) =>
-            panelForAsset(symbol: item.symbol, market: item.market) ==
-            activePanel)
-        .toList();
+    searchResults =
+        results.where((item) => isAShareSymbol(item.symbol)).toList();
     _notify();
   }
 

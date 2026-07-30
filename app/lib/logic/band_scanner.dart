@@ -54,6 +54,20 @@ bool isFallingFromTop(double pct, double maxPct) {
   return pct < highestCrossed;
 }
 
+/// V型反弹判定：90日内先从高处跌到波段低点、反弹至今仍未超过下跌起点
+/// （低点之前的最高收盘涨幅 >= 现价涨幅）→ true。低点在窗口开头的纯上行波段恒为 false。
+bool isVShapeRebound(
+    List<KlineBar> window, int lowIndex, double low90, double pct) {
+  double? beforeHigh;
+  for (final bar in window.sublist(0, lowIndex)) {
+    final close = bar.close;
+    if (close == null) continue;
+    beforeHigh = beforeHigh == null ? close : math.max(beforeHigh, close);
+  }
+  if (beforeHigh == null) return false;
+  return (beforeHigh / low90 - 1) * 100 >= pct;
+}
+
 /// 主板涨停判定：现价（收盘后即收盘价）等于 round(昨收×1.1, 2)。
 /// ST 已被排除，不考虑 5% 档。
 bool isLimitUp(double? price, double? preClose, {double ratio = 1.1}) {
@@ -114,6 +128,12 @@ class BandHit {
   final String crossDate;
   final bool limitUp;
 
+  /// 从顶部下来：波段峰值曾站上某条档位线，现价已跌破
+  final bool fromTop;
+
+  /// V型反弹：90日内先从高处跌到低点，反弹至今未超过下跌起点
+  final bool vShape;
+
   const BandHit({
     required this.symbol,
     required this.name,
@@ -127,6 +147,8 @@ class BandHit {
     required this.lowDate,
     required this.crossDate,
     this.limitUp = false,
+    this.fromTop = false,
+    this.vShape = false,
   });
 
   BandHit copyWith({bool? limitUp}) => BandHit(
@@ -142,6 +164,8 @@ class BandHit {
         lowDate: lowDate,
         crossDate: crossDate,
         limitUp: limitUp ?? this.limitUp,
+        fromTop: fromTop,
+        vShape: vShape,
       );
 
   Map<String, Object?> toJson() => {
@@ -157,6 +181,8 @@ class BandHit {
         'low_date': lowDate,
         'cross_date': crossDate,
         'limit_up': limitUp,
+        'from_top': fromTop,
+        'v_shape': vShape,
       };
 
   factory BandHit.fromJson(Map<String, Object?> json) => BandHit(
@@ -172,6 +198,8 @@ class BandHit {
         lowDate: (json['low_date'] as String?) ?? '',
         crossDate: (json['cross_date'] as String?) ?? '',
         limitUp: (json['limit_up'] as bool?) ?? false,
+        fromTop: (json['from_top'] as bool?) ?? false,
+        vShape: (json['v_shape'] as bool?) ?? false,
       );
 }
 
@@ -181,7 +209,8 @@ double _roundTo(double value, int digits) {
 }
 
 /// 对齐 scanner.py::evaluate_stock。命中返回 BandHit（limitUp 由调用方补），
-/// 不命中返回 null。
+/// 不命中返回 null。「从高处来」的两种形态（fromTop / vShape）只打标记不丢弃，
+/// 由展示层筛选开关决定是否显示。
 BandHit? evaluateStock(
   String symbol,
   String name,
@@ -221,22 +250,9 @@ BandHit? evaluateStock(
     if (close == null) continue;
     maxPct = math.max(maxPct, (close / low90 - 1) * 100);
   }
-  if (isFallingFromTop(pct, maxPct)) {
-    return null; // 从顶部下来（跌破曾站上的先过线）的不要
-  }
-
-  double? beforeHigh;
-  for (final bar in window.sublist(0, lowIndex)) {
-    final close = bar.close;
-    if (close == null) continue;
-    beforeHigh = beforeHigh == null ? close : math.max(beforeHigh, close);
-  }
-  if (beforeHigh != null) {
-    final beforeHighPct = (beforeHigh / low90 - 1) * 100;
-    if (beforeHighPct >= pct) {
-      return null; // 90日内先下降到底部再反弹、且未超过下跌起点 → V型反弹不要
-    }
-  }
+  // 「从高处来」的两条不再丢弃，只打标记，由展示层筛选开关决定是否显示
+  final fromTop = isFallingFromTop(pct, maxPct);
+  final vShape = isVShapeRebound(window, lowIndex, low90, pct);
 
   final threshold = groupThreshold(group);
   final preLevel = low90 * (1 + (threshold - groupPreOffset) / 100);
@@ -266,5 +282,7 @@ BandHit? evaluateStock(
         .time
         .substring(0, math.min(10, window[lowIndex].time.length)),
     crossDate: crossDate,
+    fromTop: fromTop,
+    vShape: vShape,
   );
 }

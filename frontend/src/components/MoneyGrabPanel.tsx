@@ -105,10 +105,6 @@ export function MoneyGrabPanel({ onSelect }: { onSelect: (symbol: string) => voi
   return (
     <div className="moneygrab-panel">
       <h3>八档局 · A股档位扫描</h3>
-      <p className="moneygrab-desc">
-        沪深主板（60/00）。90 日波段从低点起算：一档需站上 30% 确认（有效区 30~40%），40 是奇点；
-        二档及以上过主线即入（50~70%、80~100%…）。跌破曾站上的主线（20/50/80/…）默认隐藏，收回主线上方自动恢复。
-      </p>
       <div className="moneygrab-actions">
         <button className="terminal-button" disabled={running} onClick={startScan}>
           {running ? "扫描中…" : status?.status === "done" ? "重新扫描" : "开始扫描"}

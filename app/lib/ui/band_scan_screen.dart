@@ -60,7 +60,6 @@ class _BandScanScreenState extends State<BandScanScreen> {
             crossAxisAlignment: CrossAxisAlignment.stretch,
             children: [
               _appBar(),
-              _rules(),
               _actions(running),
               _syncStatus(running),
               _filters(running),
@@ -134,49 +133,6 @@ class _BandScanScreenState extends State<BandScanScreen> {
             ),
           ),
         ],
-      ),
-    );
-  }
-
-  Widget _rules() {
-    const bodyStyle = TextStyle(
-      fontSize: FontSize.secondaryNumber,
-      height: 1.75,
-      color: AppColors.textMuted,
-    );
-    return Container(
-      margin: const EdgeInsets.fromLTRB(16, 10, 16, 0),
-      padding: const EdgeInsets.fromLTRB(12, 9, 13, 9),
-      decoration: BoxDecoration(
-        color: AppColors.hudPanel,
-        borderRadius: const BorderRadius.only(
-          topRight: Radius.circular(8),
-          bottomRight: Radius.circular(8),
-        ),
-        border: const Border(
-          left: BorderSide(color: AppColors.accent, width: 2),
-        ),
-      ),
-      child: RichText(
-        text: const TextSpan(
-          style: bodyStyle,
-          children: [
-            TextSpan(
-              text: '沪深主板（60/00）。90 日波段从低点起算：一档需站上 ',
-            ),
-            TextSpan(
-              text: '30% 确认',
-              style: TextStyle(
-                color: AppColors.accent,
-                fontWeight: FontWeight.w700,
-              ),
-            ),
-            TextSpan(
-              text: '（有效区 30~40%），40 是奇点；二档及以上过主线即入'
-                  '（50~70%、80~100%…）。跌破曾站上的主线默认隐藏，收回自动恢复。',
-            ),
-          ],
-        ),
       ),
     );
   }

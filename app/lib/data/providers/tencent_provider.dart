@@ -172,7 +172,9 @@ int _estimateCount(String? start, String? end) {
   final endDate =
       (end != null ? DateTime.tryParse(end) : null) ?? DateTime.now();
   final days = math.max(endDate.difference(startDate).inDays, 1);
-  return math.min(math.max((days * 1.6).ceil(), 120), 5000);
+  // 腾讯 fqkline 的 count 上限约 1200+（超限返回 param error 且 data 为列表），
+  // 封顶留余量（对齐 backend tencent_adapter._estimate_count）
+  return math.min(math.max((days * 1.6).ceil(), 120), 1100);
 }
 
 String _minutePeriodKey(String period) {

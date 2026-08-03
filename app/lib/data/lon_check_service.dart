@@ -2,14 +2,13 @@
 /// 上一根高（整体向上），且最新一根 lon ≥ lonma（lonma 不压在 lon 上面），
 /// 三周期全满足才 true（对齐 backend/app/lon_check.py::LonChecker）。
 ///
-/// 日线用本地 sqlite 日K；周/月K 走 frames 缓存→腾讯（缓存键与
-/// MarketRepository._frameKline 完全一致，与图表互相复用）。
+/// 日/周/月K 都走 frames 缓存→腾讯：LON 的 LONG 是累计序列、起点敏感，
+/// 日线必须与 backend 一样用 420 天跨度（本地 sqlite 只有 90 天，不能用）。
 /// 只对命中的股票计算；单只取数失败/数据不足默认 false。
 library;
 
 import 'dart:convert';
 
-import '../logic/band_scanner.dart' show validScanBars;
 import '../logic/indicators.dart';
 import '../logic/lon_check.dart';
 import '../models/models.dart';
@@ -19,13 +18,13 @@ import 'providers/tencent_provider.dart';
 /// 各周期最少 bar 数：LON 的 LONG 是累计序列，SMA10/20 需要收敛
 const lonMinBars = 25;
 
-/// 周/月K缓存最新一根允许的滞后（自然日），超过则重拉
+/// 各周期缓存最新一根允许的滞后（自然日），超过则重拉
 /// （对齐 backend MAX_LAG_DAYS）
-const lonMaxLagDays = {'week': 11, 'month': 45};
+const lonMaxLagDays = {'day': 4, 'week': 11, 'month': 45};
 
-/// 拉取跨度（自然日）：周线约 3 年、月线约 10 年，历史给足让指标收敛
-/// （对齐 backend FETCH_DAYS）
-const lonFetchDays = {'week': 1100, 'month': 4200};
+/// 拉取跨度（自然日）：日线约 420 天、周线约 3 年、月线约 10 年，
+/// 历史给足让指标收敛（对齐 backend FETCH_DAYS）
+const lonFetchDays = {'day': 420, 'week': 1100, 'month': 4200};
 
 class LonCheckService {
   final LocalStore store;
@@ -43,9 +42,7 @@ class LonCheckService {
   /// （对齐 backend LonChecker._check_symbol：异常即 False）。
   Future<bool> lonOkFor(String symbol) async {
     try {
-      final daily = validScanBars(await store.getDailyBars(symbol));
-      if (!_trendOk(daily)) return false;
-      for (final period in const ['week', 'month']) {
+      for (final period in const ['day', 'week', 'month']) {
         if (!_trendOk(await _cachedBars(symbol, period))) return false;
       }
       return true;

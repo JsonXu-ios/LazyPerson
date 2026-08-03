@@ -266,6 +266,13 @@ class LocalStore {
     return rows.first['latest'] as String?;
   }
 
+  /// 全市场本地日 K 的最新交易日（同步状态展示用）；null = 无数据
+  Future<String?> latestDailyDateGlobal() async {
+    final rows =
+        await db.rawQuery('SELECT MAX(date) AS latest FROM daily_bars');
+    return rows.first['latest'] as String?;
+  }
+
   /// 删除早于 cutoffDate（YYYY-MM-DD）的日 K，保持库体积恒定
   Future<int> pruneDailyBars(String cutoffDate) async {
     return db

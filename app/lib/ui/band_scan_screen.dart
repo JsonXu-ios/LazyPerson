@@ -32,6 +32,7 @@ class _BandScanScreenState extends State<BandScanScreen> {
     super.initState();
     controller.addListener(_onChanged);
     controller.restore();
+    controller.loadSyncStatus();
   }
 
   @override
@@ -61,6 +62,7 @@ class _BandScanScreenState extends State<BandScanScreen> {
               _appBar(),
               _rules(),
               _actions(running),
+              _syncStatus(running),
               _filters(running),
               if (controller.status == BandScanStatus.failed) _failure(),
               if (running) _progress(),
@@ -228,6 +230,71 @@ class _BandScanScreenState extends State<BandScanScreen> {
                 ),
               ],
             ],
+          ),
+        ],
+      ),
+    );
+  }
+
+  /// 同步状态行：本地数据同步到哪一天 + 手动刷新全A股（每日增量）
+  Widget _syncStatus(bool running) {
+    final String text;
+    final Color color;
+    if (controller.initialized == false) {
+      text = '全市场数据未初始化，请回首页完成同步';
+      color = AppColors.warn;
+    } else if (controller.dataDate == null) {
+      text = '同步状态加载中…';
+      color = AppColors.textFaint;
+    } else {
+      final today = DateTime.now();
+      final dataDay = DateTime.tryParse('${controller.dataDate}T00:00:00');
+      final lagDays =
+          dataDay == null ? 99 : today.difference(dataDay).inDays;
+      text = '本地数据同步至 ${controller.dataDate}';
+      color = lagDays > 3 ? AppColors.warn : AppColors.textDim;
+    }
+    return Padding(
+      padding: const EdgeInsets.fromLTRB(16, 8, 16, 0),
+      child: Row(
+        children: [
+          Icon(
+            controller.initialized == false ? Icons.warning_amber : Icons.sync,
+            size: 13,
+            color: color,
+          ),
+          const SizedBox(width: 5),
+          Expanded(
+            child: Text(
+              text,
+              style: mono(size: FontSize.legend, color: color),
+              overflow: TextOverflow.ellipsis,
+            ),
+          ),
+          GestureDetector(
+            onTap: (running || controller.refreshing)
+                ? null
+                : controller.refreshData,
+            child: Container(
+              padding: const EdgeInsets.symmetric(horizontal: 10, vertical: 4),
+              decoration: BoxDecoration(
+                borderRadius: BorderRadius.circular(4),
+                border: Border.all(
+                  color: controller.refreshing
+                      ? AppColors.textFaint
+                      : AppColors.accent.withValues(alpha: 0.6),
+                ),
+              ),
+              child: Text(
+                controller.refreshing ? '刷新中…' : '刷新数据',
+                style: mono(
+                  size: FontSize.legend,
+                  color: controller.refreshing
+                      ? AppColors.textFaint
+                      : AppColors.accent,
+                ),
+              ),
+            ),
           ),
         ],
       ),

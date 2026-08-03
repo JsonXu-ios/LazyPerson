@@ -76,6 +76,9 @@ class SyncService {
   Future<bool> isInitialized() async =>
       await store.getState(_initializedKey) == '1';
 
+  /// 本地全市场日 K 的最新交易日（同步状态展示用）；null = 尚无数据
+  Future<String?> latestDataDate() => store.latestDailyDateGlobal();
+
   String get _today => now().toIso8601String().substring(0, 10);
 
   String get _rangeStart => now()

@@ -453,27 +453,45 @@ class TestFallingFromTop:
     def test_is_falling_from_top(self):
         from backend.app.scanner import is_falling_from_top
 
-        # 出局线只看主线 20/50/80/…：跌破曾站上的最高主线才算，收回即恢复
-        # 曾到 85%（站上80主线），现价 65%/75% 跌破 80 → True
+        # 收盘站上主线后跌破 → True；收回恢复
         assert is_falling_from_top(65.0, 85.0)
         assert is_falling_from_top(75.0, 85.0)
-        # 峰值 85% 回踩到 82%：仍站在 80 上方 → False
         assert not is_falling_from_top(82.0, 85.0)
-        # 紫光场景：峰值 79.9 没碰到 80 主线，现价 66 仍站在 50 上方 → False（以二档回归）
-        assert not is_falling_from_top(66.0, 79.9)
-        # 冲过 50 主线（峰值66）又跌回 49.7% → True（002774 场景）
         assert is_falling_from_top(49.7, 66.3)
-        # 跌回后重新站上 50 → 恢复
         assert not is_falling_from_top(52.0, 66.3)
-        # 峰值 45%（只站上过20主线），回落到 31%：40不是主线 → False
+        # 紫光场景：峰值79.9（摸过70奇点），现66 ≥ 60 → False（以二档回归）
+        assert not is_falling_from_top(66.0, 79.9)
+        # 40 不是主线；但峰值45摸过40奇点 → 地板30，31≥30 → False
         assert not is_falling_from_top(31.0, 45.0)
         assert not is_falling_from_top(45.0, 45.0)
         assert not is_falling_from_top(22.0, 35.0)
+
+    def test_singular_touch_uses_intraday_high(self):
+        from backend.app.scanner import is_falling_from_top
+
+        # 闰土场景：收盘峰值65.5、盘中冲高71.7（摸过70奇点），现56.8 < 60 → 异常回落
+        assert is_falling_from_top(56.8, 65.5, 71.7)
+        # 同样摸过70，但回落守在60~70区间 → 正常
+        assert not is_falling_from_top(63.0, 65.5, 71.7)
+        # 没摸过70（盘中最高69.9）：地板只有主线50 → 56.8 ≥ 50 → False
+        assert not is_falling_from_top(56.8, 65.5, 69.9)
+        # 摸过40奇点（盘中41.7）后跌回30以下 → True
+        assert is_falling_from_top(28.0, 35.0, 41.7)
+        assert not is_falling_from_top(32.0, 35.0, 41.7)
 
     def test_evaluate_flags_falling_stock(self):
         # 收盘走出 40% → 85% → 65%：曾站上80主线、现价 65% 跌破 → 打 from_top 标记交给展示层筛选
         bars = make_wave_bars(self.today, 10.0, [40, 85, 65])
         row = evaluate_stock("000938", "冲高回落", 16.5, bars, today=self.today)
+        assert row is not None
+        assert row["group"] == 2
+        assert row["from_top"] is True
+
+    def test_evaluate_flags_singular_touch_fallback(self):
+        # 闰土场景：收盘走到65.5%、其中一天盘中冲高过70，现价 56.8% → 异常回落标记
+        bars = make_wave_bars(self.today, 10.0, [40, 64, 65.5])
+        bars[-2]["high"] = 10.0 * 1.717  # 盘中冲高 71.7%
+        row = evaluate_stock("002440", "闰土场景", 15.68, bars, today=self.today)
         assert row is not None
         assert row["group"] == 2
         assert row["from_top"] is True

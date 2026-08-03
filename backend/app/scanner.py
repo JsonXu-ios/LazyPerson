@@ -50,17 +50,25 @@ def group_threshold(group: int) -> float:
     return GROUP_FINAL_BASE + GROUP_STEP * (group - 1)
 
 
-def is_falling_from_top(pct: float, max_pct: float) -> bool:
-    """跌破曾站上的最高主线（20/50/80/…）→ 出局；重新站回主线上方即恢复。
-    例：冲过50又跌回40多 → True；曾到79.9现66（仍站在50上方）→ False。"""
-    highest_crossed = None
+def is_falling_from_top(pct: float, max_pct: float, max_high_pct: float | None = None) -> bool:
+    """异常回落判定（收回后自动恢复）：
+    - 收盘曾站上的最高主线（20/50/80/…），现价跌破 → True；
+    - 盘中曾冲过某奇点（40/70/100/…，用最高价判"冲高"），现价低于 奇点−10（30/60/90/…）→ True。
+    例：闰土冲高71.7%（过70奇点）回落到56.8%（<60）→ True；紫光峰值79.9现66（≥60）→ False。"""
+    if max_high_pct is None:
+        max_high_pct = max_pct
+    floor = None
     for j in range(1, MAX_GROUPS + 1):
-        line = group_threshold(j)
-        if max_pct >= line:
-            highest_crossed = line
-    if highest_crossed is None:
+        main = group_threshold(j)
+        singular = main + GROUP_STEP - GROUP_PRE_OFFSET  # 40/70/100/…
+        if max_pct >= main:
+            floor = main if floor is None else max(floor, main)
+        if max_high_pct >= singular:
+            level = singular - GROUP_PRE_OFFSET  # 30/60/90/…
+            floor = level if floor is None else max(floor, level)
+    if floor is None:
         return False
-    return pct < highest_crossed
+    return pct < floor
 
 
 def is_limit_up(price: float | None, pre_close: float | None, ratio: float = 1.1) -> bool:
@@ -145,8 +153,10 @@ def evaluate_stock(
 
     closes_after_low = [float(bar["close"]) for bar in window[low_index:] if bar.get("close") is not None]
     max_pct = max([(c / low90 - 1) * 100 for c in closes_after_low] + [pct])
-    # 跌破曾站上的主线只打标记，由展示层筛选开关决定是否显示（收回主线上方标记自动消失）
-    from_top = is_falling_from_top(pct, max_pct)
+    highs_after_low = [float(bar["high"]) for bar in window[low_index:] if bar.get("high") is not None]
+    max_high_pct = max([(h / low90 - 1) * 100 for h in highs_after_low] + [pct])
+    # 异常回落只打标记，由展示层筛选开关决定是否显示（收回后标记自动消失）
+    from_top = is_falling_from_top(pct, max_pct, max_high_pct)
 
     threshold = group_threshold(group)
     entry_level = low90 * (1 + group_entry_line(group) / 100)

@@ -323,7 +323,7 @@ class _BandScanScreenState extends State<BandScanScreen> {
             onChanged: controller.setLimitUpFilter,
           ),
           _FilterChip(
-            label: '含跌破主线',
+            label: '含异常回落',
             value: controller.showFromTop,
             onChanged: controller.setShowFromTop,
           ),

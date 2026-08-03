@@ -114,7 +114,7 @@ class BandHitCard extends StatelessWidget {
             const SizedBox(height: 8),
             Row(
               children: [
-                _shapeTag('跌破主线'),
+                _shapeTag('异常回落'),
               ],
             ),
           ],

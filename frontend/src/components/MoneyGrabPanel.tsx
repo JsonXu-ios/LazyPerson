@@ -128,9 +128,9 @@ export function MoneyGrabPanel({ onSelect }: { onSelect: (symbol: string) => voi
           />
           今日涨停
         </label>
-        <label className="moneygrab-filter" title="展示过滤：波段峰值曾站上某条主线（20/50/80/…）、现价已跌破的，勾选后并入列表">
+        <label className="moneygrab-filter" title="展示过滤：跌破曾站上的主线（20/50/80/…），或盘中冲过奇点（40/70/100/…）后回落低于奇点−10 的，勾选后并入列表；收回自动恢复">
           <input type="checkbox" checked={showFromTop} onChange={(event) => setShowFromTop(event.target.checked)} />
-          含跌破主线
+          含异常回落
         </label>
         <label className="moneygrab-filter" title="近一年有分红（含已公告的今年分红）">
           <input
@@ -231,7 +231,7 @@ export function MoneyGrabPanel({ onSelect }: { onSelect: (symbol: string) => voi
                     <td>{hit.cross_date.slice(5)}</td>
                     <td className="moneygrab-over">+{hit.over.toFixed(1)}%</td>
                     <td className="moneygrab-shape">
-                      {hit.from_top && <span title="波段峰值曾站上某条主线，现价已跌破（收回后自动恢复）">跌破主线</span>}
+                      {hit.from_top && <span title="跌破曾站上的主线，或冲过奇点后回落低于奇点−10（收回后自动恢复）">异常回落</span>}
                     </td>
                   </tr>
                 ))}

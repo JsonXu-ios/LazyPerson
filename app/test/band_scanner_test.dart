@@ -265,16 +265,28 @@ void main() {
       expect(isFallingFromTop(75.0, 85.0), isTrue);
       // 峰值 85% 回踩到 82%：仍站在 80 上方 → false
       expect(isFallingFromTop(82.0, 85.0), isFalse);
-      // 紫光场景：峰值 79.9 没碰 80 主线，现价 66 站在 50 上方 → false
+      // 紫光场景：峰值 79.9（摸过70奇点），现价 66 ≥ 60 → false
       expect(isFallingFromTop(66.0, 79.9), isFalse);
       // 冲过 50 主线（峰值66.3）又跌回 49.7% → true（002774 场景）
       expect(isFallingFromTop(49.7, 66.3), isTrue);
       // 跌回后重新站上 50 → 恢复
       expect(isFallingFromTop(52.0, 66.3), isFalse);
-      // 40 不是主线：峰值 45% 回落 31%（仍站在20上方）→ false
+      // 峰值45摸过40奇点 → 地板30，31 ≥ 30 → false
       expect(isFallingFromTop(31.0, 45.0), isFalse);
       expect(isFallingFromTop(45.0, 45.0), isFalse);
       expect(isFallingFromTop(22.0, 35.0), isFalse);
+    });
+
+    test('盘中冲过奇点后深回落 → 异常回落（闰土场景）', () {
+      // 收盘峰值65.5、盘中冲高71.7（摸过70奇点），现56.8 < 60 → true
+      expect(isFallingFromTop(56.8, 65.5, 71.7), isTrue);
+      // 回落守在 60~70 区间 → false
+      expect(isFallingFromTop(63.0, 65.5, 71.7), isFalse);
+      // 盘中最高 69.9 没摸到 70：地板只有主线 50 → false
+      expect(isFallingFromTop(56.8, 65.5, 69.9), isFalse);
+      // 摸过 40 奇点后跌回 30 以下 → true
+      expect(isFallingFromTop(28.0, 35.0, 41.7), isTrue);
+      expect(isFallingFromTop(32.0, 35.0, 41.7), isFalse);
     });
 
     test('收盘走出 40%→85%→65%：曾站上80现跌破 → 打 fromTop 标记不丢弃', () {

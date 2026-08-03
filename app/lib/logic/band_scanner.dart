@@ -45,14 +45,25 @@ double groupEntryLine(int group) =>
 double groupThreshold(int group) => groupFinalBase + groupStep * (group - 1);
 
 /// 跌破曾站上的最高主线（20/50/80/…）→ 打标记；重新站回主线上方即恢复。
-bool isFallingFromTop(double pct, double maxPct) {
-  double? highestCrossed;
+bool isFallingFromTop(double pct, double maxPct, [double? maxHighPct]) {
+  // 异常回落（收回后自动恢复）：
+  // 1) 收盘曾站上的最高主线（20/50/80/…），现价跌破；
+  // 2) 盘中曾冲过某奇点（40/70/100/…，用最高价判"冲高"），现价低于 奇点−10（30/60/90/…）。
+  final high = maxHighPct ?? maxPct;
+  double? floor;
   for (var j = 1; j <= maxGroups; j++) {
-    final line = groupThreshold(j);
-    if (maxPct >= line) highestCrossed = line;
+    final main = groupThreshold(j);
+    final singular = main + groupStep - groupPreOffset; // 40/70/100/…
+    if (maxPct >= main) {
+      floor = floor == null ? main : math.max(floor, main);
+    }
+    if (high >= singular) {
+      final level = singular - groupPreOffset; // 30/60/90/…
+      floor = floor == null ? level : math.max(floor, level);
+    }
   }
-  if (highestCrossed == null) return false;
-  return pct < highestCrossed;
+  if (floor == null) return false;
+  return pct < floor;
 }
 
 /// 主板涨停判定：现价（收盘后即收盘价）等于 round(昨收×1.1, 2)。
@@ -261,13 +272,15 @@ BandHit? evaluateStock(
   if (group == null) return null;
 
   var maxPct = pct;
+  var maxHighPct = pct;
   for (final bar in window.sublist(lowIndex)) {
     final close = bar.close;
-    if (close == null) continue;
-    maxPct = math.max(maxPct, (close / low90 - 1) * 100);
+    if (close != null) maxPct = math.max(maxPct, (close / low90 - 1) * 100);
+    final high = bar.high;
+    if (high != null) maxHighPct = math.max(maxHighPct, (high / low90 - 1) * 100);
   }
-  // 跌破曾站上主线只打标记，由展示层筛选开关决定是否显示（收回后自动恢复）
-  final fromTop = isFallingFromTop(pct, maxPct);
+  // 异常回落只打标记，由展示层筛选开关决定是否显示（收回后自动恢复）
+  final fromTop = isFallingFromTop(pct, maxPct, maxHighPct);
 
   final threshold = groupThreshold(group);
   final entryLevel = low90 * (1 + groupEntryLine(group) / 100);

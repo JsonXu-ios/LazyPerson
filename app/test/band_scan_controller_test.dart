@@ -247,7 +247,7 @@ void main() {
     expect(controller.visibleHits.map((hit) => hit.symbol), ['600001']);
   });
 
-  test('标记随结果持久化（key v5），当日 restore 恢复', () async {
+  test('标记随结果持久化（key v6），当日 restore 恢复', () async {
     await setUpScan({
       '600001': const FundamentalsMarks(
           dividendRecent: true, profitOk: true, revenueOk: true),
@@ -256,7 +256,7 @@ void main() {
     });
     await controller.startScan();
 
-    final raw = await store.getState('band_scan:last:v5');
+    final raw = await store.getState('band_scan:last:v6');
     expect(raw, isNotNull);
     final persisted = (jsonDecode(raw!) as Map).cast<String, Object?>();
     final rows = (persisted['hits'] as List).cast<Map>();

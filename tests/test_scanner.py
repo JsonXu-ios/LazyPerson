@@ -613,3 +613,59 @@ class TestLonTrend:
         assert not lon_trend_ok([None, 120.0], [None, 95.0])
         # None 混入时取最后两对有效值：(100,90)→(120,95) 向上且未被压 → True
         assert lon_trend_ok([100.0, None, 120.0], [90.0, None, 95.0])
+
+
+class TestNorthBound:
+    today = date(2026, 7, 24)
+
+    def _window(self, low_pos: float, high_pos: float, n: int = 60) -> tuple[list[dict], int]:
+        """构造 n 根窗口：低点放在 low_pos（0~1 位置），最高点放在 high_pos。"""
+        bars = []
+        base = date(2026, 4, 1)
+        d0 = base
+        added = 0
+        while added < n:
+            if d0.weekday() < 5:
+                bars.append({"time": d0.isoformat(), "open": 10.0, "high": 10.2, "low": 9.9, "close": 10.1})
+                added += 1
+            d0 += timedelta(days=1)
+        low_i = int((n - 1) * low_pos)
+        high_i = int((n - 1) * high_pos)
+        bars[low_i]["low"] = 8.0
+        bars[high_i]["high"] = 15.0
+        return bars, low_i
+
+    def test_low_front_high_back_is_north(self):
+        from backend.app.scanner import is_north_bound
+
+        window, low_i = self._window(0.1, 0.9)
+        assert is_north_bound(window, low_i)
+
+    def test_middle_pullback_allowed(self):
+        from backend.app.scanner import is_north_bound
+
+        window, low_i = self._window(0.2, 0.95)
+        # 中间挖个回落坑（不低于波段低点）
+        mid = len(window) // 2
+        window[mid]["low"] = 8.5
+        window[mid]["close"] = 8.6
+        assert is_north_bound(window, low_i)
+
+    def test_low_at_back_not_north(self):
+        from backend.app.scanner import is_north_bound
+
+        window, low_i = self._window(0.9, 0.95)  # 低点在后段（V型反转类）
+        assert not is_north_bound(window, low_i)
+
+    def test_high_in_middle_not_north(self):
+        from backend.app.scanner import is_north_bound
+
+        window, low_i = self._window(0.1, 0.5)  # 高点在中段（冲高后阴跌）
+        assert not is_north_bound(window, low_i)
+
+    def test_evaluate_carries_north_flag(self):
+        # make_wave_bars 低点在窗口末端 → 不是一路北上
+        bars = make_wave_bars(self.today, 10.0, [5, 12, 32])
+        row = evaluate_stock("600001", "测试股", 13.5, bars, today=self.today)
+        assert row is not None
+        assert row["north_ok"] is False

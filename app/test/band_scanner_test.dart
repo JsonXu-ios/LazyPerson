@@ -351,6 +351,60 @@ void main() {
     });
   });
 
+  group('isNorthBound（一路北上）', () {
+    List<KlineBar> windowWith(double lowPos, double highPos, {int n = 60}) {
+      final bars = <KlineBar>[];
+      var day = DateTime(2026, 4, 1);
+      while (bars.length < n) {
+        if (day.weekday != DateTime.saturday && day.weekday != DateTime.sunday) {
+          bars.add(KlineBar(
+              time: day.toIso8601String().substring(0, 10),
+              open: 10.0,
+              high: 10.2,
+              low: 9.9,
+              close: 10.1));
+        }
+        day = day.add(const Duration(days: 1));
+      }
+      final lowI = ((n - 1) * lowPos).floor();
+      final highI = ((n - 1) * highPos).floor();
+      final list = bars
+          .asMap()
+          .entries
+          .map((e) => KlineBar(
+              time: e.value.time,
+              open: e.value.open,
+              high: e.key == highI ? 15.0 : e.value.high,
+              low: e.key == lowI ? 8.0 : e.value.low,
+              close: e.value.close))
+          .toList();
+      return list;
+    }
+
+    int lowIndexOf(List<KlineBar> w) {
+      var li = 0;
+      for (var i = 1; i < w.length; i++) {
+        if (w[i].low! < w[li].low!) li = i;
+      }
+      return li;
+    }
+
+    test('低点在前1/3、最高点在后1/3 → true（中间回落不限）', () {
+      final w = windowWith(0.1, 0.9);
+      expect(isNorthBound(w, lowIndexOf(w)), isTrue);
+    });
+
+    test('低点在后段（V型反转类）→ false', () {
+      final w = windowWith(0.9, 0.95);
+      expect(isNorthBound(w, lowIndexOf(w)), isFalse);
+    });
+
+    test('高点在中段（冲高后阴跌）→ false', () {
+      final w = windowWith(0.1, 0.5);
+      expect(isNorthBound(w, lowIndexOf(w)), isFalse);
+    });
+  });
+
   group('V 型反弹不再排除（低点可以是反转也可以是起点）', () {
     final today = _defaultToday;
 

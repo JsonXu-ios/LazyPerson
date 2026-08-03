@@ -19,7 +19,7 @@ class BandScanController extends ChangeNotifier {
   static const marketCapMin = 40.0;
 
   /// v5: 命中行含 revenueOk/lonOk 标记（估市值拆分 + LON 三周期），旧结果作废
-  static const _stateKey = 'band_scan:last:v5';
+  static const _stateKey = 'band_scan:last:v6';
 
   final MarketRepository repository;
   final DateTime Function() now;
@@ -91,6 +91,9 @@ class BandScanController extends ChangeNotifier {
   /// 展示层过滤：只看 LON 多头（日/周/月三周期），默认关
   bool lonFilter = false;
 
+  /// 展示层过滤：只看一路北上（低点在窗口前1/3、最高点在后1/3），默认关
+  bool northFilter = false;
+
   int activeGroup = 1;
 
   bool _disposed = false;
@@ -107,7 +110,8 @@ class BandScanController extends ChangeNotifier {
           (!dividendFilter || hit.dividendRecent) &&
           (!profitFilter || hit.profitOk) &&
           (!revenueFilter || hit.revenueOk) &&
-          (!lonFilter || hit.lonOk))
+          (!lonFilter || hit.lonOk) &&
+          (!northFilter || hit.northOk))
       .toList();
 
   Map<int, int> get groupCounts {
@@ -167,6 +171,12 @@ class BandScanController extends ChangeNotifier {
   void setProfitFilter(bool value) {
     if (value == profitFilter) return;
     profitFilter = value;
+    _notify();
+  }
+
+  void setNorthFilter(bool value) {
+    if (value == northFilter) return;
+    northFilter = value;
     _notify();
   }
 

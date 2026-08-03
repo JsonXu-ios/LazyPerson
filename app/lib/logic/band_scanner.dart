@@ -66,6 +66,20 @@ bool isFallingFromTop(double pct, double maxPct, [double? maxHighPct]) {
   return pct < floor;
 }
 
+/// 一路北上：90日整体向上——波段低点在窗口前1/3、最高点在窗口后1/3，中间回落不限。
+bool isNorthBound(List<KlineBar> window, int lowIndex) {
+  final n = window.length;
+  if (n < 3) return false;
+  var highIndex = 0;
+  for (var i = 1; i < n; i++) {
+    final h = window[i].high;
+    if (h != null && (window[highIndex].high == null || h > window[highIndex].high!)) {
+      highIndex = i;
+    }
+  }
+  return lowIndex <= (n - 1) / 3 && highIndex >= (n - 1) * 2 / 3;
+}
+
 /// 主板涨停判定：现价（收盘后即收盘价）等于 round(昨收×1.1, 2)。
 /// ST 已被排除，不考虑 5% 档。
 bool isLimitUp(double? price, double? preClose, {double ratio = 1.1}) {
@@ -129,6 +143,9 @@ class BandHit {
   /// 跌破主线：波段峰值曾站上某条主线（20/50/80/…），现价已跌破
   final bool fromTop;
 
+  /// 一路北上：90日整体向上，低点在窗口前1/3、最高点在后1/3
+  final bool northOk;
+
   /// 近一年有分红（含已公告未除息的今年分红），基本面阶段补标
   final bool dividendRecent;
 
@@ -159,6 +176,7 @@ class BandHit {
     this.profitOk = false,
     this.revenueOk = false,
     this.lonOk = false,
+    this.northOk = false,
   });
 
   BandHit copyWith({
@@ -186,6 +204,7 @@ class BandHit {
         profitOk: profitOk ?? this.profitOk,
         revenueOk: revenueOk ?? this.revenueOk,
         lonOk: lonOk ?? this.lonOk,
+        northOk: northOk,
       );
 
   Map<String, Object?> toJson() => {
@@ -206,6 +225,7 @@ class BandHit {
         'profit_ok': profitOk,
         'revenue_ok': revenueOk,
         'lon_ok': lonOk,
+        'north_ok': northOk,
       };
 
   factory BandHit.fromJson(Map<String, Object?> json) => BandHit(
@@ -227,6 +247,7 @@ class BandHit {
         profitOk: (json['profit_ok'] as bool?) ?? false,
         revenueOk: (json['revenue_ok'] as bool?) ?? false,
         lonOk: (json['lon_ok'] as bool?) ?? false,
+        northOk: (json['north_ok'] as bool?) ?? false,
       );
 }
 
@@ -281,6 +302,7 @@ BandHit? evaluateStock(
   }
   // 异常回落只打标记，由展示层筛选开关决定是否显示（收回后自动恢复）
   final fromTop = isFallingFromTop(pct, maxPct, maxHighPct);
+  final northOk = isNorthBound(window, lowIndex);
 
   final threshold = groupThreshold(group);
   final entryLevel = low90 * (1 + groupEntryLine(group) / 100);
@@ -311,5 +333,6 @@ BandHit? evaluateStock(
         .substring(0, math.min(10, window[lowIndex].time.length)),
     crossDate: crossDate,
     fromTop: fromTop,
+    northOk: northOk,
   );
 }

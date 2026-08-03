@@ -33,6 +33,7 @@ export function MoneyGrabPanel({ onSelect }: { onSelect: (symbol: string) => voi
   const [profitFilter, setProfitFilter] = useState(false);       // 归母净利≥0
   const [revenueFilter, setRevenueFilter] = useState(false);     // 估市值：年化营收×10>总市值
   const [lonFilter, setLonFilter] = useState(false);             // 日/周/月 LON 多头
+  const [northFilter, setNorthFilter] = useState(false);         // 一路北上：低点在前高点在后
   const timerRef = useRef<number | null>(null);
 
   const loadStatus = useCallback(async () => {
@@ -87,7 +88,8 @@ export function MoneyGrabPanel({ onSelect }: { onSelect: (symbol: string) => voi
       (!dividendFilter || hit.dividend_recent === true) &&
       (!profitFilter || hit.profit_ok === true) &&
       (!revenueFilter || hit.revenue_ok === true) &&
-      (!lonFilter || hit.lon_ok === true),
+      (!lonFilter || hit.lon_ok === true) &&
+      (!northFilter || hit.north_ok === true),
   );
   const groupCounts = new Map<number, number>();
   const groupHits = new Map<number, MoneyGrabHit[]>();
@@ -163,6 +165,14 @@ export function MoneyGrabPanel({ onSelect }: { onSelect: (symbol: string) => voi
             onChange={(event) => setLonFilter(event.target.checked)}
           />
           LON
+        </label>
+        <label className="moneygrab-filter" title="90日整体向上：低点在窗口前1/3、最高点在后1/3，中间回落不限">
+          <input
+            type="checkbox"
+            checked={northFilter}
+            onChange={(event) => setNorthFilter(event.target.checked)}
+          />
+          一路北上
         </label>
         {status && (running || status.status === "done") && (
           <span className="moneygrab-meta">

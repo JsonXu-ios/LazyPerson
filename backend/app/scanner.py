@@ -71,6 +71,15 @@ def is_falling_from_top(pct: float, max_pct: float, max_high_pct: float | None =
     return pct < floor
 
 
+def is_north_bound(window: list[dict], low_index: int) -> bool:
+    """一路北上：90日整体向上——波段低点在窗口前1/3、最高点在窗口后1/3，中间回落不限。"""
+    n = len(window)
+    if n < 3:
+        return False
+    high_index = max(range(n), key=lambda i: float(window[i]["high"]))
+    return low_index <= (n - 1) / 3 and high_index >= (n - 1) * 2 / 3
+
+
 def is_limit_up(price: float | None, pre_close: float | None, ratio: float = 1.1) -> bool:
     """主板涨停判定：现价（收盘后即收盘价）等于 round(昨收×1.1, 2)。ST 已被排除，不考虑 5% 档。"""
     if price is None or pre_close is None or pre_close <= 0:
@@ -157,6 +166,7 @@ def evaluate_stock(
     max_high_pct = max([(h / low90 - 1) * 100 for h in highs_after_low] + [pct])
     # 异常回落只打标记，由展示层筛选开关决定是否显示（收回后标记自动消失）
     from_top = is_falling_from_top(pct, max_pct, max_high_pct)
+    north = is_north_bound(window, low_index)
 
     threshold = group_threshold(group)
     entry_level = low90 * (1 + group_entry_line(group) / 100)
@@ -183,10 +193,11 @@ def evaluate_stock(
         "low_date": str(window[low_index]["time"])[:10],
         "cross_date": cross_date,
         "from_top": from_top,
+        "north_ok": north,
     }
 
 
-STATE_KEY = "moneygrab:last_scan:v7"  # v7: 估市值/净利润拆分 + lon_ok 标记
+STATE_KEY = "moneygrab:last_scan:v8"  # v8: 命中行含 north_ok（一路北上）标记
 
 
 def _default_fundamentals_enricher(cache: CacheStore, hits: list[dict], caps: dict) -> None:

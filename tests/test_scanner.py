@@ -222,6 +222,14 @@ class TestEvaluateStock:
         assert evaluate_stock("600001", "测试股", 13.1, bars, today=self.today) is None
 
 
+
+def _noop_fundamentals(cache, hits, caps):
+    """测试用：不联网，直接打默认基本面标记。"""
+    for row in hits:
+        row["dividend_recent"] = False
+        row["profit_ok"] = False
+
+
 class TestMoneyGrabScanner:
     today = date(2026, 7, 24)
 
@@ -251,7 +259,8 @@ class TestMoneyGrabScanner:
     def test_scan_filters_and_reports_progress(self, tmp_path):
         quote_fetcher, kline_fetcher = self._fetchers()
         scanner = MoneyGrabScanner(
-            DummySettings(tmp_path), quote_fetcher=quote_fetcher, kline_fetcher=kline_fetcher, max_workers=2
+            DummySettings(tmp_path), quote_fetcher=quote_fetcher, kline_fetcher=kline_fetcher, max_workers=2,
+            fundamentals_enricher=_noop_fundamentals
         )
         state = scanner.start()
         assert state["status"] in ("running", "done")  # 小数据集可能瞬间扫完
@@ -269,7 +278,8 @@ class TestMoneyGrabScanner:
     def test_min_market_cap_filter(self, tmp_path):
         quote_fetcher, kline_fetcher = self._fetchers()
         scanner = MoneyGrabScanner(
-            DummySettings(tmp_path), quote_fetcher=quote_fetcher, kline_fetcher=kline_fetcher, max_workers=2
+            DummySettings(tmp_path), quote_fetcher=quote_fetcher, kline_fetcher=kline_fetcher, max_workers=2,
+            fundamentals_enricher=_noop_fundamentals
         )
         scanner.start(min_market_cap=40.0)
         state = self._wait_done(scanner)
@@ -286,7 +296,8 @@ class TestMoneyGrabScanner:
             return kline_fetcher(symbol)
 
         scanner = MoneyGrabScanner(
-            DummySettings(tmp_path), quote_fetcher=quote_fetcher, kline_fetcher=slow_kline, max_workers=1
+            DummySettings(tmp_path), quote_fetcher=quote_fetcher, kline_fetcher=slow_kline, max_workers=1,
+            fundamentals_enricher=_noop_fundamentals
         )
         scanner.start()
         second = scanner.start()
@@ -296,11 +307,11 @@ class TestMoneyGrabScanner:
     def test_result_persisted_and_restored(self, tmp_path):
         quote_fetcher, kline_fetcher = self._fetchers()
         settings = DummySettings(tmp_path)
-        scanner = MoneyGrabScanner(settings, quote_fetcher=quote_fetcher, kline_fetcher=kline_fetcher)
+        scanner = MoneyGrabScanner(settings, quote_fetcher=quote_fetcher, kline_fetcher=kline_fetcher, fundamentals_enricher=_noop_fundamentals)
         scanner.start()
         self._wait_done(scanner)
 
-        fresh = MoneyGrabScanner(settings, quote_fetcher=quote_fetcher, kline_fetcher=kline_fetcher)
+        fresh = MoneyGrabScanner(settings, quote_fetcher=quote_fetcher, kline_fetcher=kline_fetcher, fundamentals_enricher=_noop_fundamentals)
         state = fresh.status()
         # 持久化的 trade_date 是真实运行日，与结果一同恢复
         assert state["status"] == "done"
@@ -310,7 +321,7 @@ class TestMoneyGrabScanner:
         def broken():
             raise RuntimeError("snapshot down")
 
-        scanner = MoneyGrabScanner(DummySettings(tmp_path), quote_fetcher=broken, kline_fetcher=lambda s: [])
+        scanner = MoneyGrabScanner(DummySettings(tmp_path), quote_fetcher=broken, kline_fetcher=lambda s: [], fundamentals_enricher=_noop_fundamentals)
         scanner.start()
         state = self._wait_done(scanner)
         assert state["status"] == "failed"
@@ -413,6 +424,7 @@ class TestLimitUp:
             quote_fetcher=lambda: quotes,
             kline_fetcher=lambda symbol: bars,
             max_workers=2,
+            fundamentals_enricher=_noop_fundamentals,
         )
         scanner.start(limit_up_only=True)
         deadline = time.time() + 5
@@ -501,3 +513,35 @@ class TestVShapeAccepted:
         row = evaluate_stock("600001", "上行波段", 13.5, bars, today=self.today)
         assert row is not None
         assert row["from_top"] is False
+
+
+class TestFundamentals:
+    def test_profit_condition(self):
+        from backend.app.fundamentals import profit_condition
+
+        # 茅台2026Q1：归母净利281.5亿、净利率0.5222 → 营收约539亿×40 ≈ 2.16万亿 > 市值1.61万亿
+        assert profit_condition(28153831489.89, 0.522245, 16119.8)
+        # 市值过大：同样财务，市值 3 万亿 → 不通过
+        assert not profit_condition(28153831489.89, 0.522245, 30000.0)
+        # 归母净利为负 → 不通过
+        assert not profit_condition(-1000.0, 0.1, 50.0)
+        # 数据缺失 → 不通过
+        assert not profit_condition(None, 0.1, 50.0)
+        assert not profit_condition(1000.0, None, 50.0)
+        assert not profit_condition(1000.0, 0.0, 50.0)
+        assert not profit_condition(1000.0, 0.1, None)
+
+    def test_dividend_condition(self):
+        from backend.app.fundamentals import dividend_condition
+
+        today = date(2026, 8, 3)
+        # 近一年内有除权除息 → True
+        assert dividend_condition(["2026-06-26"], today)
+        assert dividend_condition(["2025-12-19"], today)
+        # 已公告、除息日在未来（今年分红计划）→ True
+        assert dividend_condition(["2026-09-10"], today)
+        # 超过一年 → False
+        assert not dividend_condition(["2025-06-26"], today)
+        # 无记录/脏数据 → False
+        assert not dividend_condition([], today)
+        assert not dividend_condition(["", "bad-date"], today)

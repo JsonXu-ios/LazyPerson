@@ -176,7 +176,13 @@ def evaluate_stock(
     }
 
 
-STATE_KEY = "moneygrab:last_scan:v5"  # v5: 一档30确认/主线入档/去V型，旧结果作废
+STATE_KEY = "moneygrab:last_scan:v6"  # v6: 命中行含 dividend_recent/profit_ok 基本面标记
+
+
+def _default_fundamentals_enricher(cache: CacheStore, hits: list[dict], caps: dict) -> None:
+    from backend.app.fundamentals import FundamentalsFetcher
+
+    FundamentalsFetcher(cache).enrich(hits, caps)
 
 
 @dataclass
@@ -329,11 +335,13 @@ class MoneyGrabScanner:
         quote_fetcher=None,
         kline_fetcher=None,
         max_workers: int = 16,
+        fundamentals_enricher=None,
     ):
         self.settings = settings
         self.max_workers = max_workers
         self._quote_fetcher = quote_fetcher or (lambda: _fetch_all_a_quotes(self.settings))
         self._kline_fetcher = kline_fetcher  # None 时在 _run 内用 MarketService
+        self._fundamentals_enricher = fundamentals_enricher or _default_fundamentals_enricher
         self._lock = threading.Lock()
         self._state = ScanState()
         self._thread: threading.Thread | None = None
@@ -429,6 +437,21 @@ class MoneyGrabScanner:
                         self._state.done += 1
                         if row is not None:
                             self._state.hits.append(row)
+
+            # 基本面标记（分红/净利润）：只查命中股，缓存3天；失败不影响扫描结果
+            with self._lock:
+                self._state.stage = "fundamentals"
+                hits_snapshot = list(self._state.hits)
+            try:
+                caps = {
+                    str(quote.get("symbol", "")): quote.get("market_cap")
+                    for quote in candidates
+                }
+                self._fundamentals_enricher(cache, hits_snapshot, caps)
+            except Exception:
+                for row in hits_snapshot:
+                    row.setdefault("dividend_recent", False)
+                    row.setdefault("profit_ok", False)
 
             with self._lock:
                 self._state.hits.sort(key=lambda item: (item["group"], -item["over"]))

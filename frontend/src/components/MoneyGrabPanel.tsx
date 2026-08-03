@@ -28,6 +28,9 @@ export function MoneyGrabPanel({ onSelect }: { onSelect: (symbol: string) => voi
   const [limitUpFilter, setLimitUpFilter] = useState(true);
   // 跌破曾站上主线的默认不显示，勾选后并入列表（扫描已带标记，切换无需重扫）
   const [showFromTop, setShowFromTop] = useState(false);
+  // 基本面筛选（展示层，命中已带标记）：分红=近一年有分红；净利润=归母净利≥0 且 Q1营收×40>总市值
+  const [dividendFilter, setDividendFilter] = useState(false);
+  const [profitFilter, setProfitFilter] = useState(false);
   const timerRef = useRef<number | null>(null);
 
   const loadStatus = useCallback(async () => {
@@ -77,7 +80,10 @@ export function MoneyGrabPanel({ onSelect }: { onSelect: (symbol: string) => voi
   const progress = status && status.total > 0 ? Math.round((status.done / status.total) * 100) : 0;
   const visibleHits = (status?.hits || []).filter(
     (hit) =>
-      (!limitUpFilter || hit.limit_up) && (showFromTop || !hit.from_top),
+      (!limitUpFilter || hit.limit_up) &&
+      (showFromTop || !hit.from_top) &&
+      (!dividendFilter || hit.dividend_recent === true) &&
+      (!profitFilter || hit.profit_ok === true),
   );
   const groupCounts = new Map<number, number>();
   const groupHits = new Map<number, MoneyGrabHit[]>();
@@ -121,6 +127,22 @@ export function MoneyGrabPanel({ onSelect }: { onSelect: (symbol: string) => voi
         <label className="moneygrab-filter" title="展示过滤：波段峰值曾站上某条主线（20/50/80/…）、现价已跌破的，勾选后并入列表">
           <input type="checkbox" checked={showFromTop} onChange={(event) => setShowFromTop(event.target.checked)} />
           含跌破主线
+        </label>
+        <label className="moneygrab-filter" title="近一年有分红（含已公告的今年分红）">
+          <input
+            type="checkbox"
+            checked={dividendFilter}
+            onChange={(event) => setDividendFilter(event.target.checked)}
+          />
+          分红
+        </label>
+        <label className="moneygrab-filter" title="归母净利润≥0 且 一季度营收×4×10 > 总市值（估市值）">
+          <input
+            type="checkbox"
+            checked={profitFilter}
+            onChange={(event) => setProfitFilter(event.target.checked)}
+          />
+          净利润
         </label>
         {status && (running || status.status === "done") && (
           <span className="moneygrab-meta">

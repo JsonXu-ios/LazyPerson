@@ -93,9 +93,12 @@ export type MoneyGrabHit = {
   limit_up: boolean;
   low_date: string;
   cross_date: string;
-  /** 从顶部下来：波段峰值曾站上某条档位线，现价已跌破 */
+  /** 从顶部下来：波段峰值曾站上某条主线，现价已跌破 */
   from_top: boolean;
-  /** V型反弹：90日内先从高处跌到低点，反弹至今未超过下跌起点 */
+  /** 近一年有分红（含已公告的今年分红） */
+  dividend_recent?: boolean;
+  /** 归母净利润≥0 且 一季度营收×4×10 > 总市值 */
+  profit_ok?: boolean;
 };
 
 export type FundamentalValuation = {

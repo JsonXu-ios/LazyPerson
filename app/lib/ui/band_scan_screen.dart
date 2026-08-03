@@ -216,6 +216,17 @@ class _BandScanScreenState extends State<BandScanScreen> {
                   letterSpacing: 0.8,
                 ),
               ),
+              if (controller.skippedNoData > 0) ...[
+                const SizedBox(height: 2),
+                Text(
+                  '本地日K缺失 跳过${controller.skippedNoData}只',
+                  style: mono(
+                    size: FontSize.legend,
+                    color: AppColors.warn,
+                    letterSpacing: 0.4,
+                  ),
+                ),
+              ],
             ],
           ),
         ],

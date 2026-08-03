@@ -34,6 +34,9 @@ class BandScanController extends ChangeNotifier {
   double? minMarketCap;
   String? error;
 
+  /// 本地日K缺失/不足20根而未参与判定的股票数（数据完整性提示，非规则排除）
+  int skippedNoData = 0;
+
   /// 扫描参数：总市值>40亿（默认勾选，取消则不过滤）
   bool capFilter = true;
 
@@ -122,6 +125,7 @@ class BandScanController extends ChangeNotifier {
           BandHit.fromJson((row as Map).cast<String, Object?>()),
       ];
       total = (data['total'] as num?)?.toInt() ?? hits.length;
+      skippedNoData = (data['skipped_no_data'] as num?)?.toInt() ?? 0;
       done = total;
       tradeDate = data['trade_date'] as String?;
       minMarketCap = (data['min_market_cap'] as num?)?.toDouble();
@@ -135,6 +139,14 @@ class BandScanController extends ChangeNotifier {
 
   Future<void> startScan() async {
     if (running) return;
+    // 全市场日K未同步完成时本地数据残缺，扫描结果会漏股票（如刚安装的设备），直接拒绝
+    if (!await repository.sync.isInitialized()) {
+      status = BandScanStatus.failed;
+      stage = '';
+      error = '全市场日K尚未同步完成：请回到首页等待初始化同步结束后再扫描';
+      _notify();
+      return;
+    }
     final runId = ++_runId;
     // 涨停是展示层过滤（每条命中带 limitUp 标记），扫描本身不过滤，勾选切换即时生效
     final capLimit = capFilter ? marketCapMin : null;
@@ -144,6 +156,7 @@ class BandScanController extends ChangeNotifier {
     done = 0;
     hits = [];
     error = null;
+    skippedNoData = 0;
     tradeDate = _today;
     minMarketCap = capLimit;
     _notify();
@@ -179,11 +192,16 @@ class BandScanController extends ChangeNotifier {
     for (final quote in candidates) {
       if (runId != _runId) return;
       final bars = await repository.store.getDailyBars(quote.symbol);
-      final row =
-          evaluateStock(quote.symbol, quote.name, quote.price, bars, today: today);
-      if (row != null) {
-        collected
-            .add(row.copyWith(limitUp: isLimitUp(quote.price, quote.preClose)));
+      if (validScanBars(bars).length < scanMinBars) {
+        // 本地日K缺失/不足：不是规则排除，单独计数并在界面提示
+        skippedNoData += 1;
+      } else {
+        final row = evaluateStock(quote.symbol, quote.name, quote.price, bars,
+            today: today);
+        if (row != null) {
+          collected.add(
+              row.copyWith(limitUp: isLimitUp(quote.price, quote.preClose)));
+        }
       }
       done += 1;
       if (done % 50 == 0) {
@@ -211,6 +229,7 @@ class BandScanController extends ChangeNotifier {
         'trade_date': tradeDate,
         'min_market_cap': minMarketCap,
         'total': total,
+        'skipped_no_data': skippedNoData,
         'finished_at': now().toIso8601String(),
         'hits': [for (final hit in hits) hit.toJson()],
       }),

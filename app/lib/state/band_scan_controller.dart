@@ -7,6 +7,7 @@ import 'dart:convert';
 import 'package:flutter/foundation.dart';
 
 import '../data/fundamentals_service.dart';
+import '../data/lon_check_service.dart';
 import '../data/market_repository.dart';
 import '../logic/band_scanner.dart';
 import '../models/models.dart';
@@ -17,17 +18,22 @@ class BandScanController extends ChangeNotifier {
   /// 总市值下限（亿元），勾选“总市值>40亿”时生效
   static const marketCapMin = 40.0;
 
-  /// v4: 命中行含 dividendRecent/profitOk 基本面标记，旧结果作废
-  static const _stateKey = 'band_scan:last:v4';
+  /// v5: 命中行含 revenueOk/lonOk 标记（估市值拆分 + LON 三周期），旧结果作废
+  static const _stateKey = 'band_scan:last:v5';
 
   final MarketRepository repository;
   final DateTime Function() now;
 
-  /// 基本面标记取数（分红/净利润），测试可注入假实现
+  /// 基本面标记取数（分红/净利润/估市值），测试可注入假实现
   late final FundamentalsService fundamentals;
 
+  /// LON 多头标记（日/周/月三周期），测试可注入假实现
+  late final LonCheckService lonCheck;
+
   BandScanController(this.repository,
-      {DateTime Function()? nowFn, FundamentalsService? fundamentals})
+      {DateTime Function()? nowFn,
+      FundamentalsService? fundamentals,
+      LonCheckService? lonCheck})
       : now = nowFn ?? DateTime.now {
     this.fundamentals = fundamentals ??
         FundamentalsService(
@@ -35,10 +41,16 @@ class BandScanController extends ChangeNotifier {
           provider: repository.fundamentalsProvider,
           nowFn: now,
         );
+    this.lonCheck = lonCheck ??
+        LonCheckService(
+          store: repository.store,
+          tencent: repository.tencent,
+          nowFn: now,
+        );
   }
 
   BandScanStatus status = BandScanStatus.idle;
-  String stage = ''; // snapshot | kline | fundamentals | ''
+  String stage = ''; // snapshot | kline | fundamentals | lon | ''
   int total = 0;
   int done = 0;
   List<BandHit> hits = [];
@@ -70,8 +82,14 @@ class BandScanController extends ChangeNotifier {
   /// 展示层过滤：只看近一年有分红（含已公告的今年分红），默认关，无需重扫
   bool dividendFilter = false;
 
-  /// 展示层过滤：只看净利润达标（归母净利≥0 且 Q1营收×40>总市值），默认关
+  /// 展示层过滤：只看净利润达标（最新报告期归母净利≥0），默认关
   bool profitFilter = false;
+
+  /// 展示层过滤：只看估市值达标（最新报告期营收年化×10>总市值），默认关
+  bool revenueFilter = false;
+
+  /// 展示层过滤：只看 LON 多头（日/周/月三周期），默认关
+  bool lonFilter = false;
 
   int activeGroup = 1;
 
@@ -87,7 +105,9 @@ class BandScanController extends ChangeNotifier {
           (!limitUpFilter || hit.limitUp) &&
           (showFromTop || !hit.fromTop) &&
           (!dividendFilter || hit.dividendRecent) &&
-          (!profitFilter || hit.profitOk))
+          (!profitFilter || hit.profitOk) &&
+          (!revenueFilter || hit.revenueOk) &&
+          (!lonFilter || hit.lonOk))
       .toList();
 
   Map<int, int> get groupCounts {
@@ -147,6 +167,18 @@ class BandScanController extends ChangeNotifier {
   void setProfitFilter(bool value) {
     if (value == profitFilter) return;
     profitFilter = value;
+    _notify();
+  }
+
+  void setRevenueFilter(bool value) {
+    if (value == revenueFilter) return;
+    revenueFilter = value;
+    _notify();
+  }
+
+  void setLonFilter(bool value) {
+    if (value == lonFilter) return;
+    lonFilter = value;
     _notify();
   }
 
@@ -280,7 +312,7 @@ class BandScanController extends ChangeNotifier {
       }
     }
 
-    // 基本面标记（分红/净利润）：只查命中股（约一两百只），缓存3天；
+    // 基本面标记（分红/净利润/估市值）：只查命中股（约一两百只），缓存3天；
     // 单只取数失败不影响扫描结果，标记保持默认 false（对齐 scanner.py fundamentals 阶段）
     stage = 'fundamentals';
     hits = List.of(collected);
@@ -296,7 +328,23 @@ class BandScanController extends ChangeNotifier {
         collected[i] = hit.copyWith(
           dividendRecent: marks.dividendRecent,
           profitOk: marks.profitOk,
+          revenueOk: marks.revenueOk,
         );
+      } catch (_) {
+        // 取数失败保持默认 false
+      }
+    }
+
+    // LON 多头标记（日/周/月三周期）：只对命中股计算，周/月K走缓存→腾讯；
+    // 单只失败保持默认 false（对齐 scanner.py lon 阶段）
+    stage = 'lon';
+    hits = List.of(collected);
+    _notify();
+    for (var i = 0; i < collected.length; i++) {
+      if (runId != _runId) return;
+      try {
+        collected[i] = collected[i]
+            .copyWith(lonOk: await lonCheck.lonOkFor(collected[i].symbol));
       } catch (_) {
         // 取数失败保持默认 false
       }

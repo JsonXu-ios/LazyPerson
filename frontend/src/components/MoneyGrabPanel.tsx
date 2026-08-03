@@ -28,9 +28,11 @@ export function MoneyGrabPanel({ onSelect }: { onSelect: (symbol: string) => voi
   const [limitUpFilter, setLimitUpFilter] = useState(true);
   // 跌破曾站上主线的默认不显示，勾选后并入列表（扫描已带标记，切换无需重扫）
   const [showFromTop, setShowFromTop] = useState(false);
-  // 基本面筛选（展示层，命中已带标记）：分红=近一年有分红；净利润=归母净利≥0 且 Q1营收×40>总市值
-  const [dividendFilter, setDividendFilter] = useState(false);
-  const [profitFilter, setProfitFilter] = useState(false);
+  // 基本面/技术面筛选（展示层，命中已带标记，切换无需重扫）
+  const [dividendFilter, setDividendFilter] = useState(false);   // 近一年有分红
+  const [profitFilter, setProfitFilter] = useState(false);       // 归母净利≥0
+  const [revenueFilter, setRevenueFilter] = useState(false);     // 估市值：年化营收×10>总市值
+  const [lonFilter, setLonFilter] = useState(false);             // 日/周/月 LON 多头
   const timerRef = useRef<number | null>(null);
 
   const loadStatus = useCallback(async () => {
@@ -83,7 +85,9 @@ export function MoneyGrabPanel({ onSelect }: { onSelect: (symbol: string) => voi
       (!limitUpFilter || hit.limit_up) &&
       (showFromTop || !hit.from_top) &&
       (!dividendFilter || hit.dividend_recent === true) &&
-      (!profitFilter || hit.profit_ok === true),
+      (!profitFilter || hit.profit_ok === true) &&
+      (!revenueFilter || hit.revenue_ok === true) &&
+      (!lonFilter || hit.lon_ok === true),
   );
   const groupCounts = new Map<number, number>();
   const groupHits = new Map<number, MoneyGrabHit[]>();
@@ -136,13 +140,29 @@ export function MoneyGrabPanel({ onSelect }: { onSelect: (symbol: string) => voi
           />
           分红
         </label>
-        <label className="moneygrab-filter" title="归母净利润≥0 且 一季度营收×4×10 > 总市值（估市值）">
+        <label className="moneygrab-filter" title="最新报告期归母净利润≥0">
           <input
             type="checkbox"
             checked={profitFilter}
             onChange={(event) => setProfitFilter(event.target.checked)}
           />
           净利润
+        </label>
+        <label className="moneygrab-filter" title="最新报告期营收年化（一季报×4/半年报×2/三季报×4÷3/年报×1）×10 > 总市值">
+          <input
+            type="checkbox"
+            checked={revenueFilter}
+            onChange={(event) => setRevenueFilter(event.target.checked)}
+          />
+          估市值
+        </label>
+        <label className="moneygrab-filter" title="日线、周线、月线上 LON 与 LONMA 都向上，且 LONMA 不压在 LON 上方">
+          <input
+            type="checkbox"
+            checked={lonFilter}
+            onChange={(event) => setLonFilter(event.target.checked)}
+          />
+          LON
         </label>
         {status && (running || status.status === "done") && (
           <span className="moneygrab-meta">

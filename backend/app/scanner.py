@@ -176,13 +176,19 @@ def evaluate_stock(
     }
 
 
-STATE_KEY = "moneygrab:last_scan:v6"  # v6: 命中行含 dividend_recent/profit_ok 基本面标记
+STATE_KEY = "moneygrab:last_scan:v7"  # v7: 估市值/净利润拆分 + lon_ok 标记
 
 
 def _default_fundamentals_enricher(cache: CacheStore, hits: list[dict], caps: dict) -> None:
     from backend.app.fundamentals import FundamentalsFetcher
 
     FundamentalsFetcher(cache).enrich(hits, caps)
+
+
+def _default_lon_enricher(cache: CacheStore, hits: list[dict]) -> None:
+    from backend.app.lon_check import LonChecker
+
+    LonChecker(cache).enrich(hits)
 
 
 @dataclass
@@ -336,12 +342,14 @@ class MoneyGrabScanner:
         kline_fetcher=None,
         max_workers: int = 16,
         fundamentals_enricher=None,
+        lon_enricher=None,
     ):
         self.settings = settings
         self.max_workers = max_workers
         self._quote_fetcher = quote_fetcher or (lambda: _fetch_all_a_quotes(self.settings))
         self._kline_fetcher = kline_fetcher  # None 时在 _run 内用 MarketService
         self._fundamentals_enricher = fundamentals_enricher or _default_fundamentals_enricher
+        self._lon_enricher = lon_enricher or _default_lon_enricher
         self._lock = threading.Lock()
         self._state = ScanState()
         self._thread: threading.Thread | None = None
@@ -449,9 +457,20 @@ class MoneyGrabScanner:
                 }
                 self._fundamentals_enricher(cache, hits_snapshot, caps)
             except Exception:
-                for row in hits_snapshot:
-                    row.setdefault("dividend_recent", False)
-                    row.setdefault("profit_ok", False)
+                pass
+            for row in hits_snapshot:
+                row.setdefault("dividend_recent", False)
+                row.setdefault("profit_ok", False)
+                row.setdefault("revenue_ok", False)
+
+            with self._lock:
+                self._state.stage = "lon"
+            try:
+                self._lon_enricher(cache, hits_snapshot)
+            except Exception:
+                pass
+            for row in hits_snapshot:
+                row.setdefault("lon_ok", False)
 
             with self._lock:
                 self._state.hits.sort(key=lambda item: (item["group"], -item["over"]))

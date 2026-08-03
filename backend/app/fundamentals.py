@@ -14,20 +14,42 @@ from backend.app.cache import CacheStore
 from backend.app.utils import now_utc
 
 FUND_CACHE_DAYS = 3
-STATE_PREFIX = "fundamentals:v1:"
+STATE_PREFIX = "fundamentals:v2:"  # v2: 估市值/净利润拆分为独立条件，按最新报告期年化
 
 
-def profit_condition(net_profit: float | None, np_margin: float | None, market_cap_yi: float | None) -> bool:
-    """净利润筛选：归母净利润≥0（baostock netProfit 即归母口径，同时覆盖净利润≥0）
-    且 一季度营收×4×10 > 总市值。营收 = 归母净利润 / 净利率。数据缺失视为不通过。"""
-    if net_profit is None or net_profit < 0:
+def annualize_factor(stat_date: str | None) -> float | None:
+    """按报告期年化系数：一季报×4、半年报×2、三季报×4/3、年报×1（财报数据为年内累计值）。"""
+    if not stat_date:
+        return None
+    try:
+        month = int(str(stat_date)[5:7])
+    except ValueError:
+        return None
+    return {3: 4.0, 6: 2.0, 9: 4.0 / 3.0, 12: 1.0}.get(month)
+
+
+def revenue_condition(
+    net_profit: float | None,
+    np_margin: float | None,
+    stat_date: str | None,
+    market_cap_yi: float | None,
+) -> bool:
+    """估市值：最新报告期累计营收年化后 ×10 > 总市值。
+    营收 = 累计归母净利润 / 净利率（baostock 营收字段常缺失）。数据缺失视为不通过。"""
+    factor = annualize_factor(stat_date)
+    if factor is None:
         return False
-    if np_margin is None or np_margin <= 0:
+    if net_profit is None or np_margin is None or np_margin <= 0:
         return False
     if market_cap_yi is None or market_cap_yi <= 0:
         return False
-    revenue = net_profit / np_margin
-    return revenue * 4 * 10 > market_cap_yi * 1e8
+    revenue = net_profit / np_margin * factor
+    return revenue * 10 > market_cap_yi * 1e8
+
+
+def profit_condition(net_profit: float | None) -> bool:
+    """净利润：最新报告期归母净利润≥0（净利润与归母同口径判定）。缺失视为不通过。"""
+    return net_profit is not None and net_profit >= 0
 
 
 def dividend_condition(operate_dates: list[str], today: date) -> bool:
@@ -73,8 +95,9 @@ class FundamentalsFetcher:
         for hit in hits:
             cached = self._read_cache(hit["symbol"])
             if cached is not None:
-                hit["dividend_recent"] = cached["dividend_recent"]
-                hit["profit_ok"] = cached["profit_ok"]
+                hit["dividend_recent"] = cached.get("dividend_recent", False)
+                hit["profit_ok"] = cached.get("profit_ok", False)
+                hit["revenue_ok"] = cached.get("revenue_ok", False)
             else:
                 pending.append(hit)
         if not pending:
@@ -90,10 +113,11 @@ class FundamentalsFetcher:
                 symbol = hit["symbol"]
                 code = _bs_code(symbol)
                 dividend = self._fetch_dividend(bs, code)
-                profit = self._fetch_profit(bs, code, market_caps.get(symbol))
+                profit, revenue = self._fetch_report_flags(bs, code, market_caps.get(symbol))
                 hit["dividend_recent"] = dividend
                 hit["profit_ok"] = profit
-                self._write_cache(symbol, dividend, profit)
+                hit["revenue_ok"] = revenue
+                self._write_cache(symbol, dividend, profit, revenue)
         finally:
             bs.logout()
 
@@ -107,16 +131,31 @@ class FundamentalsFetcher:
                     dates.append(row.get("dividOperateDate") or row.get("dividPlanAnnounceDate") or "")
         return dividend_condition(dates, self.today)
 
-    def _fetch_profit(self, bs, code: str, market_cap_yi: float | None) -> bool:
-        rows = _rows(bs.query_profit_data(code=code, year=self.today.year, quarter=1))
-        if not rows:
-            return False  # 一季报未披露/缺失视为不通过
-        row = rows[0]
-        return profit_condition(
-            _to_float(row.get("netProfit")),
-            _to_float(row.get("npMargin")),
-            market_cap_yi,
+    def _fetch_report_flags(self, bs, code: str, market_cap_yi: float | None) -> tuple[bool, bool]:
+        """最新已披露报告期的（净利润, 估市值）判定；无财报数据均视为不通过。"""
+        row = self._latest_report(bs, code)
+        if row is None:
+            return False, False
+        net_profit = _to_float(row.get("netProfit"))
+        return (
+            profit_condition(net_profit),
+            revenue_condition(net_profit, _to_float(row.get("npMargin")), row.get("statDate"), market_cap_yi),
         )
+
+    def _latest_report(self, bs, code: str) -> dict | None:
+        """从最近已结束的报告期往回找（最多4期），取第一个有数据的。"""
+        candidates: list[tuple[int, int]] = []
+        for year in (self.today.year, self.today.year - 1):
+            for quarter in (4, 3, 2, 1):
+                quarter_end = date(year, quarter * 3, 1) + timedelta(days=31)
+                if quarter_end > self.today:
+                    continue  # 报告期还没结束
+                candidates.append((year, quarter))
+        for year, quarter in candidates[:4]:
+            rows = _rows(bs.query_profit_data(code=code, year=year, quarter=quarter))
+            if rows:
+                return rows[0]
+        return None
 
     def _read_cache(self, symbol: str) -> dict | None:
         raw = self.cache.get_state(f"{STATE_PREFIX}{symbol}")
@@ -131,12 +170,13 @@ class FundamentalsFetcher:
             return None
         return data
 
-    def _write_cache(self, symbol: str, dividend: bool, profit: bool) -> None:
+    def _write_cache(self, symbol: str, dividend: bool, profit: bool, revenue: bool) -> None:
         self.cache.set_state(
             f"{STATE_PREFIX}{symbol}",
             json.dumps({
                 "checked_at": self.today.isoformat(),
                 "dividend_recent": dividend,
                 "profit_ok": profit,
+                "revenue_ok": revenue,
             }),
         )

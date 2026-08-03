@@ -63,3 +63,11 @@ class TencentAdapterTests(unittest.TestCase):
 
 if __name__ == "__main__":
     unittest.main()
+
+
+def test_estimate_count_capped_below_tencent_limit():
+    from backend.app.providers.tencent_adapter import _estimate_count
+
+    # 超长跨度（月K拉10年+）必须封顶：count>1200+ 时腾讯返回 param error 且 data 为列表
+    assert _estimate_count("2015-01-01", "2026-08-01") <= 1100
+    assert _estimate_count("2022-01-01", None) <= 1100

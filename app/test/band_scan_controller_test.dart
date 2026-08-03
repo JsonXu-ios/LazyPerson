@@ -1,6 +1,7 @@
-/// 八档局扫描控制器的基本面标记流程测试：扫描完成后逐只补
-/// dividendRecent/profitOk（注入假取数），取数失败不影响扫描结果，
-/// 分红/净利润展示层过滤对齐网页版 MoneyGrabPanel。
+/// 八档局扫描控制器的标记流程测试：扫描完成后逐只补
+/// dividendRecent/profitOk/revenueOk（注入假基本面取数）与 lonOk
+/// （注入假 LON 校验），取数失败不影响扫描结果，
+/// 四个展示层过滤开关对齐网页版 MoneyGrabPanel。
 library;
 
 import 'dart:convert';
@@ -9,9 +10,11 @@ import 'dart:math' as math;
 import 'package:flutter_test/flutter_test.dart';
 import 'package:lazyperson/data/fundamentals_service.dart';
 import 'package:lazyperson/data/local_store.dart';
+import 'package:lazyperson/data/lon_check_service.dart';
 import 'package:lazyperson/data/market_repository.dart';
 import 'package:lazyperson/data/providers/eastmoney_provider.dart';
 import 'package:lazyperson/data/sync_service.dart';
+import 'package:lazyperson/logic/band_scanner.dart';
 import 'package:lazyperson/models/models.dart';
 import 'package:lazyperson/state/band_scan_controller.dart';
 import 'package:sqflite_common_ffi/sqflite_ffi.dart';
@@ -41,6 +44,22 @@ class _FakeFundamentals extends FundamentalsService {
     capsSeen[symbol] = marketCapYi;
     final found = marks[symbol];
     if (found == null) throw StateError('fetch failed: $symbol');
+    return found;
+  }
+}
+
+/// 注入的假 LON 校验：映射里没有的股票视为取数失败（保持默认 false）
+class _FakeLonCheck extends LonCheckService {
+  final Map<String, bool> results;
+  final List<String> requested = [];
+
+  _FakeLonCheck(LocalStore store, this.results) : super(store: store);
+
+  @override
+  Future<bool> lonOkFor(String symbol) async {
+    requested.add(symbol);
+    final found = results[symbol];
+    if (found == null) throw StateError('lon failed: $symbol');
     return found;
   }
 }
@@ -103,9 +122,11 @@ void main() {
   late LocalStore store;
   late MarketRepository repository;
   late _FakeFundamentals fundamentals;
+  late _FakeLonCheck lonCheck;
   late BandScanController controller;
 
-  Future<void> setUpScan(Map<String, FundamentalsMarks> marks) async {
+  Future<void> setUpScan(Map<String, FundamentalsMarks> marks,
+      {Map<String, bool> lonResults = const {}}) async {
     store = LocalStore(await databaseFactory.openDatabase(
       inMemoryDatabasePath,
       options: OpenDatabaseOptions(
@@ -127,10 +148,12 @@ void main() {
       await store.upsertDailyBars(quote.symbol, _waveBars());
     }
     fundamentals = _FakeFundamentals(store, marks);
+    lonCheck = _FakeLonCheck(store, lonResults);
     controller = BandScanController(
       repository,
       nowFn: () => _today,
       fundamentals: fundamentals,
+      lonCheck: lonCheck,
     );
   }
 
@@ -138,9 +161,15 @@ void main() {
 
   test('扫描完成后逐只补标记；取数失败的股票保持默认 false 且不影响扫描结果', () async {
     await setUpScan({
-      '600001': const FundamentalsMarks(dividendRecent: true, profitOk: true),
-      '600003': const FundamentalsMarks(dividendRecent: false, profitOk: true),
+      '600001': const FundamentalsMarks(
+          dividendRecent: true, profitOk: true, revenueOk: true),
+      '600003': const FundamentalsMarks(
+          dividendRecent: false, profitOk: true, revenueOk: false),
       // 600002 缺失 → marksFor 抛异常，模拟取数失败
+    }, lonResults: {
+      '600001': true,
+      '600003': false,
+      // 600002 缺失 → lonOkFor 抛异常，模拟取数失败
     });
 
     await controller.startScan();
@@ -151,65 +180,120 @@ void main() {
     // 只对命中的股票取数，市值来自扫描快照的 Quote.marketCap（亿元）
     expect(fundamentals.requested.toSet(), {'600001', '600002', '600003'});
     expect(fundamentals.capsSeen['600001'], 100.0);
+    // lon 阶段同样只对命中股计算
+    expect(lonCheck.requested.toSet(), {'600001', '600002', '600003'});
 
     final bySymbol = {for (final hit in controller.hits) hit.symbol: hit};
     expect(bySymbol['600001']!.dividendRecent, isTrue);
     expect(bySymbol['600001']!.profitOk, isTrue);
+    expect(bySymbol['600001']!.revenueOk, isTrue);
+    expect(bySymbol['600001']!.lonOk, isTrue);
     expect(bySymbol['600002']!.dividendRecent, isFalse); // 取数失败 → 默认 false
     expect(bySymbol['600002']!.profitOk, isFalse);
+    expect(bySymbol['600002']!.revenueOk, isFalse);
+    expect(bySymbol['600002']!.lonOk, isFalse);
     expect(bySymbol['600003']!.dividendRecent, isFalse);
     expect(bySymbol['600003']!.profitOk, isTrue);
+    expect(bySymbol['600003']!.revenueOk, isFalse);
+    expect(bySymbol['600003']!.lonOk, isFalse);
   });
 
-  test('分红/净利润是展示层过滤（默认关），切换无需重扫', () async {
+  test('分红/净利润/估市值/LON 是展示层过滤（默认关），切换无需重扫', () async {
     await setUpScan({
-      '600001': const FundamentalsMarks(dividendRecent: true, profitOk: true),
-      '600003': const FundamentalsMarks(dividendRecent: false, profitOk: true),
+      '600001': const FundamentalsMarks(
+          dividendRecent: true, profitOk: true, revenueOk: true),
+      '600002': const FundamentalsMarks(
+          dividendRecent: true, profitOk: false, revenueOk: true),
+      '600003': const FundamentalsMarks(
+          dividendRecent: false, profitOk: true, revenueOk: false),
+    }, lonResults: {
+      '600001': true,
+      '600002': false,
+      '600003': true,
     });
     await controller.startScan();
     controller.setLimitUpFilter(false); // 测试数据无涨停，先放开
 
-    // 默认不勾选 → 不过滤
+    // 默认全不勾选 → 不过滤（对齐 MoneyGrabPanel 四个开关默认关）
     expect(controller.dividendFilter, isFalse);
     expect(controller.profitFilter, isFalse);
+    expect(controller.revenueFilter, isFalse);
+    expect(controller.lonFilter, isFalse);
     expect(controller.visibleHits, hasLength(3));
 
     controller.setDividendFilter(true);
-    expect(controller.visibleHits.map((hit) => hit.symbol), ['600001']);
+    expect(controller.visibleHits.map((hit) => hit.symbol).toSet(),
+        {'600001', '600002'});
 
     controller.setDividendFilter(false);
     controller.setProfitFilter(true);
     expect(controller.visibleHits.map((hit) => hit.symbol).toSet(),
         {'600001', '600003'});
 
-    controller.setDividendFilter(true); // 两个都开取交集
+    controller.setProfitFilter(false);
+    controller.setRevenueFilter(true);
+    expect(controller.visibleHits.map((hit) => hit.symbol).toSet(),
+        {'600001', '600002'});
+
+    controller.setRevenueFilter(false);
+    controller.setLonFilter(true);
+    expect(controller.visibleHits.map((hit) => hit.symbol).toSet(),
+        {'600001', '600003'});
+
+    // 四个全开取交集（&& 语义对齐 MoneyGrabPanel.visibleHits）
+    controller.setDividendFilter(true);
+    controller.setProfitFilter(true);
+    controller.setRevenueFilter(true);
     expect(controller.visibleHits.map((hit) => hit.symbol), ['600001']);
   });
 
-  test('标记随结果持久化（key v4），当日 restore 恢复', () async {
+  test('标记随结果持久化（key v5），当日 restore 恢复', () async {
     await setUpScan({
-      '600001': const FundamentalsMarks(dividendRecent: true, profitOk: true),
+      '600001': const FundamentalsMarks(
+          dividendRecent: true, profitOk: true, revenueOk: true),
+    }, lonResults: {
+      '600001': true,
     });
     await controller.startScan();
 
-    final raw = await store.getState('band_scan:last:v4');
+    final raw = await store.getState('band_scan:last:v5');
     expect(raw, isNotNull);
     final persisted = (jsonDecode(raw!) as Map).cast<String, Object?>();
     final rows = (persisted['hits'] as List).cast<Map>();
     final row = rows.firstWhere((item) => item['symbol'] == '600001');
     expect(row['dividend_recent'], isTrue);
     expect(row['profit_ok'], isTrue);
+    expect(row['revenue_ok'], isTrue);
+    expect(row['lon_ok'], isTrue);
 
     final restored = BandScanController(
       repository,
       nowFn: () => _today,
       fundamentals: fundamentals,
+      lonCheck: lonCheck,
     );
     await restored.restore();
     expect(restored.status, BandScanStatus.done);
     final hit = restored.hits.firstWhere((item) => item.symbol == '600001');
     expect(hit.dividendRecent, isTrue);
     expect(hit.profitOk, isTrue);
+    expect(hit.revenueOk, isTrue);
+    expect(hit.lonOk, isTrue);
     restored.dispose();
+  });
+
+  test('旧持久化数据缺 revenue_ok/lon_ok 字段 → 默认 false', () {
+    final hit = BandHit.fromJson({
+      'symbol': '600001',
+      'price': 13.5,
+      'low90': 10.0,
+      'pct': 35.0,
+      'group': 1,
+      'threshold': 20.0,
+      'over': 15.0,
+      'max_pct': 35.0,
+    });
+    expect(hit.revenueOk, isFalse);
+    expect(hit.lonOk, isFalse);
   });
 }

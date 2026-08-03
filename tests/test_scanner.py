@@ -228,6 +228,13 @@ def _noop_fundamentals(cache, hits, caps):
     for row in hits:
         row["dividend_recent"] = False
         row["profit_ok"] = False
+        row["revenue_ok"] = False
+
+
+def _noop_lon(cache, hits):
+    """测试用：不联网，LON 标记默认 False。"""
+    for row in hits:
+        row["lon_ok"] = False
 
 
 class TestMoneyGrabScanner:
@@ -260,7 +267,7 @@ class TestMoneyGrabScanner:
         quote_fetcher, kline_fetcher = self._fetchers()
         scanner = MoneyGrabScanner(
             DummySettings(tmp_path), quote_fetcher=quote_fetcher, kline_fetcher=kline_fetcher, max_workers=2,
-            fundamentals_enricher=_noop_fundamentals
+            fundamentals_enricher=_noop_fundamentals, lon_enricher=_noop_lon
         )
         state = scanner.start()
         assert state["status"] in ("running", "done")  # 小数据集可能瞬间扫完
@@ -279,7 +286,7 @@ class TestMoneyGrabScanner:
         quote_fetcher, kline_fetcher = self._fetchers()
         scanner = MoneyGrabScanner(
             DummySettings(tmp_path), quote_fetcher=quote_fetcher, kline_fetcher=kline_fetcher, max_workers=2,
-            fundamentals_enricher=_noop_fundamentals
+            fundamentals_enricher=_noop_fundamentals, lon_enricher=_noop_lon
         )
         scanner.start(min_market_cap=40.0)
         state = self._wait_done(scanner)
@@ -297,7 +304,7 @@ class TestMoneyGrabScanner:
 
         scanner = MoneyGrabScanner(
             DummySettings(tmp_path), quote_fetcher=quote_fetcher, kline_fetcher=slow_kline, max_workers=1,
-            fundamentals_enricher=_noop_fundamentals
+            fundamentals_enricher=_noop_fundamentals, lon_enricher=_noop_lon
         )
         scanner.start()
         second = scanner.start()
@@ -307,11 +314,11 @@ class TestMoneyGrabScanner:
     def test_result_persisted_and_restored(self, tmp_path):
         quote_fetcher, kline_fetcher = self._fetchers()
         settings = DummySettings(tmp_path)
-        scanner = MoneyGrabScanner(settings, quote_fetcher=quote_fetcher, kline_fetcher=kline_fetcher, fundamentals_enricher=_noop_fundamentals)
+        scanner = MoneyGrabScanner(settings, quote_fetcher=quote_fetcher, kline_fetcher=kline_fetcher, fundamentals_enricher=_noop_fundamentals, lon_enricher=_noop_lon)
         scanner.start()
         self._wait_done(scanner)
 
-        fresh = MoneyGrabScanner(settings, quote_fetcher=quote_fetcher, kline_fetcher=kline_fetcher, fundamentals_enricher=_noop_fundamentals)
+        fresh = MoneyGrabScanner(settings, quote_fetcher=quote_fetcher, kline_fetcher=kline_fetcher, fundamentals_enricher=_noop_fundamentals, lon_enricher=_noop_lon)
         state = fresh.status()
         # 持久化的 trade_date 是真实运行日，与结果一同恢复
         assert state["status"] == "done"
@@ -321,7 +328,7 @@ class TestMoneyGrabScanner:
         def broken():
             raise RuntimeError("snapshot down")
 
-        scanner = MoneyGrabScanner(DummySettings(tmp_path), quote_fetcher=broken, kline_fetcher=lambda s: [], fundamentals_enricher=_noop_fundamentals)
+        scanner = MoneyGrabScanner(DummySettings(tmp_path), quote_fetcher=broken, kline_fetcher=lambda s: [], fundamentals_enricher=_noop_fundamentals, lon_enricher=_noop_lon)
         scanner.start()
         state = self._wait_done(scanner)
         assert state["status"] == "failed"
@@ -425,6 +432,7 @@ class TestLimitUp:
             kline_fetcher=lambda symbol: bars,
             max_workers=2,
             fundamentals_enricher=_noop_fundamentals,
+            lon_enricher=_noop_lon,
         )
         scanner.start(limit_up_only=True)
         deadline = time.time() + 5
@@ -516,20 +524,40 @@ class TestVShapeAccepted:
 
 
 class TestFundamentals:
+    def test_annualize_factor(self):
+        from backend.app.fundamentals import annualize_factor
+
+        assert annualize_factor("2026-03-31") == 4.0        # 一季报 ×4
+        assert annualize_factor("2026-06-30") == 2.0        # 半年报 /2×4 = ×2
+        assert round(annualize_factor("2026-09-30"), 4) == round(4 / 3, 4)  # 三季报 /3×4
+        assert annualize_factor("2025-12-31") == 1.0        # 年报不年化
+        assert annualize_factor(None) is None
+        assert annualize_factor("bad") is None
+
+    def test_revenue_condition(self):
+        from backend.app.fundamentals import revenue_condition
+
+        # 茅台2026Q1：归母净利281.5亿、净利率0.5222 → Q1营收约539亿 ×4×10 ≈ 2.16万亿 > 市值1.61万亿
+        assert revenue_condition(28153831489.89, 0.522245, "2026-03-31", 16119.8)
+        # 市值过大：3 万亿 → 不通过
+        assert not revenue_condition(28153831489.89, 0.522245, "2026-03-31", 30000.0)
+        # 同样数字若是半年报：年化×2 → 约1.08万亿 < 1.61万亿 → 不通过
+        assert not revenue_condition(28153831489.89, 0.522245, "2026-06-30", 16119.8)
+        # 年报：不年化 → 539亿×10 < 1.61万亿 → 不通过
+        assert not revenue_condition(28153831489.89, 0.522245, "2025-12-31", 16119.8)
+        # 数据缺失 → 不通过
+        assert not revenue_condition(None, 0.1, "2026-03-31", 50.0)
+        assert not revenue_condition(1000.0, None, "2026-03-31", 50.0)
+        assert not revenue_condition(1000.0, 0.1, None, 50.0)
+        assert not revenue_condition(1000.0, 0.1, "2026-03-31", None)
+
     def test_profit_condition(self):
         from backend.app.fundamentals import profit_condition
 
-        # 茅台2026Q1：归母净利281.5亿、净利率0.5222 → 营收约539亿×40 ≈ 2.16万亿 > 市值1.61万亿
-        assert profit_condition(28153831489.89, 0.522245, 16119.8)
-        # 市值过大：同样财务，市值 3 万亿 → 不通过
-        assert not profit_condition(28153831489.89, 0.522245, 30000.0)
-        # 归母净利为负 → 不通过
-        assert not profit_condition(-1000.0, 0.1, 50.0)
-        # 数据缺失 → 不通过
-        assert not profit_condition(None, 0.1, 50.0)
-        assert not profit_condition(1000.0, None, 50.0)
-        assert not profit_condition(1000.0, 0.0, 50.0)
-        assert not profit_condition(1000.0, 0.1, None)
+        assert profit_condition(28153831489.89)
+        assert profit_condition(0.0)
+        assert not profit_condition(-1000.0)
+        assert not profit_condition(None)
 
     def test_dividend_condition(self):
         from backend.app.fundamentals import dividend_condition
@@ -545,3 +573,25 @@ class TestFundamentals:
         # 无记录/脏数据 → False
         assert not dividend_condition([], today)
         assert not dividend_condition(["", "bad-date"], today)
+
+
+class TestLonTrend:
+    def test_lon_trend_ok(self):
+        from backend.app.lon_check import lon_trend_ok
+
+        # lon、lonma 都向上且 lon 在 lonma 上方 → True
+        assert lon_trend_ok([100.0, 120.0], [90.0, 95.0])
+        # lon 与 lonma 相等（贴线）也算未被压住 → True
+        assert lon_trend_ok([100.0, 120.0], [90.0, 120.0])
+        # lonma 压在 lon 上面 → False
+        assert not lon_trend_ok([100.0, 120.0], [130.0, 140.0])
+        # lon 走平/向下 → False
+        assert not lon_trend_ok([120.0, 120.0], [90.0, 95.0])
+        assert not lon_trend_ok([120.0, 110.0], [90.0, 95.0])
+        # lonma 向下 → False
+        assert not lon_trend_ok([100.0, 120.0], [96.0, 95.0])
+        # 数据不足/含None → 按无效处理
+        assert not lon_trend_ok([120.0], [95.0])
+        assert not lon_trend_ok([None, 120.0], [None, 95.0])
+        # None 混入时取最后两对有效值：(100,90)→(120,95) 向上且未被压 → True
+        assert lon_trend_ok([100.0, None, 120.0], [90.0, None, 95.0])

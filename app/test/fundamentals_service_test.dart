@@ -1,7 +1,7 @@
-/// 八档局基本面标记（分红/净利润）单测。
+/// 八档局基本面标记（分红/净利润/估市值）单测。
 /// 纯判定函数的数值断言与 tests/test_scanner.py::TestFundamentals 对齐；
 /// 差别：backend 用净利率反推营收（baostock 缺营收字段），
-/// app 用东财直接拿营收，判定式为 营收×4×10 > 总市值。
+/// app 用东财直接拿营收，判定式为 营收×年化系数×10 > 总市值。
 library;
 
 import 'dart:convert';
@@ -14,7 +14,8 @@ import 'package:lazyperson/data/local_store.dart';
 import 'package:lazyperson/data/providers/eastmoney_fundamentals_provider.dart';
 import 'package:sqflite_common_ffi/sqflite_ffi.dart';
 
-/// 按 URL 里的 reportName 返回预置响应（东财真实响应是 text/plain）
+/// 按 URL 里的子串返回预置响应（东财真实响应是 text/plain）。
+/// 报告期回退用日期子串区分同一接口的不同 REPORTDATE 过滤。
 class _FakeAdapter implements HttpClientAdapter {
   final Map<String, String> bodies;
   final List<String> requestedUrls = [];
@@ -54,6 +55,16 @@ final _q1Row = {
   'SECURITY_NAME_ABBR': '贵州茅台',
   'REPORTDATE': '2026-03-31 00:00:00',
   'DATATYPE': '2026年 一季报',
+  'TOTAL_OPERATE_INCOME': 54702912385.23,
+  'PARENT_NETPROFIT': 27242512886.45,
+};
+
+/// 半年报口径：同样营收数字，年化只 ×2（用于报告期系数差异断言）
+final _h1Row = {
+  'SECURITY_CODE': '600519',
+  'SECURITY_NAME_ABBR': '贵州茅台',
+  'REPORTDATE': '2026-06-30 00:00:00',
+  'DATATYPE': '2026年 半年报',
   'TOTAL_OPERATE_INCOME': 54702912385.23,
   'PARENT_NETPROFIT': 27242512886.45,
 };
@@ -104,24 +115,65 @@ void main() {
   sqfliteFfiInit();
   databaseFactory = databaseFactoryFfi;
 
-  group('profitCondition（对齐 TestFundamentals.test_profit_condition）', () {
-    // 茅台2026Q1：归母净利281.5亿；backend 由净利率0.522245反推营收≈539亿，
-    // app 直接用营收。539亿×40 ≈ 2.16万亿 > 市值1.61万亿 → 通过
-    const netProfit = 28153831489.89;
-    const revenue = netProfit / 0.522245;
-
-    test('茅台例通过；市值3万亿不通过', () {
-      expect(profitCondition(netProfit, revenue, 16119.8), isTrue);
-      expect(profitCondition(netProfit, revenue, 30000.0), isFalse);
+  group('annualizeFactor（对齐 TestFundamentals.test_annualize_factor）', () {
+    test('一季报×4、半年报×2、三季报×4/3、年报×1', () {
+      expect(annualizeFactor('2026-03-31'), 4.0);
+      expect(annualizeFactor('2026-06-30'), 2.0);
+      expect(annualizeFactor('2026-09-30'), closeTo(4 / 3, 1e-9));
+      expect(annualizeFactor('2025-12-31'), 1.0);
     });
 
-    test('归母净利为负 / 数据缺失 → 不通过', () {
-      expect(profitCondition(-1000.0, 10000.0, 50.0), isFalse);
-      expect(profitCondition(null, 10000.0, 50.0), isFalse);
-      expect(profitCondition(1000.0, null, 50.0), isFalse);
-      expect(profitCondition(1000.0, 0.0, 50.0), isFalse);
-      expect(profitCondition(1000.0, 10000.0, null), isFalse);
-      expect(profitCondition(1000.0, 10000.0, 0.0), isFalse);
+    test('缺失/脏数据/非报告期月份 → null', () {
+      expect(annualizeFactor(null), isNull);
+      expect(annualizeFactor('bad'), isNull);
+      expect(annualizeFactor('2026-05-31'), isNull);
+    });
+  });
+
+  group('revenueCondition（对齐 TestFundamentals.test_revenue_condition）', () {
+    // 茅台2026Q1：营收547亿 ×4×10 ≈ 2.19万亿 > 市值1.61万亿 → 通过
+    const revenue = 54702912385.23;
+
+    test('茅台一季报通过；市值3万亿不通过', () {
+      expect(revenueCondition(revenue, '2026-03-31', 16119.8), isTrue);
+      expect(revenueCondition(revenue, '2026-03-31', 30000.0), isFalse);
+    });
+
+    test('同样营收若是半年报：×2×10≈1.09万亿 < 1.61万亿 → 不通过', () {
+      expect(revenueCondition(revenue, '2026-06-30', 16119.8), isFalse);
+    });
+
+    test('年报不年化：547亿×10 < 1.61万亿 → 不通过', () {
+      expect(revenueCondition(revenue, '2025-12-31', 16119.8), isFalse);
+    });
+
+    test('数据缺失/非正 → 不通过', () {
+      expect(revenueCondition(null, '2026-03-31', 50.0), isFalse);
+      expect(revenueCondition(0.0, '2026-03-31', 50.0), isFalse);
+      expect(revenueCondition(1000.0, null, 50.0), isFalse);
+      expect(revenueCondition(1000.0, '2026-03-31', null), isFalse);
+      expect(revenueCondition(1000.0, '2026-03-31', 0.0), isFalse);
+    });
+  });
+
+  group('profitCondition（对齐 TestFundamentals.test_profit_condition）', () {
+    test('归母净利润≥0 通过（正/零），负/缺失不通过', () {
+      expect(profitCondition(28153831489.89), isTrue);
+      expect(profitCondition(0.0), isTrue);
+      expect(profitCondition(-1000.0), isFalse);
+      expect(profitCondition(null), isFalse);
+    });
+  });
+
+  group('latestReportCandidates（最近已结束报告期回退序列）', () {
+    test('8月 → 半年报/一季报/去年年报/去年三季报', () {
+      expect(latestReportCandidates(DateTime(2026, 8, 3)),
+          ['2026-06-30', '2026-03-31', '2025-12-31', '2025-09-30']);
+    });
+
+    test('报告期未结束不入候选（3月底一季度还没结束）', () {
+      expect(latestReportCandidates(DateTime(2026, 3, 31)),
+          ['2025-12-31', '2025-09-30', '2025-06-30', '2025-03-31']);
     });
   });
 
@@ -156,55 +208,92 @@ void main() {
 
     tearDown(() => store.close());
 
-    test('拉东财两个接口打标并写缓存（3 天内二次调用不再请求）', () async {
+    test('最新期（半年报）无数据回退一季报，打标并写缓存（3 天内二次调用不再请求）',
+        () async {
       final adapter = _FakeAdapter({
         'RPT_SHAREBONUS_DET': _report(_bonusRows),
-        'RPT_LICO_FN_CPD': _report([_q1Row]),
+        '2026-06-30': _report([]), // 半年报未披露 → 回退
+        '2026-03-31': _report([_q1Row]),
       });
       final service = _service(store, adapter);
 
       final marks = await service.marksFor('600519', 16119.8);
       expect(marks.dividendRecent, isTrue);
-      expect(marks.profitOk, isTrue);
+      expect(marks.profitOk, isTrue); // 归母净利 272 亿 ≥ 0
+      expect(marks.revenueOk, isTrue); // 547亿×4×10 ≈ 2.19万亿 > 1.61万亿
       expect(
           adapter.requestedUrls.where((u) => u.contains('RPT_SHAREBONUS_DET')),
           hasLength(1));
-      // 一季报按 REPORTDATE 精确过滤
-      expect(
-          adapter.requestedUrls
-              .where((u) => u.contains('RPT_LICO_FN_CPD'))
-              .single,
-          contains('2026-03-31'));
+      // 报告期按 REPORTDATE 从最近往回试：先 2026-06-30（空）再 2026-03-31
+      final licoUrls = adapter.requestedUrls
+          .where((u) => u.contains('RPT_LICO_FN_CPD'))
+          .toList();
+      expect(licoUrls, hasLength(2));
+      expect(licoUrls[0], contains('2026-06-30'));
+      expect(licoUrls[1], contains('2026-03-31'));
 
-      final raw = await store.getState('fundamentals:v1:600519');
+      final raw = await store.getState('fundamentals:v2:600519');
       expect(raw, isNotNull);
       final cached = (jsonDecode(raw!) as Map).cast<String, Object?>();
       expect(cached['checked_at'], '2026-08-03');
       expect(cached['dividend_recent'], isTrue);
       expect(cached['profit_ok'], isTrue);
+      expect(cached['revenue_ok'], isTrue);
 
       final requestsBefore = adapter.requestedUrls.length;
       final again = await service.marksFor('600519', 16119.8);
       expect(again.dividendRecent, isTrue);
+      expect(again.revenueOk, isTrue);
       expect(adapter.requestedUrls.length, requestsBefore); // 缓存命中，零请求
+    });
+
+    test('最新期是半年报：年化×2 → 1.09万亿 < 1.61万亿 → revenueOk 不通过',
+        () async {
+      final adapter = _FakeAdapter({
+        'RPT_SHAREBONUS_DET': _report(_bonusRows),
+        '2026-06-30': _report([_h1Row]),
+      });
+
+      final marks = await _service(store, adapter).marksFor('600519', 16119.8);
+      expect(marks.profitOk, isTrue);
+      expect(marks.revenueOk, isFalse);
+      // 最新期有数据就不再回退
+      expect(
+          adapter.requestedUrls.where((u) => u.contains('RPT_LICO_FN_CPD')),
+          hasLength(1));
+    });
+
+    test('市值过大（3万亿）→ revenueOk 不通过、profitOk 不受影响', () async {
+      final adapter = _FakeAdapter({
+        'RPT_SHAREBONUS_DET': _report(_bonusRows),
+        '2026-06-30': _report([]),
+        '2026-03-31': _report([_q1Row]),
+      });
+
+      final marks = await _service(store, adapter).marksFor('600519', 30000.0);
+      expect(marks.revenueOk, isFalse); // 547亿×4×10 ≈ 2.19万亿 < 3万亿
+      expect(marks.profitOk, isTrue);
     });
 
     test('缓存超过 3 天失效重新取数', () async {
       await store.setState(
-        'fundamentals:v1:600519',
+        'fundamentals:v2:600519',
         jsonEncode({
           'checked_at': '2026-07-30', // 4 天前
           'dividend_recent': false,
           'profit_ok': false,
+          'revenue_ok': false,
         }),
       );
       final adapter = _FakeAdapter({
         'RPT_SHAREBONUS_DET': _report(_bonusRows),
-        'RPT_LICO_FN_CPD': _report([_q1Row]),
+        '2026-06-30': _report([]),
+        '2026-03-31': _report([_q1Row]),
       });
 
       final marks = await _service(store, adapter).marksFor('600519', 16119.8);
       expect(marks.dividendRecent, isTrue); // 用的是新数据而非过期缓存
+      expect(marks.revenueOk, isTrue);
       expect(adapter.requestedUrls, isNotEmpty);
     });
 
@@ -244,7 +333,7 @@ void main() {
             'EX_DIVIDEND_DATE': '2026-06-20 00:00:00',
           },
         ]),
-        'RPT_LICO_FN_CPD': _report([_q1Row]),
+        '2026-06-30': _report([_h1Row]),
       });
 
       final marks = await _service(store, adapter).marksFor('600001', 16119.8);
@@ -252,7 +341,8 @@ void main() {
       expect(marks.profitOk, isTrue);
     });
 
-    test('一季报未披露 → profitOk 不通过', () async {
+    test('四期报告全部未披露 → profitOk/revenueOk 都不通过（回退4次后放弃）',
+        () async {
       final adapter = _FakeAdapter({
         'RPT_SHAREBONUS_DET': _report(_bonusRows),
         'RPT_LICO_FN_CPD': _report([]),
@@ -260,7 +350,15 @@ void main() {
 
       final marks = await _service(store, adapter).marksFor('600519', 16119.8);
       expect(marks.profitOk, isFalse);
+      expect(marks.revenueOk, isFalse);
       expect(marks.dividendRecent, isTrue);
+      // 2026-06-30 → 2026-03-31 → 2025-12-31 → 2025-09-30 共 4 期
+      final licoUrls = adapter.requestedUrls
+          .where((u) => u.contains('RPT_LICO_FN_CPD'))
+          .toList();
+      expect(licoUrls, hasLength(4));
+      expect(licoUrls[2], contains('2025-12-31'));
+      expect(licoUrls[3], contains('2025-09-30'));
     });
 
     test('取数失败向上抛且不写缓存（下次重试）', () async {
@@ -272,7 +370,7 @@ void main() {
 
       await expectLater(
           service.marksFor('600519', 16119.8), throwsA(anything));
-      expect(await store.getState('fundamentals:v1:600519'), isNull);
+      expect(await store.getState('fundamentals:v2:600519'), isNull);
     });
   });
 }

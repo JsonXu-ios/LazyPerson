@@ -136,7 +136,8 @@ def _estimate_count(start: str | None, end: str | None) -> int:
     except ValueError:
         return 640
     days = max((end_date - start_date).days, 1)
-    return min(max(ceil(days * 1.6), 120), 5000)
+    # 腾讯 fqkline 的 count 上限约 1200+（超限返回 param error 且 data 为列表），封顶留余量
+    return min(max(ceil(days * 1.6), 120), 1100)
 
 
 def _minute_period_key(period: str) -> str:

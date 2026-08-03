@@ -97,8 +97,12 @@ export type MoneyGrabHit = {
   from_top: boolean;
   /** 近一年有分红（含已公告的今年分红） */
   dividend_recent?: boolean;
-  /** 归母净利润≥0 且 一季度营收×4×10 > 总市值 */
+  /** 最新报告期归母净利润≥0 */
   profit_ok?: boolean;
+  /** 估市值：最新报告期年化营收×10 > 总市值 */
+  revenue_ok?: boolean;
+  /** 日/周/月三周期 lon、lonma 整体向上且 lonma 不压在 lon 上方 */
+  lon_ok?: boolean;
 };
 
 export type FundamentalValuation = {

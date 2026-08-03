@@ -302,7 +302,7 @@ class _BandScanScreenState extends State<BandScanScreen> {
   }
 
   /// 筛选做成可点的开关 chip：整块可点、有明确的选中态，
-  /// 比原来 12dp 的小勾选框好按得多。分红/净利润是基本面标记的
+  /// 比原来 12dp 的小勾选框好按得多。分红/净利润/估市值/LON 是
   /// 展示层过滤（命中行已带标记，切换无需重扫），默认不勾选。
   Widget _filters(bool running) {
     return Padding(
@@ -337,6 +337,16 @@ class _BandScanScreenState extends State<BandScanScreen> {
             value: controller.profitFilter,
             onChanged: controller.setProfitFilter,
           ),
+          _FilterChip(
+            label: '估市值',
+            value: controller.revenueFilter,
+            onChanged: controller.setRevenueFilter,
+          ),
+          _FilterChip(
+            label: 'LON',
+            value: controller.lonFilter,
+            onChanged: controller.setLonFilter,
+          ),
         ],
       ),
     );
@@ -364,10 +374,12 @@ class _BandScanScreenState extends State<BandScanScreen> {
     final total = controller.total;
     final ratio = total > 0 ? controller.done / total : null;
     final text = controller.stage == 'fundamentals'
-        ? '补基本面标记（分红/净利润）…'
-        : controller.stage == 'snapshot' || total == 0
-            ? '正在拉取全市场行情快照…'
-            : '本地日线计算档位 ${controller.done} / $total';
+        ? '补基本面标记（分红/净利润/估市值）…'
+        : controller.stage == 'lon'
+            ? '校验 LON 多头（日/周/月K）…'
+            : controller.stage == 'snapshot' || total == 0
+                ? '正在拉取全市场行情快照…'
+                : '本地日线计算档位 ${controller.done} / $total';
     return Padding(
       padding: const EdgeInsets.fromLTRB(16, 12, 16, 0),
       child: Column(

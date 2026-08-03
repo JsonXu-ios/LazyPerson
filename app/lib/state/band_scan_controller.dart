@@ -6,6 +6,7 @@ import 'dart:convert';
 
 import 'package:flutter/foundation.dart';
 
+import '../data/fundamentals_service.dart';
 import '../data/market_repository.dart';
 import '../logic/band_scanner.dart';
 import '../models/models.dart';
@@ -16,17 +17,28 @@ class BandScanController extends ChangeNotifier {
   /// 总市值下限（亿元），勾选“总市值>40亿”时生效
   static const marketCapMin = 40.0;
 
-  /// v3: 一档30确认/主线入档/去V型，旧结果作废
-  static const _stateKey = 'band_scan:last:v3';
+  /// v4: 命中行含 dividendRecent/profitOk 基本面标记，旧结果作废
+  static const _stateKey = 'band_scan:last:v4';
 
   final MarketRepository repository;
   final DateTime Function() now;
 
-  BandScanController(this.repository, {DateTime Function()? nowFn})
-      : now = nowFn ?? DateTime.now;
+  /// 基本面标记取数（分红/净利润），测试可注入假实现
+  late final FundamentalsService fundamentals;
+
+  BandScanController(this.repository,
+      {DateTime Function()? nowFn, FundamentalsService? fundamentals})
+      : now = nowFn ?? DateTime.now {
+    this.fundamentals = fundamentals ??
+        FundamentalsService(
+          store: repository.store,
+          provider: repository.fundamentalsProvider,
+          nowFn: now,
+        );
+  }
 
   BandScanStatus status = BandScanStatus.idle;
-  String stage = ''; // snapshot | kline | ''
+  String stage = ''; // snapshot | kline | fundamentals | ''
   int total = 0;
   int done = 0;
   List<BandHit> hits = [];
@@ -55,6 +67,12 @@ class BandScanController extends ChangeNotifier {
   /// 展示层过滤：「从高处来」的两种形态默认隐藏，勾选后并入列表（无需重扫）
   bool showFromTop = false;
 
+  /// 展示层过滤：只看近一年有分红（含已公告的今年分红），默认关，无需重扫
+  bool dividendFilter = false;
+
+  /// 展示层过滤：只看净利润达标（归母净利≥0 且 Q1营收×40>总市值），默认关
+  bool profitFilter = false;
+
   int activeGroup = 1;
 
   bool _disposed = false;
@@ -63,11 +81,13 @@ class BandScanController extends ChangeNotifier {
 
   bool get running => status == BandScanStatus.running;
 
-  /// 展示层过滤后的命中
+  /// 展示层过滤后的命中（对齐 MoneyGrabPanel.tsx 的 visibleHits）
   List<BandHit> get visibleHits => hits
       .where((hit) =>
           (!limitUpFilter || hit.limitUp) &&
-          (showFromTop || !hit.fromTop))
+          (showFromTop || !hit.fromTop) &&
+          (!dividendFilter || hit.dividendRecent) &&
+          (!profitFilter || hit.profitOk))
       .toList();
 
   Map<int, int> get groupCounts {
@@ -115,6 +135,18 @@ class BandScanController extends ChangeNotifier {
   void setShowFromTop(bool value) {
     if (value == showFromTop) return;
     showFromTop = value;
+    _notify();
+  }
+
+  void setDividendFilter(bool value) {
+    if (value == dividendFilter) return;
+    dividendFilter = value;
+    _notify();
+  }
+
+  void setProfitFilter(bool value) {
+    if (value == profitFilter) return;
+    profitFilter = value;
     _notify();
   }
 
@@ -245,6 +277,28 @@ class BandScanController extends ChangeNotifier {
       if (done % 50 == 0) {
         hits = List.of(collected);
         _notify();
+      }
+    }
+
+    // 基本面标记（分红/净利润）：只查命中股（约一两百只），缓存3天；
+    // 单只取数失败不影响扫描结果，标记保持默认 false（对齐 scanner.py fundamentals 阶段）
+    stage = 'fundamentals';
+    hits = List.of(collected);
+    _notify();
+    final caps = {
+      for (final quote in candidates) quote.symbol: quote.marketCap,
+    };
+    for (var i = 0; i < collected.length; i++) {
+      if (runId != _runId) return;
+      final hit = collected[i];
+      try {
+        final marks = await fundamentals.marksFor(hit.symbol, caps[hit.symbol]);
+        collected[i] = hit.copyWith(
+          dividendRecent: marks.dividendRecent,
+          profitOk: marks.profitOk,
+        );
+      } catch (_) {
+        // 取数失败保持默认 false
       }
     }
 

@@ -299,6 +299,46 @@ void main() {
     });
   });
 
+  group('BandHit 序列化', () {
+    test('旧持久化数据缺 dividend_recent/profit_ok 字段默认 false', () {
+      final hit = BandHit.fromJson(const {
+        'symbol': '600519',
+        'name': '贵州茅台',
+        'price': 1361.76,
+        'low90': 1000.0,
+        'pct': 36.18,
+        'group': 1,
+        'threshold': 20.0,
+        'over': 16.18,
+        'max_pct': 36.18,
+        'low_date': '2026-05-06',
+        'cross_date': '2026-07-01',
+      });
+      expect(hit.dividendRecent, isFalse);
+      expect(hit.profitOk, isFalse);
+    });
+
+    test('标记字段随 toJson/fromJson 往返', () {
+      final hit = BandHit.fromJson(const BandHit(
+        symbol: '600519',
+        name: '贵州茅台',
+        price: 1361.76,
+        low90: 1000.0,
+        pct: 36.18,
+        group: 1,
+        threshold: 20.0,
+        over: 16.18,
+        maxPct: 36.18,
+        lowDate: '2026-05-06',
+        crossDate: '2026-07-01',
+        dividendRecent: true,
+        profitOk: true,
+      ).toJson());
+      expect(hit.dividendRecent, isTrue);
+      expect(hit.profitOk, isTrue);
+    });
+  });
+
   group('V 型反弹不再排除（低点可以是反转也可以是起点）', () {
     final today = _defaultToday;
 

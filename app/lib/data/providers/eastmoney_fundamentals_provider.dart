@@ -88,12 +88,13 @@ class EastmoneyFundamentalsProvider {
     String reportName,
     String symbol,
     String sortColumn,
-    int pageSize,
-  ) async {
+    int pageSize, {
+    String extraFilter = '',
+  }) async {
     final payload = await _getJson(_dio, _datacenterUrl, {
       'reportName': reportName,
       'columns': 'ALL',
-      'filter': '(SECURITY_CODE="$symbol")',
+      'filter': '(SECURITY_CODE="$symbol")$extraFilter',
       'pageNumber': '1',
       'pageSize': '$pageSize',
       'sortColumns': sortColumn,
@@ -167,6 +168,29 @@ class EastmoneyFundamentalsProvider {
     }
     throw ProviderError(
         errors.isEmpty ? 'no valuation data' : errors.join('; '), source);
+  }
+
+  /// 分红送配记录（八档局基本面标记等轻量场景：单接口，不拉业绩/估值）。
+  Future<List<FundamentalDividend>> dividends(String symbol) async {
+    final clean = normalizeSymbol(symbol);
+    final rows = await _reportRows(
+        'RPT_SHAREBONUS_DET', clean, 'PLAN_NOTICE_DATE', maxDividends);
+    return [for (final row in rows) _normalizeDividend(row)];
+  }
+
+  /// 指定报告期的业绩报表（如今年一季报 '2026-03-31'）；未披露返回 null。
+  /// 只查 RPT_LICO_FN_CPD，不合并利润表（netprofit/扣非等留空）。
+  Future<FundamentalReport?> reportAt(String symbol, String reportDate) async {
+    final clean = normalizeSymbol(symbol);
+    final rows = await _reportRows(
+      'RPT_LICO_FN_CPD',
+      clean,
+      'REPORTDATE',
+      1,
+      extraFilter: "(REPORTDATE='$reportDate')",
+    );
+    if (rows.isEmpty) return null;
+    return _normalizeReport(rows.first, const {});
   }
 
   /// 业绩 + 分红 + 估值的合并结果。估值失败不影响财务部分，只记 warning。

@@ -118,6 +118,12 @@ class BandHit {
   /// 跌破主线：波段峰值曾站上某条主线（20/50/80/…），现价已跌破
   final bool fromTop;
 
+  /// 近一年有分红（含已公告未除息的今年分红），基本面阶段补标
+  final bool dividendRecent;
+
+  /// 归母净利润≥0 且 今年Q1营收×4×10 > 总市值，基本面阶段补标
+  final bool profitOk;
+
   const BandHit({
     required this.symbol,
     required this.name,
@@ -132,9 +138,12 @@ class BandHit {
     required this.crossDate,
     this.limitUp = false,
     this.fromTop = false,
+    this.dividendRecent = false,
+    this.profitOk = false,
   });
 
-  BandHit copyWith({bool? limitUp}) => BandHit(
+  BandHit copyWith({bool? limitUp, bool? dividendRecent, bool? profitOk}) =>
+      BandHit(
         symbol: symbol,
         name: name,
         price: price,
@@ -148,6 +157,8 @@ class BandHit {
         crossDate: crossDate,
         limitUp: limitUp ?? this.limitUp,
         fromTop: fromTop,
+        dividendRecent: dividendRecent ?? this.dividendRecent,
+        profitOk: profitOk ?? this.profitOk,
       );
 
   Map<String, Object?> toJson() => {
@@ -164,6 +175,8 @@ class BandHit {
         'cross_date': crossDate,
         'limit_up': limitUp,
         'from_top': fromTop,
+        'dividend_recent': dividendRecent,
+        'profit_ok': profitOk,
       };
 
   factory BandHit.fromJson(Map<String, Object?> json) => BandHit(
@@ -180,6 +193,9 @@ class BandHit {
         crossDate: (json['cross_date'] as String?) ?? '',
         limitUp: (json['limit_up'] as bool?) ?? false,
         fromTop: (json['from_top'] as bool?) ?? false,
+        // 旧持久化数据缺基本面标记字段，默认 false
+        dividendRecent: (json['dividend_recent'] as bool?) ?? false,
+        profitOk: (json['profit_ok'] as bool?) ?? false,
       );
 }
 

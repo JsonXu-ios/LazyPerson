@@ -160,18 +160,18 @@ class _BandScanScreenState extends State<BandScanScreen> {
           style: bodyStyle,
           children: [
             TextSpan(
-              text: '沪深主板（60/00）。90 日波段（低点→高点）分档：过主线（20/50/80/…）后再站上 ',
+              text: '沪深主板（60/00）。90 日波段从低点起算：一档需站上 ',
             ),
             TextSpan(
-              text: '10 个点',
+              text: '30% 确认',
               style: TextStyle(
                 color: AppColors.accent,
                 fontWeight: FontWeight.w700,
               ),
             ),
             TextSpan(
-              text: '才入档，有效区一档 30~40%、二档 60~70%、三档 90~100%…；'
-                  '刚过主线不足10点、档间过渡区不入档。',
+              text: '（有效区 30~40%），40 是奇点；二档及以上过主线即入'
+                  '（50~70%、80~100%…）。跌破曾站上的主线默认隐藏，收回自动恢复。',
             ),
           ],
         ),
@@ -244,14 +244,9 @@ class _BandScanScreenState extends State<BandScanScreen> {
             onChanged: controller.setLimitUpFilter,
           ),
           _FilterChip(
-            label: '含顶部下来',
+            label: '含跌破主线',
             value: controller.showFromTop,
             onChanged: controller.setShowFromTop,
-          ),
-          _FilterChip(
-            label: '含V型反弹',
-            value: controller.showVShape,
-            onChanged: controller.setShowVShape,
           ),
         ],
       ),

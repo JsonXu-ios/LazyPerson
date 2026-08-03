@@ -16,8 +16,8 @@ class BandScanController extends ChangeNotifier {
   /// 总市值下限（亿元），勾选“总市值>40亿”时生效
   static const marketCapMin = 40.0;
 
-  /// v2: 命中行含 from_top / v_shape 标记，旧结果结构不兼容
-  static const _stateKey = 'band_scan:last:v2';
+  /// v3: 一档30确认/主线入档/去V型，旧结果作废
+  static const _stateKey = 'band_scan:last:v3';
 
   final MarketRepository repository;
   final DateTime Function() now;
@@ -42,7 +42,6 @@ class BandScanController extends ChangeNotifier {
 
   /// 展示层过滤：「从高处来」的两种形态默认隐藏，勾选后并入列表（无需重扫）
   bool showFromTop = false;
-  bool showVShape = false;
 
   int activeGroup = 1;
 
@@ -56,8 +55,7 @@ class BandScanController extends ChangeNotifier {
   List<BandHit> get visibleHits => hits
       .where((hit) =>
           (!limitUpFilter || hit.limitUp) &&
-          (showFromTop || !hit.fromTop) &&
-          (showVShape || !hit.vShape))
+          (showFromTop || !hit.fromTop))
       .toList();
 
   Map<int, int> get groupCounts {
@@ -105,12 +103,6 @@ class BandScanController extends ChangeNotifier {
   void setShowFromTop(bool value) {
     if (value == showFromTop) return;
     showFromTop = value;
-    _notify();
-  }
-
-  void setShowVShape(bool value) {
-    if (value == showVShape) return;
-    showVShape = value;
     _notify();
   }
 

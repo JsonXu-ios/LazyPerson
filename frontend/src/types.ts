@@ -96,7 +96,6 @@ export type MoneyGrabHit = {
   /** 从顶部下来：波段峰值曾站上某条档位线，现价已跌破 */
   from_top: boolean;
   /** V型反弹：90日内先从高处跌到低点，反弹至今未超过下跌起点 */
-  v_shape: boolean;
 };
 
 export type FundamentalValuation = {

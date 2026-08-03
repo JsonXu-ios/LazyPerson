@@ -1,6 +1,6 @@
 /// 八档局核心筛选逻辑（纯函数），逐条移植自 backend/app/scanner.py。
-/// 90 日波段（低点→现在）分档：第 k 档 = 波段内先过 (阈值-10)%，
-/// 现价至少过阈值%，阈值 = 20+30*(k-1)。
+/// 90 日波段（低点→现在）分档：一档须站上30确认[30,40)，40是奇点；
+/// 二档及以上过主线即入（[50,70)、[80,100)…）。低点不区分反转/起点。
 library;
 
 import 'dart:math' as math;
@@ -20,52 +20,39 @@ const maxGroups = 8;
 const scanWindowDays = 90;
 const scanMinBars = 20;
 
-/// 按最新涨幅归档：第 k 档有效区间 [主线+10, 主线+20)，主线 = 20+30(k-1)。
-/// 即一档[30,40)、二档[60,70)、三档[90,100)…（“在20%~40%之间且大于30%”的推广）。
-/// 刚过主线不足10个点（如[20,30)）与下一档过渡区（如[40,50)）都不入档；超250%不入档。
+/// 按最新涨幅归档。一档须站上30确认：[30,40)；40是奇点，[40,50)不入档；
+/// 二档及以上过主线即入：[50,70)、[80,100)、[110,130)…（上沿 = 下一主线−10 的奇点）；
+/// 过渡区（70~80/100~110/…）与超250%不入档。
 int? classifyGroup(double? pct) {
-  if (pct == null || pct < groupFinalBase) return null;
+  if (pct == null || pct < groupFinalBase + groupPreOffset) {
+    return null; // <30：过20未站上30只是“站稳20”，不入档
+  }
+  if (pct < 40) return 1;
+  if (pct < 50) return null; // 40是奇点：过了40、还没站上50（利欧 41.7% 场景）
   final k = ((pct - groupFinalBase) / groupStep).floor() + 1;
   if (k > maxGroups) return null;
   final offset = pct - groupThreshold(k);
-  if (offset < groupPreOffset) return null; // 过了主线但没高出10个点（振江 25% 场景）
   if (offset >= groupStep - groupPreOffset) {
-    return null; // 过了下一档先过线（主线+20）→ 过渡区（600617 47% 场景）
+    return null; // 到达下一奇点（主线+20）→ 过渡区
   }
   return k;
 }
 
+/// 入档线：一档需站上30确认，二档及以上过主线即入。
+double groupEntryLine(int group) =>
+    group == 1 ? groupFinalBase + groupPreOffset : groupThreshold(group);
+
 double groupThreshold(int group) => groupFinalBase + groupStep * (group - 1);
 
-/// 第 k 档的先过线：10/40/70/100/…
-double preLine(int group) => groupThreshold(group) - groupPreOffset;
-
-/// 从顶部下来判定：波段最高点(maxPct)曾站上的最高档位线（先过线 10/40/70/…
-/// 与主线 20/50/80/… 都算），现价已跌破 → 排除。
+/// 跌破曾站上的最高主线（20/50/80/…）→ 打标记；重新站回主线上方即恢复。
 bool isFallingFromTop(double pct, double maxPct) {
   double? highestCrossed;
-  for (var j = 1; j <= maxGroups + 1; j++) {
-    // 允许越过第八档之上的线
-    for (final line in [preLine(j), groupThreshold(j)]) {
-      if (maxPct >= line) highestCrossed = line;
-    }
+  for (var j = 1; j <= maxGroups; j++) {
+    final line = groupThreshold(j);
+    if (maxPct >= line) highestCrossed = line;
   }
   if (highestCrossed == null) return false;
   return pct < highestCrossed;
-}
-
-/// V型反弹判定：90日内先从高处跌到波段低点、反弹至今仍未超过下跌起点
-/// （低点之前的最高收盘涨幅 >= 现价涨幅）→ true。低点在窗口开头的纯上行波段恒为 false。
-bool isVShapeRebound(
-    List<KlineBar> window, int lowIndex, double low90, double pct) {
-  double? beforeHigh;
-  for (final bar in window.sublist(0, lowIndex)) {
-    final close = bar.close;
-    if (close == null) continue;
-    beforeHigh = beforeHigh == null ? close : math.max(beforeHigh, close);
-  }
-  if (beforeHigh == null) return false;
-  return (beforeHigh / low90 - 1) * 100 >= pct;
 }
 
 /// 主板涨停判定：现价（收盘后即收盘价）等于 round(昨收×1.1, 2)。
@@ -128,11 +115,8 @@ class BandHit {
   final String crossDate;
   final bool limitUp;
 
-  /// 从顶部下来：波段峰值曾站上某条档位线，现价已跌破
+  /// 跌破主线：波段峰值曾站上某条主线（20/50/80/…），现价已跌破
   final bool fromTop;
-
-  /// V型反弹：90日内先从高处跌到低点，反弹至今未超过下跌起点
-  final bool vShape;
 
   const BandHit({
     required this.symbol,
@@ -148,7 +132,6 @@ class BandHit {
     required this.crossDate,
     this.limitUp = false,
     this.fromTop = false,
-    this.vShape = false,
   });
 
   BandHit copyWith({bool? limitUp}) => BandHit(
@@ -165,7 +148,6 @@ class BandHit {
         crossDate: crossDate,
         limitUp: limitUp ?? this.limitUp,
         fromTop: fromTop,
-        vShape: vShape,
       );
 
   Map<String, Object?> toJson() => {
@@ -182,7 +164,6 @@ class BandHit {
         'cross_date': crossDate,
         'limit_up': limitUp,
         'from_top': fromTop,
-        'v_shape': vShape,
       };
 
   factory BandHit.fromJson(Map<String, Object?> json) => BandHit(
@@ -199,7 +180,6 @@ class BandHit {
         crossDate: (json['cross_date'] as String?) ?? '',
         limitUp: (json['limit_up'] as bool?) ?? false,
         fromTop: (json['from_top'] as bool?) ?? false,
-        vShape: (json['v_shape'] as bool?) ?? false,
       );
 }
 
@@ -209,7 +189,7 @@ double _roundTo(double value, int digits) {
 }
 
 /// 对齐 scanner.py::evaluate_stock。命中返回 BandHit（limitUp 由调用方补），
-/// 不命中返回 null。「从高处来」的两种形态（fromTop / vShape）只打标记不丢弃，
+/// 不命中返回 null。跌破曾站上主线（fromTop）只打标记不丢弃，
 /// 由展示层筛选开关决定是否显示。
 BandHit? evaluateStock(
   String symbol,
@@ -250,17 +230,16 @@ BandHit? evaluateStock(
     if (close == null) continue;
     maxPct = math.max(maxPct, (close / low90 - 1) * 100);
   }
-  // 「从高处来」的两条不再丢弃，只打标记，由展示层筛选开关决定是否显示
+  // 跌破曾站上主线只打标记，由展示层筛选开关决定是否显示（收回后自动恢复）
   final fromTop = isFallingFromTop(pct, maxPct);
-  final vShape = isVShapeRebound(window, lowIndex, low90, pct);
 
   final threshold = groupThreshold(group);
-  final preLevel = low90 * (1 + (threshold - groupPreOffset) / 100);
+  final entryLevel = low90 * (1 + groupEntryLine(group) / 100);
 
   String? crossDate;
   for (final bar in window.sublist(lowIndex + 1)) {
     final close = bar.close;
-    if (close != null && close >= preLevel) {
+    if (close != null && close >= entryLevel) {
       crossDate = bar.time.substring(0, math.min(10, bar.time.length));
       break;
     }
@@ -283,6 +262,5 @@ BandHit? evaluateStock(
         .substring(0, math.min(10, window[lowIndex].time.length)),
     crossDate: crossDate,
     fromTop: fromTop,
-    vShape: vShape,
   );
 }

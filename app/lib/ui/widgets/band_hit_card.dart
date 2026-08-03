@@ -110,12 +110,11 @@ class BandHitCard extends StatelessWidget {
               ),
             ],
           ),
-          if (hit.fromTop || hit.vShape) ...[
+          if (hit.fromTop) ...[
             const SizedBox(height: 8),
             Row(
               children: [
-                if (hit.fromTop) _shapeTag('顶部下来'),
-                if (hit.vShape) _shapeTag('V型'),
+                _shapeTag('跌破主线'),
               ],
             ),
           ],
@@ -165,7 +164,7 @@ class BandHitCard extends StatelessWidget {
                 ),
                 _needle(box.maxWidth * at(threshold), AppColors.yellowLine),
                 _needle(
-                  box.maxWidth * at(threshold + 10),
+                  box.maxWidth * at(groupEntryLine(hit.group)),
                   AppColors.text.withValues(alpha: 0.8),
                 ),
               ],

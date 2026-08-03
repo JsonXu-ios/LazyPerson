@@ -11,15 +11,23 @@ function groupThreshold(group: number) {
   return 20 + 30 * (group - 1);
 }
 
+// 有效区：一档需站上30确认 [30,40)；二档及以上过主线即入 [50,70)、[80,100)…
+function zoneLower(group: number) {
+  return group === 1 ? 30 : groupThreshold(group);
+}
+
+function zoneUpper(group: number) {
+  return group === 1 ? 40 : groupThreshold(group) + 20;
+}
+
 export function MoneyGrabPanel({ onSelect }: { onSelect: (symbol: string) => void }) {
   const [status, setStatus] = useState<MoneyGrabStatus | null>(null);
   const [error, setError] = useState("");
   const [activeGroup, setActiveGroup] = useState(1);
   const [capFilter, setCapFilter] = useState(true);
   const [limitUpFilter, setLimitUpFilter] = useState(true);
-  // 「从高处来」的两种形态默认不显示，勾选后并入列表（扫描已带标记，切换无需重扫）
+  // 跌破曾站上主线的默认不显示，勾选后并入列表（扫描已带标记，切换无需重扫）
   const [showFromTop, setShowFromTop] = useState(false);
-  const [showVShape, setShowVShape] = useState(false);
   const timerRef = useRef<number | null>(null);
 
   const loadStatus = useCallback(async () => {
@@ -69,7 +77,7 @@ export function MoneyGrabPanel({ onSelect }: { onSelect: (symbol: string) => voi
   const progress = status && status.total > 0 ? Math.round((status.done / status.total) * 100) : 0;
   const visibleHits = (status?.hits || []).filter(
     (hit) =>
-      (!limitUpFilter || hit.limit_up) && (showFromTop || !hit.from_top) && (showVShape || !hit.v_shape),
+      (!limitUpFilter || hit.limit_up) && (showFromTop || !hit.from_top),
   );
   const groupCounts = new Map<number, number>();
   const groupHits = new Map<number, MoneyGrabHit[]>();
@@ -86,9 +94,8 @@ export function MoneyGrabPanel({ onSelect }: { onSelect: (symbol: string) => voi
     <div className="moneygrab-panel">
       <h3>八档局 · A股档位扫描</h3>
       <p className="moneygrab-desc">
-        沪深主板（60/00）。90 日波段（低点→高点）分档：过主线（20/50/80/…）后再站上 10 个点才入档，
-        有效区一档 30~40%、二档 60~70%、三档 90~100%…；刚过主线不足10点、档间过渡区不入档。
-        「从高处来」的两种形态（从顶部跌破已站上线、V型反弹）默认隐藏，勾选上面的开关即可并入列表。
+        沪深主板（60/00）。90 日波段从低点起算：一档需站上 30% 确认（有效区 30~40%），40 是奇点；
+        二档及以上过主线即入（50~70%、80~100%…）。跌破曾站上的主线（20/50/80/…）默认隐藏，收回主线上方自动恢复。
       </p>
       <div className="moneygrab-actions">
         <button className="terminal-button" disabled={running} onClick={startScan}>
@@ -111,13 +118,9 @@ export function MoneyGrabPanel({ onSelect }: { onSelect: (symbol: string) => voi
           />
           今日涨停
         </label>
-        <label className="moneygrab-filter" title="展示过滤：波段峰值曾站上某条档位线、现价已跌破的，勾选后并入列表">
+        <label className="moneygrab-filter" title="展示过滤：波段峰值曾站上某条主线（20/50/80/…）、现价已跌破的，勾选后并入列表">
           <input type="checkbox" checked={showFromTop} onChange={(event) => setShowFromTop(event.target.checked)} />
-          含从顶部下来
-        </label>
-        <label className="moneygrab-filter" title="展示过滤：90日内先从高处跌到低点、反弹至今未超过下跌起点的，勾选后并入列表">
-          <input type="checkbox" checked={showVShape} onChange={(event) => setShowVShape(event.target.checked)} />
-          含V型反弹
+          含跌破主线
         </label>
         {status && (running || status.status === "done") && (
           <span className="moneygrab-meta">
@@ -150,9 +153,9 @@ export function MoneyGrabPanel({ onSelect }: { onSelect: (symbol: string) => voi
                   key={group}
                   className={activeGroup === group ? "active" : ""}
                   onClick={() => setActiveGroup(group)}
-                  title={`过${groupThreshold(group)}%主线后站上10个点：有效区 ${groupThreshold(group) + 10}~${groupThreshold(group) + 20}%`}
+                  title={group === 1 ? "过20主线后需站上30确认，40是奇点" : `过${groupThreshold(group)}%主线即入档`}
                 >
-                  {cn}档 {groupThreshold(group) + 10}~{groupThreshold(group) + 20}%<em>{count}</em>
+                  {cn}档 {zoneLower(group)}~{zoneUpper(group)}%<em>{count}</em>
                 </button>
               );
             })}
@@ -186,8 +189,7 @@ export function MoneyGrabPanel({ onSelect }: { onSelect: (symbol: string) => voi
                     <td>{hit.cross_date.slice(5)}</td>
                     <td className="moneygrab-over">+{hit.over.toFixed(1)}%</td>
                     <td className="moneygrab-shape">
-                      {hit.from_top && <span title="波段峰值曾站上某条档位线，现价已跌破">顶部下来</span>}
-                      {hit.v_shape && <span title="90日内先跌到低点再反弹，未超过下跌起点">V型</span>}
+                      {hit.from_top && <span title="波段峰值曾站上某条主线，现价已跌破（收回后自动恢复）">跌破主线</span>}
                     </td>
                   </tr>
                 ))}

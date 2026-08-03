@@ -25,7 +25,6 @@ BandHit _hit({
   String name = '某某科技股份',
   bool limitUp = false,
   bool fromTop = false,
-  bool vShape = false,
 }) {
   return BandHit(
     symbol: symbol,
@@ -41,7 +40,6 @@ BandHit _hit({
     crossDate: '2026-05-20',
     limitUp: limitUp,
     fromTop: fromTop,
-    vShape: vShape,
   );
 }
 
@@ -70,7 +68,7 @@ void main() {
               padding: const EdgeInsets.symmetric(horizontal: 16),
               children: [
                 BandHitCard(
-                  hit: _hit(limitUp: true, fromTop: true, vShape: true),
+                  hit: _hit(limitUp: true, fromTop: true),
                   index: 0,
                   onTap: () {},
                 ),

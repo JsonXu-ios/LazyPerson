@@ -77,40 +77,46 @@ void main() {
       expect(classifyGroup(null), isNull);
     });
 
-    test('一档有效区 [30,40)', () {
+    test('一档需站上30确认：[30,40)；过20未到30不入档（振江 25.37 场景）', () {
       expect(classifyGroup(30.0), 1);
       expect(classifyGroup(31.0), 1);
       expect(classifyGroup(39.9), 1);
-      expect(groupThreshold(1), 20.0);
-    });
-
-    test('刚过主线不足 10 点不入档（振江 25.37 场景）', () {
       expect(classifyGroup(25.37), isNull);
       expect(classifyGroup(20.0), isNull);
       expect(classifyGroup(29.9), isNull);
-      expect(classifyGroup(55.0), isNull); // 过了50没过60
-      expect(classifyGroup(85.0), isNull); // 过了80没过90
+      expect(groupThreshold(1), 20.0);
+      expect(groupEntryLine(1), 30.0);
     });
 
-    test('档间过渡区不入档（600617 47.43 场景）', () {
-      expect(classifyGroup(47.43), isNull);
+    test('40 是奇点：[40,50) 不入档（利欧 41.71/600617 47.43 场景）', () {
       expect(classifyGroup(40.0), isNull);
+      expect(classifyGroup(41.71), isNull);
+      expect(classifyGroup(47.43), isNull);
       expect(classifyGroup(49.9), isNull);
-      expect(classifyGroup(75.0), isNull); // 70~80 过渡区
-      expect(classifyGroup(105.0), isNull); // 100~110 过渡区
     });
 
-    test('二档有效区 [60,70)', () {
-      expect(classifyGroup(60.0), 2);
-      expect(classifyGroup(65.0), 2);
+    test('二档及以上过主线即入：[50,70)', () {
+      expect(classifyGroup(50.0), 2);
+      expect(classifyGroup(55.0), 2);
+      expect(classifyGroup(66.0), 2); // 紫光66%回归二档
       expect(classifyGroup(69.9), 2);
       expect(groupThreshold(2), 50.0);
+      expect(groupEntryLine(2), 50.0);
+    });
+
+    test('奇点后的过渡区不入档', () {
+      expect(classifyGroup(70.0), isNull);
+      expect(classifyGroup(75.0), isNull);
+      expect(classifyGroup(105.0), isNull);
+      expect(classifyGroup(135.0), isNull);
     });
 
     test('八档主线 20 起每 30 一档', () {
       expect([for (var k = 1; k <= 8; k++) groupThreshold(k)],
           [20.0, 50.0, 80.0, 110.0, 140.0, 170.0, 200.0, 230.0]);
-      expect(classifyGroup(90.0), 3);
+      expect(classifyGroup(80.0), 3);
+      expect(classifyGroup(99.9), 3);
+      expect(classifyGroup(110.0), 4);
       expect(classifyGroup(125.0), 4);
       expect(classifyGroup(150.0), 5);
       expect(classifyGroup(181.0), 6);
@@ -180,8 +186,8 @@ void main() {
     final today = _defaultToday;
 
     test('一档命中：pct=35% ∈ [30,40)，低点日在过线日之前', () {
-      // 低点10 → 收盘依次 5%、12%（先过10%线）、18%，今日现价 13.5
-      final raw = _makeWaveBars(today, closesPct: [5, 12, 18]);
+      // 低点10 → 收盘依次 5%、12%、32%（首次收盘站上30入档线），今日现价 13.5
+      final raw = _makeWaveBars(today, closesPct: [5, 12, 32]);
       final bars = _seal(raw);
       final row = evaluateStock('600001', '测试股', 13.5, bars, today: today);
       expect(row, isNotNull);
@@ -190,8 +196,14 @@ void main() {
       expect(row.low90, 10.0);
       expect((row.pct * 10).round() / 10, 35.0);
       expect(row.lowDate.compareTo(row.crossDate), lessThan(0));
-      // 首次收盘过 10% 线的是 12% 那天（倒数第2根）
-      expect(row.crossDate, bars[bars.length - 2].time);
+      // 首次收盘站上一档入档线30%的是 32% 那天（最后一根）
+      expect(row.crossDate, bars[bars.length - 1].time);
+    });
+
+    test('利欧场景：pct=41.7% 在奇点后、未站上50 → 不命中', () {
+      final bars = _seal(_makeWaveBars(today, closesPct: [10, 28, 38]));
+      expect(evaluateStock('002131', '利欧场景', 14.17, bars, today: today),
+          isNull);
     });
 
     test('振江场景：pct=25.4% 刚过主线不足 10 点不命中', () {
@@ -206,15 +218,15 @@ void main() {
           evaluateStock('000408', '测试股', 11.5, bars, today: today), isNull);
     });
 
-    test('二档命中：pct=65% ∈ [60,70)，先过 40% 线', () {
+    test('二档命中：pct=55% ∈ [50,70)，过主线即入', () {
       final raw = _makeWaveBars(today, closesPct: [20, 42, 52]);
       final bars = _seal(raw);
-      final row = evaluateStock('600001', '测试股', 16.5, bars, today: today);
+      final row = evaluateStock('600001', '测试股', 15.5, bars, today: today);
       expect(row, isNotNull);
       expect(row!.group, 2);
       expect(row.threshold, 50.0);
-      // 首次收盘过 40% 线的是 42% 那天
-      expect(row.crossDate, bars[bars.length - 2].time);
+      // 首次收盘站上二档入档线50%的是 52% 那天（最后一根）
+      expect(row.crossDate, bars[bars.length - 1].time);
     });
 
     test('低点是最后一天不命中（无低点→高点波段）', () {
@@ -246,33 +258,33 @@ void main() {
     });
   });
 
-  group('isFallingFromTop（从顶部下来标记）', () {
-    test('先过线与主线都算已站上线', () {
-      // 紫光场景：曾到 85%（站上80主线），现价 65% 跌破 → 排除
+  group('isFallingFromTop（跌破主线标记）', () {
+    test('只看主线 20/50/80/…，收回即恢复', () {
+      // 曾到 85%（站上80主线），现价 65%/75% 跌破 → true
       expect(isFallingFromTop(65.0, 85.0), isTrue);
-      // 峰值 85% 跌到 75%：跌破曾站上的 80 主线 → 排除
       expect(isFallingFromTop(75.0, 85.0), isTrue);
-      // 峰值 85% 回踩到 82%：仍站在 80 上方 → 保留
+      // 峰值 85% 回踩到 82%：仍站在 80 上方 → false
       expect(isFallingFromTop(82.0, 85.0), isFalse);
-      // 上行途中：现价即峰值 45%（刚过40先过线）→ 保留
-      expect(isFallingFromTop(45.0, 45.0), isFalse);
-      // 曾过 40 先过线又跌回 31% → 排除
-      expect(isFallingFromTop(31.0, 45.0), isTrue);
-      // 曾过 50 主线（峰值66.3）又跌回 49.7% → 排除（002774 场景）
+      // 紫光场景：峰值 79.9 没碰 80 主线，现价 66 站在 50 上方 → false
+      expect(isFallingFromTop(66.0, 79.9), isFalse);
+      // 冲过 50 主线（峰值66.3）又跌回 49.7% → true（002774 场景）
       expect(isFallingFromTop(49.7, 66.3), isTrue);
-      // 峰值 35%（站上20主线），现价 22% ≥ 20 → 保留
+      // 跌回后重新站上 50 → 恢复
+      expect(isFallingFromTop(52.0, 66.3), isFalse);
+      // 40 不是主线：峰值 45% 回落 31%（仍站在20上方）→ false
+      expect(isFallingFromTop(31.0, 45.0), isFalse);
+      expect(isFallingFromTop(45.0, 45.0), isFalse);
       expect(isFallingFromTop(22.0, 35.0), isFalse);
     });
 
-    test('收盘走出 40%→85%→65%：现价 65% 从顶部下来 → 打 fromTop 标记不丢弃', () {
+    test('收盘走出 40%→85%→65%：曾站上80现跌破 → 打 fromTop 标记不丢弃', () {
       final bars =
           _seal(_makeWaveBars(_defaultToday, closesPct: [40, 85, 65]));
       final row =
-          evaluateStock('000938', '紫光场景', 16.5, bars, today: _defaultToday);
+          evaluateStock('000938', '冲高回落', 16.5, bars, today: _defaultToday);
       expect(row, isNotNull);
       expect(row!.group, 2);
       expect(row.fromTop, isTrue);
-      expect(row.vShape, isFalse);
     });
 
     test('峰值 90% 现价 92% 仍站在 80 上方 → 第三档保留且无标记', () {
@@ -287,56 +299,40 @@ void main() {
     });
   });
 
-  group('V 型反弹标记', () {
+  group('V 型反弹不再排除（低点可以是反转也可以是起点）', () {
     final today = _defaultToday;
 
-    /// 前段高位平台（40%）→ 跌到低点 10 → 反弹到 reboundClose 的 V 型走势
-    List<KlineBar> vBars(double reboundClose) {
+    test('前段 40% 高平台 → 跌到低点 → 反弹 35% → 正常入一档（利欧类深跌反转）', () {
       final bars = _makeBars(200, 10.0, today);
       for (final bar in bars) {
         bar.low = 14.0;
         bar.open = 14.0;
-        bar.close = 14.0; // 低点前平台：高于低点 40%
+        bar.close = 14.0;
         bar.high = 14.2;
       }
       final lowBar = bars[bars.length - 4];
-      lowBar.low = 10.0; // 波段低点（近端）
+      lowBar.low = 10.0;
       lowBar.close = 10.2;
       lowBar.open = 10.5;
       lowBar.high = 10.6;
       for (final offset in [3, 2, 1]) {
         final bar = bars[bars.length - offset];
         bar.low = 10.5;
-        bar.open = reboundClose * 0.98;
-        bar.close = reboundClose;
-        bar.high = reboundClose * 1.01;
+        bar.open = 13.0;
+        bar.close = 13.2;
+        bar.high = 13.3;
       }
-      return _seal(bars);
-    }
-
-    test('从 40% 平台跌到底部，反弹 35% 未超下跌起点 → 打 vShape 标记不丢弃', () {
       final row =
-          evaluateStock('600001', 'V型反弹', 13.5, vBars(13.2), today: today);
+          evaluateStock('600001', '深跌反转', 13.5, _seal(bars), today: today);
       expect(row, isNotNull);
       expect(row!.group, 1);
-      expect(row.vShape, isTrue);
-    });
-
-    test('反弹创新高（超过前段平台）→ 无标记', () {
-      // 前段平台仅 12%（11.2），随后低点 10，反弹到 37% 创新高
-      final bars = _seal(_makeWaveBars(today, closesPct: [5, 12, 30]));
-      final row = evaluateStock('600001', '新高突破', 13.7, bars, today: today);
-      expect(row, isNotNull);
-      expect(row!.group, 1);
-      expect(row.vShape, isFalse);
     });
 
     test('低点在窗口前段的上行波段不受影响', () {
-      final bars = _seal(_makeWaveBars(today, closesPct: [5, 12, 18]));
+      final bars = _seal(_makeWaveBars(today, closesPct: [5, 12, 32]));
       final row = evaluateStock('600001', '上行波段', 13.5, bars, today: today);
       expect(row, isNotNull);
-      expect(row!.vShape, isFalse);
-      expect(row.fromTop, isFalse);
+      expect(row!.fromTop, isFalse);
     });
   });
 }

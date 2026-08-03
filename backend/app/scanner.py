@@ -23,51 +23,44 @@ ALLOWED_PREFIXES = ("60", "00")  # 仅沪深主板，排除创业板(30)/科创�
 
 
 def classify_group(pct: float | None) -> int | None:
-    """按最新涨幅归档：第 k 档有效区间 [主线+10, 主线+20)，主线 = 20+30(k-1)。
-    即一档[30,40)、二档[60,70)、三档[90,100)…（"在20%~40%之间且大于30%"的推广）。
-    刚过主线不足10个点（如[20,30)）与下一档过渡区（如[40,50)）都不入档；超250%不入档。"""
-    if pct is None or pct < GROUP_FINAL_BASE:
+    """按最新涨幅归档。一档须站上30确认：[30,40)；40是奇点，[40,50)不入档；
+    二档及以上过主线即入：[50,70)、[80,100)、[110,130)…（上沿 = 下一主线−10 的奇点）；
+    过渡区（70~80/100~110/…）与超250%不入档。"""
+    if pct is None or pct < GROUP_FINAL_BASE + GROUP_PRE_OFFSET:  # <30：过20未站上30只是"站稳20"，不入档
         return None
+    if pct < 40:
+        return 1
+    if pct < 50:
+        return None  # 40是奇点：过了40、还没站上50（利欧 41.7%/600617 47.4% 场景）
     k = int(math.floor((pct - GROUP_FINAL_BASE) / GROUP_STEP)) + 1
     if k > MAX_GROUPS:
         return None
     offset = pct - group_threshold(k)
-    if offset < GROUP_PRE_OFFSET:  # 过了主线但没高出10个点（振江 25% 场景）
-        return None
-    if offset >= GROUP_STEP - GROUP_PRE_OFFSET:  # 过了下一档先过线（主线+20）→ 过渡区（600617 47% 场景）
+    if offset >= GROUP_STEP - GROUP_PRE_OFFSET:  # 到达下一奇点（主线+20）→ 过渡区
         return None
     return k
+
+
+def group_entry_line(group: int) -> float:
+    """入档线：一档需站上30确认，二档及以上过主线即入。"""
+    return GROUP_FINAL_BASE + GROUP_PRE_OFFSET if group == 1 else group_threshold(group)
 
 
 def group_threshold(group: int) -> float:
     return GROUP_FINAL_BASE + GROUP_STEP * (group - 1)
 
 
-def pre_line(group: int) -> float:
-    """第 k 档的先过线：10/40/70/100/…"""
-    return group_threshold(group) - GROUP_PRE_OFFSET
-
-
 def is_falling_from_top(pct: float, max_pct: float) -> bool:
-    """从顶部下来判定：波段最高点(max_pct)曾站上的最高档位线（先过线 10/40/70/… 与主线 20/50/80/… 都算），
-    现价已跌破 → 排除。例：曾到 80% 上方，现跌破 80 → True；回踩但仍站在最高已站上线的上方 → False。"""
+    """跌破曾站上的最高主线（20/50/80/…）→ 出局；重新站回主线上方即恢复。
+    例：冲过50又跌回40多 → True；曾到79.9现66（仍站在50上方）→ False。"""
     highest_crossed = None
-    for j in range(1, MAX_GROUPS + 2):  # 允许越过第八档之上的线
-        for line in (pre_line(j), group_threshold(j)):
-            if max_pct >= line:
-                highest_crossed = line
+    for j in range(1, MAX_GROUPS + 1):
+        line = group_threshold(j)
+        if max_pct >= line:
+            highest_crossed = line
     if highest_crossed is None:
         return False
     return pct < highest_crossed
-
-
-def is_v_shape_rebound(window: list[dict], low_index: int, low90: float, pct: float) -> bool:
-    """V型反弹判定：90日内先从高处跌到波段低点、反弹至今仍未超过下跌起点
-    （低点之前的最高收盘涨幅 >= 现价涨幅）→ True。低点在窗口开头的纯上行波段恒为 False。"""
-    closes_before_low = [float(bar["close"]) for bar in window[:low_index] if bar.get("close") is not None]
-    if not closes_before_low:
-        return False
-    return (max(closes_before_low) / low90 - 1) * 100 >= pct
 
 
 def is_limit_up(price: float | None, pre_close: float | None, ratio: float = 1.1) -> bool:
@@ -122,10 +115,9 @@ def evaluate_stock(
     bars: list[dict],
     today: date | None = None,
 ) -> dict | None:
-    """90日波段（低点→现在，时间顺序）分档：
-    第 k 档 = 波段内先过 (阈值-10)%，最后一天（可为今日）至少过阈值%，阈值 = 20+30*(k-1)。
-    「从高处来」的两种形态（from_top 跌破已站上线、v_shape V型反弹）只打标记不丢弃，
-    由调用方/展示层的筛选开关决定是否显示。"""
+    """90日波段（低点→现在）分档：一档须站上30确认[30,40)，40是奇点；
+    二档及以上过主线即入（[50,70)、[80,100)…）。低点不区分反转/起点（V型不排除）。
+    from_top（跌破曾站上的主线且未收回）只打标记，由展示层开关决定是否显示。"""
     if price is None:
         return None
     today = today or date.today()
@@ -153,17 +145,16 @@ def evaluate_stock(
 
     closes_after_low = [float(bar["close"]) for bar in window[low_index:] if bar.get("close") is not None]
     max_pct = max([(c / low90 - 1) * 100 for c in closes_after_low] + [pct])
-    # 「从高处来」的两条不再丢弃，只打标记，由展示层筛选开关决定是否显示
+    # 跌破曾站上的主线只打标记，由展示层筛选开关决定是否显示（收回主线上方标记自动消失）
     from_top = is_falling_from_top(pct, max_pct)
-    v_shape = is_v_shape_rebound(window, low_index, low90, pct)
 
     threshold = group_threshold(group)
-    pre_level = low90 * (1 + (threshold - GROUP_PRE_OFFSET) / 100)
+    entry_level = low90 * (1 + group_entry_line(group) / 100)
 
     cross_date = None
     for bar in window[low_index + 1 :]:
         close = bar.get("close")
-        if close is not None and float(close) >= pre_level:
+        if close is not None and float(close) >= entry_level:
             cross_date = str(bar["time"])[:10]
             break
     if cross_date is None:
@@ -182,11 +173,10 @@ def evaluate_stock(
         "low_date": str(window[low_index]["time"])[:10],
         "cross_date": cross_date,
         "from_top": from_top,
-        "v_shape": v_shape,
     }
 
 
-STATE_KEY = "moneygrab:last_scan:v4"  # v4: 命中行含 from_top / v_shape 标记，旧结果结构不兼容
+STATE_KEY = "moneygrab:last_scan:v5"  # v5: 一档30确认/主线入档/去V型，旧结果作废
 
 
 @dataclass

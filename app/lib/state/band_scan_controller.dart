@@ -67,9 +67,6 @@ class BandScanController extends ChangeNotifier {
   /// 是否已完成首次全量初始化
   bool? initialized;
 
-  /// 手动刷新（每日增量）进行中
-  bool refreshing = false;
-
   /// 扫描参数：总市值>40亿（默认勾选，取消则不过滤）
   bool capFilter = true;
 
@@ -199,28 +196,6 @@ class BandScanController extends ChangeNotifier {
     initialized = await repository.sync.isInitialized();
     dataDate = await repository.sync.latestDataDate();
     _notify();
-  }
-
-  /// 手动刷新全A股：跑一次每日增量（55页快照批量写当日bar），并更新状态
-  Future<void> refreshData() async {
-    if (refreshing || running) return;
-    if (initialized == false) {
-      error = '请先在首页完成全市场初始化同步';
-      _notify();
-      return;
-    }
-    refreshing = true;
-    error = null;
-    _notify();
-    try {
-      await repository.sync.runDailyIncrement();
-      dataDate = await repository.sync.latestDataDate();
-    } catch (exc) {
-      error = '刷新失败：$exc';
-    } finally {
-      refreshing = false;
-      _notify();
-    }
   }
 
   /// 恢复当日扫描结果（对齐 scanner.py::_load_persisted：隔日作废）

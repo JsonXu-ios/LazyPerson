@@ -1,4 +1,4 @@
-/// 主界面（HUD 方案 1d，稿 09）：顶栏 → 同步条 → 标的头 → 周期/档位轨
+/// 主界面（HUD 方案 1d，稿 09）：顶栏 → 数据横条/同步条 → 标的头 → 周期/档位轨
 /// → K 线主图（取景框）→ MACD/LON 副图 → 底部操作浮层。
 /// 只做沪深 A 股，没有市场切换。
 library;
@@ -101,6 +101,10 @@ class _HomeScreenState extends State<HomeScreen> {
             crossAxisAlignment: CrossAxisAlignment.stretch,
             children: [
               _StatusBar(controller: controller),
+              // 全量初始化期间只显示 _SyncStrip；已初始化后数据横条常驻，
+              // 固定高度，状态切换不改布局
+              if (controller.syncProgress == null && !controller.syncFailed)
+                _DataStrip(controller: controller),
               if (controller.syncProgress != null || controller.syncFailed)
                 _SyncStrip(controller: controller),
               if (controller.notice.isNotEmpty)
@@ -215,6 +219,87 @@ class _StatusBar extends StatelessWidget {
                     : const Icon(Icons.refresh, color: AppColors.accent),
               ),
             ),
+          ],
+        ),
+      ),
+    );
+  }
+}
+
+/// 数据新鲜度横条：打开即检查本地日K是否到最近工作日，落后自动增量，
+/// 失败显示黄色警示 + 重试按钮。固定高度，状态/数据变化只换内容不改布局。
+class _DataStrip extends StatelessWidget {
+  final HomeController controller;
+
+  const _DataStrip({required this.controller});
+
+  String get _dateText {
+    final date = controller.dataDate;
+    return date != null && date.length >= 10 ? date.substring(5, 10) : '--';
+  }
+
+  @override
+  Widget build(BuildContext context) {
+    final state = controller.dataSyncState;
+    final failed = state == DataSyncState.staleFailed;
+    final busy =
+        state == DataSyncState.checking || state == DataSyncState.updating;
+    final (text, color) = switch (state) {
+      DataSyncState.checking => ('正在检查本地数据…', AppColors.textDim),
+      DataSyncState.updating => ('正在更新全市场数据…', AppColors.textMuted),
+      DataSyncState.fresh => ('数据已同步至 $_dateText', AppColors.textDim),
+      DataSyncState.staleFailed => (
+          '数据更新失败，同步至 $_dateText',
+          AppColors.warn,
+        ),
+    };
+    return Padding(
+      padding: const EdgeInsets.fromLTRB(14, 6, 14, 0),
+      child: SizedBox(
+        height: 22,
+        child: Row(
+          children: [
+            if (busy)
+              SizedBox(
+                width: 10,
+                height: 10,
+                child: CircularProgressIndicator(
+                  strokeWidth: 1.5,
+                  color: color,
+                ),
+              )
+            else
+              Icon(
+                failed ? Icons.warning_amber : Icons.sync,
+                size: 12,
+                color: color,
+              ),
+            const SizedBox(width: 6),
+            Expanded(
+              child: Text(
+                text,
+                style: mono(size: FontSize.legend, color: color),
+                overflow: TextOverflow.ellipsis,
+              ),
+            ),
+            if (failed)
+              GestureDetector(
+                onTap: controller.runDailyIncrement,
+                child: Container(
+                  padding:
+                      const EdgeInsets.symmetric(horizontal: 8, vertical: 2),
+                  decoration: BoxDecoration(
+                    borderRadius: BorderRadius.circular(4),
+                    border: Border.all(
+                      color: AppColors.warn.withValues(alpha: 0.6),
+                    ),
+                  ),
+                  child: Text(
+                    '重试',
+                    style: mono(size: FontSize.legend, color: AppColors.warn),
+                  ),
+                ),
+              ),
           ],
         ),
       ),
@@ -398,12 +483,13 @@ class _SymbolHead extends StatelessWidget {
               ],
             ),
           ),
-          if (quote?.price != null)
-            Column(
+          // 行情未到时也渲染占位（'-'），保持头部高度恒定：
+          // 否则现价列在数据到达后才出现，K线区域会被压缩产生跳动
+          Column(
               crossAxisAlignment: CrossAxisAlignment.end,
               children: [
                 GlowText(
-                  formatFullPrice(quote.price as double?),
+                  formatFullPrice(quote?.price as double?),
                   size: FontSize.price,
                   color: tone,
                 ),
@@ -411,7 +497,7 @@ class _SymbolHead extends StatelessWidget {
                 Row(
                   children: [
                     Text(
-                      _signed(quote.change as double?),
+                      _signed(quote?.change as double?),
                       style: mono(size: FontSize.secondaryNumber, color: tone),
                     ),
                     const SizedBox(width: 6),

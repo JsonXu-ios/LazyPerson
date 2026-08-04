@@ -15,6 +15,24 @@ import '../logic/market_panels.dart';
 import '../models/models.dart';
 import '../utils/format.dart';
 
+/// 数据新鲜度状态（首页状态横条用）：
+/// checking 启动检查中 → fresh 已到最近工作日 / updating 自动增量中 →
+/// fresh 成功 / staleFailed 失败（可手动重试）
+enum DataSyncState { checking, fresh, updating, staleFailed }
+
+/// 本地日K是否已同步到最近一个工作日（周末取上周五）。
+/// 不考虑法定节假日，判定从宽——只有比最近工作日还早才算不新。
+bool isDataFresh(String? dataDate, DateTime now) {
+  if (dataDate == null) return false;
+  final parsed = DateTime.tryParse(dataDate);
+  if (parsed == null) return false;
+  var workday = DateTime(now.year, now.month, now.day);
+  while (workday.weekday > DateTime.friday) {
+    workday = workday.subtract(const Duration(days: 1));
+  }
+  return !DateTime(parsed.year, parsed.month, parsed.day).isBefore(workday);
+}
+
 class HomeController extends ChangeNotifier {
   final MarketRepository repository;
 
@@ -37,6 +55,13 @@ class HomeController extends ChangeNotifier {
   bool syncFailed = false;
   DateTime? _syncKlineStartAt;
   StreamSubscription<SyncProgress>? _syncSubscription;
+
+  /// 数据新鲜度状态机（首页状态横条用）
+  DataSyncState dataSyncState = DataSyncState.checking;
+
+  /// 本地全市场日K最新交易日（YYYY-MM-DD，null = 尚无数据/未加载）
+  String? dataDate;
+  bool _incrementRunning = false;
 
   int _quotesRequestId = 0;
   int _detailRequestId = 0;
@@ -102,17 +127,48 @@ class HomeController extends ChangeNotifier {
     unawaited(startBackgroundSync());
   }
 
-  /// 未初始化则跑全量同步（断点续传），已初始化则跑每日增量
+  /// 未初始化则跑全量同步（断点续传）；已初始化则检查数据新鲜度，
+  /// 落后最近工作日时自动跑每日增量，状态经 dataSyncState 暴露给首页横条
   Future<void> startBackgroundSync() async {
-    if (await repository.sync.isInitialized()) {
-      try {
-        await repository.sync.runDailyIncrement();
-      } catch (_) {
-        // 增量失败静默，下次启动或手动刷新会再试
-      }
+    dataSyncState = DataSyncState.checking;
+    _notify();
+    if (!await repository.sync.isInitialized()) {
+      _runInitialSync();
       return;
     }
-    _runInitialSync();
+    dataDate = await repository.sync.latestDataDate();
+    if (isDataFresh(dataDate, DateTime.now())) {
+      dataSyncState = DataSyncState.fresh;
+      _notify();
+      return;
+    }
+    await runDailyIncrement();
+  }
+
+  /// 跑一次每日增量（启动检查不新时自动触发；stale_failed 横条重试也走这里）。
+  /// 成功即视为 fresh：节假日休市时快照仍是上一交易日，属正常，不再报落后。
+  Future<void> runDailyIncrement() async {
+    if (_incrementRunning) return;
+    _incrementRunning = true;
+    dataSyncState = DataSyncState.updating;
+    _notify();
+    try {
+      await repository.sync.runDailyIncrement();
+      dataDate = await repository.sync.latestDataDate();
+      dataSyncState = DataSyncState.fresh;
+    } catch (_) {
+      dataSyncState = DataSyncState.staleFailed;
+    } finally {
+      _incrementRunning = false;
+    }
+    _notify();
+  }
+
+  /// 全量初始化完成后的收尾：记录数据日期并置 fresh
+  Future<void> _markSyncedNow() async {
+    dataDate = await repository.sync.latestDataDate();
+    dataSyncState = DataSyncState.fresh;
+    _notify();
   }
 
   void _runInitialSync() {
@@ -126,8 +182,9 @@ class HomeController extends ChangeNotifier {
         }
         if (progress.phase == SyncPhase.done) {
           syncProgress = null;
-          // 全量数据就位后刷新信号
-              } else {
+          // 全量数据就位：状态横条转为 fresh
+          unawaited(_markSyncedNow());
+        } else {
           syncProgress = progress;
         }
         _notify();

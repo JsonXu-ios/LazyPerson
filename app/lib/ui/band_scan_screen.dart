@@ -61,7 +61,7 @@ class _BandScanScreenState extends State<BandScanScreen> {
             children: [
               _appBar(),
               _actions(running),
-              _syncStatus(running),
+              _syncStatus(),
               _filters(running),
               if (controller.status == BandScanStatus.failed) _failure(),
               if (running) _progress(),
@@ -192,8 +192,10 @@ class _BandScanScreenState extends State<BandScanScreen> {
     );
   }
 
-  /// 同步状态行：本地数据同步到哪一天 + 手动刷新全A股（每日增量）
-  Widget _syncStatus(bool running) {
+  /// 同步状态行：只显示本地数据同步到哪一天/未初始化警示。
+  /// 数据更新在首页状态横条统一处理，且扫描本身会把快照当日bar落库，
+  /// 这里不再提供手动刷新入口。
+  Widget _syncStatus() {
     final String text;
     final Color color;
     if (controller.initialized == false) {
@@ -225,31 +227,6 @@ class _BandScanScreenState extends State<BandScanScreen> {
               text,
               style: mono(size: FontSize.legend, color: color),
               overflow: TextOverflow.ellipsis,
-            ),
-          ),
-          GestureDetector(
-            onTap: (running || controller.refreshing)
-                ? null
-                : controller.refreshData,
-            child: Container(
-              padding: const EdgeInsets.symmetric(horizontal: 10, vertical: 4),
-              decoration: BoxDecoration(
-                borderRadius: BorderRadius.circular(4),
-                border: Border.all(
-                  color: controller.refreshing
-                      ? AppColors.textFaint
-                      : AppColors.accent.withValues(alpha: 0.6),
-                ),
-              ),
-              child: Text(
-                controller.refreshing ? '刷新中…' : '刷新数据',
-                style: mono(
-                  size: FontSize.legend,
-                  color: controller.refreshing
-                      ? AppColors.textFaint
-                      : AppColors.accent,
-                ),
-              ),
             ),
           ),
         ],

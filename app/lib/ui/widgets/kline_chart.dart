@@ -1,5 +1,6 @@
 /// K 线主图：CustomPaint 自绘蜡烛 + 成交量 + 自动画线叠加 + 长按十字线。
 /// 显示规则对齐 frontend/src/components/KlineChart.tsx（固定窗口，不做缩放平移）。
+/// 价格刻度不占独立轴宽：悬浮绘制在绘图区右缘上层，蜡烛占满全宽。
 library;
 
 import 'dart:math' as math;
@@ -43,8 +44,7 @@ class _KlineChartState extends State<KlineChart> {
   void _updateHover(Offset position, double width) {
     final bars = widget.payload?.bars ?? const <KlineBar>[];
     if (bars.isEmpty) return;
-    final plotWidth = width - _KlinePainter.rightAxisWidth;
-    final barWidth = plotWidth / bars.length;
+    final barWidth = width / bars.length;
     final index = (position.dx / barWidth).floor().clamp(0, bars.length - 1);
     widget.onHoverIndexChanged?.call(index);
   }
@@ -151,7 +151,6 @@ class _OhlcStrip extends StatelessWidget {
 }
 
 class _KlinePainter extends CustomPainter {
-  static const rightAxisWidth = 58.0;
   static const bottomAxisHeight = 20.0;
 
   final List<KlineBar> bars;
@@ -216,7 +215,7 @@ class _KlinePainter extends CustomPainter {
 
   @override
   void paint(Canvas canvas, Size size) {
-    final plotWidth = size.width - rightAxisWidth;
+    final plotWidth = size.width;
     final plotHeight = size.height - bottomAxisHeight;
     final barWidth = plotWidth / bars.length;
 
@@ -225,7 +224,7 @@ class _KlinePainter extends CustomPainter {
       Paint()..color = AppColors.chartBackground,
     );
 
-    _paintGridAndAxis(canvas, plotWidth, plotHeight);
+    _paintGrid(canvas, plotWidth, plotHeight);
     _paintVolume(canvas, plotWidth, plotHeight, barWidth);
     _paintCandles(canvas, plotWidth, plotHeight, barWidth);
     if (period == 'day' && autoDrawing != null) {
@@ -233,31 +232,63 @@ class _KlinePainter extends CustomPainter {
       _paintTrendSegments(canvas, plotWidth, plotHeight);
     }
     _paintTimeAxis(canvas, plotWidth, plotHeight);
+    // 价格刻度悬浮在最上层（半透明底），压过蜡烛/档位线也能读
+    _paintPriceLabels(canvas, plotWidth, plotHeight);
     if (hoverIndex != null && hoverIndex! < bars.length) {
       _paintCrosshair(canvas, plotWidth, plotHeight, hoverIndex!);
     }
   }
 
-  void _paintGridAndAxis(Canvas canvas, double plotWidth, double plotHeight) {
+  /// 网格行的 y 与刻度价（网格线与悬浮价格标签共用同一组行位）
+  Iterable<(double, double)> _axisRows(double plotHeight) sync* {
+    const rows = 5;
+    final min = _scale(_minPrice);
+    final max = _scale(_maxPrice);
+    for (var i = 0; i <= rows; i++) {
+      final ratio = i / rows;
+      final y = plotHeight *
+          (_plotTopMargin + ratio * (1 - _plotTopMargin - _plotBottomMargin));
+      final scaled = max - ratio * (max - min);
+      yield (y, _useLog ? math.exp(scaled) : scaled);
+    }
+  }
+
+  void _paintGrid(Canvas canvas, double plotWidth, double plotHeight) {
     final gridPaint = Paint()
       ..color = AppColors.grid
       ..strokeWidth = 1;
-    final axisText = _textStyle(AppColors.textFaint, FontSize.legend);
-    const rows = 5;
-    for (var i = 0; i <= rows; i++) {
-      final ratio = i / rows;
-      final y = plotHeight * (_plotTopMargin +
-          ratio * (1 - _plotTopMargin - _plotBottomMargin));
+    for (final (y, _) in _axisRows(plotHeight)) {
       canvas.drawLine(Offset(0, y), Offset(plotWidth, y), gridPaint);
-      final min = _scale(_minPrice);
-      final max = _scale(_maxPrice);
-      final scaled = max - ratio * (max - min);
-      final price = _useLog ? math.exp(scaled) : scaled;
-      _drawText(canvas, formatFullPrice(price), axisText,
-          Offset(plotWidth + 4, y - 6));
     }
-    canvas.drawLine(Offset(plotWidth, 0), Offset(plotWidth, plotHeight),
-        Paint()..color = AppColors.axisBorder);
+  }
+
+  /// 价格刻度：右对齐悬浮在绘图区右缘（半透明小底色），不占独立轴宽
+  void _paintPriceLabels(Canvas canvas, double plotWidth, double plotHeight) {
+    final style = _textStyle(AppColors.textFaint, FontSize.legend);
+    for (final (y, price) in _axisRows(plotHeight)) {
+      _drawFloatingPriceTag(canvas, formatFullPrice(price), style, plotWidth, y,
+          background: AppColors.chartBackground.withValues(alpha: 0.68));
+    }
+  }
+
+  /// 右缘悬浮价签（刻度与十字线价签共用）：右对齐 + 圆角小底色
+  void _drawFloatingPriceTag(Canvas canvas, String text, TextStyle style,
+      double plotWidth, double y,
+      {required Color background}) {
+    final painter = TextPainter(
+      text: TextSpan(text: text, style: style),
+      textDirection: TextDirection.ltr,
+    )..layout();
+    const paddingH = 3.0;
+    const paddingV = 1.5;
+    final left = plotWidth - painter.width - paddingH * 2 - 2;
+    final rect = RRect.fromRectAndRadius(
+      Rect.fromLTWH(left, y - painter.height / 2 - paddingV,
+          painter.width + paddingH * 2, painter.height + paddingV * 2),
+      const Radius.circular(3),
+    );
+    canvas.drawRRect(rect, Paint()..color = background);
+    painter.paint(canvas, Offset(left + paddingH, y - painter.height / 2));
   }
 
   void _paintVolume(
@@ -437,15 +468,9 @@ class _KlinePainter extends CustomPainter {
     if (bar.close != null) {
       final y = _priceToY(bar.close!, plotHeight);
       canvas.drawLine(Offset(0, y), Offset(plotWidth, y), linePaint);
-      final label = formatFullPrice(bar.close);
-      final painter = TextPainter(
-        text: TextSpan(text: label, style: _textStyle(Colors.white, FontSize.legend)),
-        textDirection: TextDirection.ltr,
-      )..layout();
-      final rect = Rect.fromLTWH(plotWidth + 1, y - painter.height / 2 - 2,
-          rightAxisWidth - 2, painter.height + 4);
-      canvas.drawRect(rect, Paint()..color = AppColors.axisBorder);
-      painter.paint(canvas, Offset(plotWidth + 4, y - painter.height / 2));
+      _drawFloatingPriceTag(canvas, formatFullPrice(bar.close),
+          _textStyle(Colors.white, FontSize.legend), plotWidth, y,
+          background: AppColors.axisBorder);
     }
   }
 

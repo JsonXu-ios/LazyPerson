@@ -180,6 +180,14 @@ class SyncService {
     );
   }
 
+  /// 把一份已拉到的全市场快照的当日 bar 吸收进本地库（八档局扫描复用
+  /// 其现价快照调用此方法，使扫描窗口始终包含最新交易日，无需依赖
+  /// 启动时的静默增量或手动"刷新数据"）
+  Future<void> absorbSnapshot(List<Quote> snapshot) async {
+    if (snapshot.isEmpty) return;
+    await _writeSnapshot(snapshot);
+  }
+
   /// 每日增量：55 页快照把当天 bar 批量写入全市场，然后裁剪
   Future<void> runDailyIncrement() async {
     final snapshot = await eastmoney.fullMarketSnapshot();

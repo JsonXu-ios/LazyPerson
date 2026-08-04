@@ -287,6 +287,14 @@ class BandScanController extends ChangeNotifier {
     final quotes = await _fetchAllAQuotes();
     if (runId != _runId) return;
 
+    // 扫描快照顺手写入当日K线（零额外请求）：扫描窗口始终包含最新交易日，
+    // 不再依赖启动时的静默增量；失败不影响扫描（用现有本地数据继续）
+    try {
+      await repository.sync.absorbSnapshot(quotes);
+      dataDate = await repository.sync.latestDataDate();
+    } catch (_) {}
+    if (runId != _runId) return;
+
     // 候选过滤：沪深主板、非 ST、有最新价、（可选）市值下限
     final candidates = quotes
         .where((quote) =>

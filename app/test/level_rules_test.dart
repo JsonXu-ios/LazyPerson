@@ -53,34 +53,38 @@ void main() {
   });
 
   group('线条颜色', () {
-    test('+20红/+50蓝/+80白固定色优先于主线调色板', () {
-      expect(
-          levelLineColor(_level(20), '#f6d36b',
-              majorLineStep: 30, majorLineAnchor: 20),
-          '#f24d4d');
-      expect(
-          levelLineColor(_level(50), '#f6d36b',
-              majorLineStep: 30, majorLineAnchor: 20),
-          '#1f6feb');
-      expect(
-          levelLineColor(_level(80), '#f6d36b',
-              majorLineStep: 30, majorLineAnchor: 20),
-          '#ffffff');
+    test('主线每档固定专属色（20/50/80/110/…/230）', () {
+      const expected = {
+        20: '#f24d4d',
+        50: '#1f6feb',
+        80: '#ffffff',
+        110: '#c084fc',
+        140: '#f2a93b',
+        170: '#00a884',
+        200: '#38bdf8',
+        230: '#f472b6',
+      };
+      expected.forEach((percent, color) {
+        expect(
+            levelLineColor(_level(percent), '#f6d36b',
+                majorLineStep: 30, majorLineAnchor: 20),
+            color,
+            reason: '+$percent%');
+      });
+      // 细线不受影响，仍用用户配置色
       expect(
           levelLineColor(_level(30), '#abcdef',
               majorLineStep: 30, majorLineAnchor: 20),
           '#abcdef');
-      // 110 是主线（非特殊位）→ 调色板色
-      expect(
-          levelLineColor(_level(110), '#f6d36b',
-              majorLineStep: 30, majorLineAnchor: 20),
-          majorLevelColor(110));
     });
 
-    test('主线调色板轮转（与网页版 majorLevelColor 公式一致）', () {
-      expect(majorLevelColor(100), '#f2a93b'); // (100/10-1)%6=3
-      expect(majorLevelColor(120), '#00a884'); // (12-1)%6=5
-      expect(majorLevelColor(140), '#f24d4d'); // (140/10-1)%6=1
+    test('标签文字明暗：浅底（白/琥珀/青）深色字，其余白字', () {
+      for (final percent in [80, 140, 200]) {
+        expect(majorLevelTextColor(percent), '#07111f', reason: '+$percent%');
+      }
+      for (final percent in [20, 50, 110, 170, 230]) {
+        expect(majorLevelTextColor(percent), '#ffffff', reason: '+$percent%');
+      }
     });
   });
 

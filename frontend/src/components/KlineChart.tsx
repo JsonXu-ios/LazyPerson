@@ -853,19 +853,16 @@ function isHighlightLevel(level: AutoLineLevel, majorLineStep?: number, majorLin
 }
 
 function lineColor(level: AutoLineLevel, fallback: string, majorLineStep?: number, majorLineMinPercent = 0, majorLineAnchor = 0) {
-  if (level.label === "+20%") return "#f24d4d";
-  if (level.label === "+50%") return "#1f6feb";
-  if (level.label === "+80%") return "#ffffff";
+  if (level.label === "+20%" || level.label === "+50%" || level.label === "+80%") return majorLevelColor(level.percent);
   if (isMajorLevel(level, majorLineStep, majorLineMinPercent, majorLineAnchor)) return majorLevelColor(level.percent);
   return fallback;
 }
 
 function labelTextColor(levelOrLabel: AutoLineLevel | string, majorLineStep?: number, majorLineMinPercent = 0, majorLineAnchor = 0) {
-  const label = typeof levelOrLabel === "string" ? levelOrLabel : levelOrLabel.label;
-  if (label === "+20%" || label === "+50%") return "#ffffff";
-  if (label === "+80%") return "#07111f";
-  if (typeof levelOrLabel !== "string" && isMajorLevel(levelOrLabel, majorLineStep, majorLineMinPercent, majorLineAnchor)) {
-    return majorLevelTextColor(levelOrLabel.percent);
+  if (typeof levelOrLabel !== "string") {
+    const { label, percent } = levelOrLabel;
+    if (label === "+20%" || label === "+50%" || label === "+80%") return majorLevelTextColor(percent);
+    if (isMajorLevel(levelOrLabel, majorLineStep, majorLineMinPercent, majorLineAnchor)) return majorLevelTextColor(percent);
   }
   return "#07111f";
 }
@@ -876,15 +873,33 @@ function isMajorLevel(level: AutoLineLevel, majorLineStep?: number, majorLineMin
   return (level.percent - majorLineAnchor) % majorLineStep === 0;
 }
 
+// 主线每档固定专属色（A 股 anchor=20 step=30 → 20/50/80/…/230，与 app 端 level_rules.dart 一致）
+const MAJOR_LEVEL_FIXED_COLORS: Record<number, string> = {
+  20: "#f24d4d", // 红
+  50: "#1f6feb", // 蓝
+  80: "#ffffff", // 白
+  110: "#c084fc", // 紫
+  140: "#f2a93b", // 琥珀
+  170: "#00a884", // 绿
+  200: "#38bdf8", // 青
+  230: "#f472b6", // 玫红
+};
+
+// 固定映射之外的主线档位按同一顺序轮转兜底
+const MAJOR_LEVEL_PALETTE = ["#f24d4d", "#1f6feb", "#ffffff", "#c084fc", "#f2a93b", "#00a884", "#38bdf8", "#f472b6"];
+
+// 浅底色（白/琥珀/青）标签用深色文字，其余用白色
+const LIGHT_LEVEL_BACKGROUNDS = new Set(["#ffffff", "#f2a93b", "#38bdf8"]);
+
 function majorLevelColor(percent: number) {
-  const palette = ["#38bdf8", "#f24d4d", "#c084fc", "#f2a93b", "#1f6feb", "#00a884"];
-  const index = Math.max(Math.floor(percent / 10) - 1, 0) % palette.length;
-  return palette[index];
+  const fixed = MAJOR_LEVEL_FIXED_COLORS[percent];
+  if (fixed) return fixed;
+  const index = Math.max(Math.floor(percent / 10) - 1, 0) % MAJOR_LEVEL_PALETTE.length;
+  return MAJOR_LEVEL_PALETTE[index];
 }
 
 function majorLevelTextColor(percent: number) {
-  const color = majorLevelColor(percent);
-  return color === "#38bdf8" || color === "#f2a93b" ? "#061016" : "#ffffff";
+  return LIGHT_LEVEL_BACKGROUNDS.has(majorLevelColor(percent)) ? "#07111f" : "#ffffff";
 }
 
 function customLinePercentLabel(price: number, basePrice: number | undefined, fallbackPrice: number | null | undefined) {

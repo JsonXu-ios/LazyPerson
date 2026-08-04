@@ -31,32 +31,53 @@ bool isHighlightLevel(AutoLineLevel level,
       level.label == '+80%';
 }
 
+/// 主线每档固定专属色（A 股 anchor=20 step=30 → 20/50/80/…/230，
+/// 与网页版 KlineChart.tsx::majorLevelColor 完全一致）
+const majorLevelFixedColors = <int, String>{
+  20: '#f24d4d', // 红
+  50: '#1f6feb', // 蓝
+  80: '#ffffff', // 白
+  110: '#c084fc', // 紫
+  140: '#f2a93b', // 琥珀
+  170: '#00a884', // 绿
+  200: '#38bdf8', // 青
+  230: '#f472b6', // 玫红
+};
+
+/// 固定映射之外的主线档位按同一顺序轮转兜底
 const _majorPalette = [
-  '#38bdf8',
   '#f24d4d',
+  '#1f6feb',
+  '#ffffff',
   '#c084fc',
   '#f2a93b',
-  '#1f6feb',
   '#00a884',
+  '#38bdf8',
+  '#f472b6',
 ];
 
+/// 浅底色（白/琥珀/青）标签用深色文字，其余用白色
+const _lightBackgrounds = {'#ffffff', '#f2a93b', '#38bdf8'};
+
 String majorLevelColor(int percent) {
+  final fixed = majorLevelFixedColors[percent];
+  if (fixed != null) return fixed;
   final index = math.max((percent ~/ 10) - 1, 0) % _majorPalette.length;
   return _majorPalette[index];
 }
 
-String majorLevelTextColor(int percent) {
-  final color = majorLevelColor(percent);
-  return color == '#38bdf8' || color == '#f2a93b' ? '#061016' : '#ffffff';
-}
+String majorLevelTextColor(int percent) =>
+    _lightBackgrounds.contains(majorLevelColor(percent))
+        ? '#07111f'
+        : '#ffffff';
 
-/// 线条颜色：+20%红/+50%蓝/+80%白固定色优先，其余主线用调色板，
+/// 线条颜色：主线（含 +20%/+50%/+80% 特殊位）走固定专属色映射，
 /// 细线用用户配置（顺序对齐 KlineChart.tsx::lineColor）
 String levelLineColor(AutoLineLevel level, String fallback,
     {int? majorLineStep, double majorLineMinPercent = 0, int majorLineAnchor = 0}) {
-  if (level.label == '+20%') return '#f24d4d';
-  if (level.label == '+50%') return '#1f6feb';
-  if (level.label == '+80%') return '#ffffff';
+  if (level.label == '+20%' || level.label == '+50%' || level.label == '+80%') {
+    return majorLevelColor(level.percent);
+  }
   if (isMajorLevel(level,
       majorLineStep: majorLineStep,
       majorLineMinPercent: majorLineMinPercent,
@@ -68,8 +89,9 @@ String levelLineColor(AutoLineLevel level, String fallback,
 
 String levelLabelTextColor(AutoLineLevel level,
     {int? majorLineStep, double majorLineMinPercent = 0, int majorLineAnchor = 0}) {
-  if (level.label == '+20%' || level.label == '+50%') return '#ffffff';
-  if (level.label == '+80%') return '#07111f';
+  if (level.label == '+20%' || level.label == '+50%' || level.label == '+80%') {
+    return majorLevelTextColor(level.percent);
+  }
   if (isMajorLevel(level,
       majorLineStep: majorLineStep,
       majorLineMinPercent: majorLineMinPercent,

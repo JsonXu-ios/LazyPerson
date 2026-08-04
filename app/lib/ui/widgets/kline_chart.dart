@@ -1,6 +1,6 @@
 /// K 线主图：CustomPaint 自绘蜡烛 + 成交量 + 自动画线叠加 + 长按十字线。
 /// 显示规则对齐 frontend/src/components/KlineChart.tsx（固定窗口，不做缩放平移）。
-/// 价格刻度不占独立轴宽：悬浮绘制在绘图区右缘上层，蜡烛占满全宽。
+/// 不画价格轴刻度：蜡烛占满全宽，仅长按十字线时在右缘悬浮当前价签。
 library;
 
 import 'dart:math' as math;
@@ -229,27 +229,20 @@ class _KlinePainter extends CustomPainter {
     _paintCandles(canvas, plotWidth, plotHeight, barWidth);
     if (period == 'day' && autoDrawing != null) {
       _paintLevels(canvas, plotWidth, plotHeight);
-      _paintTrendSegments(canvas, plotWidth, plotHeight);
     }
     _paintTimeAxis(canvas, plotWidth, plotHeight);
-    // 价格刻度悬浮在最上层（半透明底），压过蜡烛/档位线也能读
-    _paintPriceLabels(canvas, plotWidth, plotHeight);
     if (hoverIndex != null && hoverIndex! < bars.length) {
       _paintCrosshair(canvas, plotWidth, plotHeight, hoverIndex!);
     }
   }
 
-  /// 网格行的 y 与刻度价（网格线与悬浮价格标签共用同一组行位）
-  Iterable<(double, double)> _axisRows(double plotHeight) sync* {
+  /// 横向网格行的 y（不再绘制价格刻度文字）
+  Iterable<double> _axisRows(double plotHeight) sync* {
     const rows = 5;
-    final min = _scale(_minPrice);
-    final max = _scale(_maxPrice);
     for (var i = 0; i <= rows; i++) {
       final ratio = i / rows;
-      final y = plotHeight *
+      yield plotHeight *
           (_plotTopMargin + ratio * (1 - _plotTopMargin - _plotBottomMargin));
-      final scaled = max - ratio * (max - min);
-      yield (y, _useLog ? math.exp(scaled) : scaled);
     }
   }
 
@@ -257,21 +250,12 @@ class _KlinePainter extends CustomPainter {
     final gridPaint = Paint()
       ..color = AppColors.grid
       ..strokeWidth = 1;
-    for (final (y, _) in _axisRows(plotHeight)) {
+    for (final y in _axisRows(plotHeight)) {
       canvas.drawLine(Offset(0, y), Offset(plotWidth, y), gridPaint);
     }
   }
 
-  /// 价格刻度：右对齐悬浮在绘图区右缘（半透明小底色），不占独立轴宽
-  void _paintPriceLabels(Canvas canvas, double plotWidth, double plotHeight) {
-    final style = _textStyle(AppColors.textFaint, FontSize.legend);
-    for (final (y, price) in _axisRows(plotHeight)) {
-      _drawFloatingPriceTag(canvas, formatFullPrice(price), style, plotWidth, y,
-          background: AppColors.chartBackground.withValues(alpha: 0.68));
-    }
-  }
-
-  /// 右缘悬浮价签（刻度与十字线价签共用）：右对齐 + 圆角小底色
+  /// 右缘悬浮价签（长按十字线用）：右对齐 + 圆角小底色
   void _drawFloatingPriceTag(Canvas canvas, String text, TextStyle style,
       double plotWidth, double y,
       {required Color background}) {
@@ -418,32 +402,6 @@ class _KlinePainter extends CustomPainter {
     );
     canvas.drawRRect(rect, Paint()..color = colorFromHex(row.color));
     painter.paint(canvas, Offset(4 + paddingH, row.top - painter.height / 2));
-  }
-
-  void _paintTrendSegments(Canvas canvas, double plotWidth, double plotHeight) {
-    for (final segment in autoDrawing!.trendSegments) {
-      final startIndex = _indexForTime(segment.start.time, segment.start.index);
-      final endIndex = _indexForTime(segment.end.time, segment.end.index);
-      if (startIndex == null || endIndex == null) continue;
-      final color = segment.direction == AutoTrendDirection.up
-          ? AppColors.rise
-          : AppColors.fall;
-      final from = Offset(_indexToX(startIndex, plotWidth),
-          _priceToY(segment.start.price, plotHeight));
-      final to = Offset(_indexToX(endIndex, plotWidth),
-          _priceToY(segment.end.price, plotHeight));
-      drawGlowing(canvas, color, (p) => canvas.drawLine(from, to, p),
-          sigma: 3, strokeWidth: 3);
-    }
-  }
-
-  /// 通道线端点按时间定位到当前 bars（autoDrawing 基于剔除当日 bar 的序列，
-  /// 下标可能与显示序列错位，用时间匹配兜底）
-  int? _indexForTime(String time, int fallbackIndex) {
-    for (var index = 0; index < bars.length; index++) {
-      if (bars[index].time == time) return index;
-    }
-    return fallbackIndex < bars.length ? fallbackIndex : null;
   }
 
   void _paintTimeAxis(Canvas canvas, double plotWidth, double plotHeight) {

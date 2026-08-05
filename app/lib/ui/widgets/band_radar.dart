@@ -5,7 +5,7 @@ library;
 
 import 'package:flutter/material.dart';
 
-import '../../logic/band_scanner.dart' show maxGroups, groupThreshold, groupEntryLine;
+import '../../logic/band_scanner.dart' show maxGroups, groupThreshold;
 import '../../theme/app_theme.dart';
 
 const bandGroupNames = ['一', '二', '三', '四', '五', '六', '七', '八'];
@@ -83,8 +83,10 @@ class BandRadar extends StatelessWidget {
                   Expanded(
                     child: _RadarBar(
                       name: bandGroupNames[group - 1],
-                      hint: '${groupEntryLine(group).toInt()}~'
-                          '${(groupThreshold(group) + 20).toInt()}%',
+                      hint: group == maxGroups
+                          ? '${groupThreshold(group).toInt()}%+'
+                          : '${groupThreshold(group).toInt()}~'
+                              '${(groupThreshold(group) + 30).toInt()}%',
                       count: counts[group] ?? 0,
                       ratio: (counts[group] ?? 0) / maxCount,
                       active: group == activeGroup,

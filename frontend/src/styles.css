@@ -1583,3 +1583,9 @@ button:disabled {
   color: var(--red);
   font-size: 10px;
 }
+
+.moneygrab-strong {
+  margin-right: 3px;
+  color: var(--amber);
+  font-size: 10px;
+}

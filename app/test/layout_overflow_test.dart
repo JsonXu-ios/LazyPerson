@@ -28,6 +28,7 @@ BandHit _hit({
   String industry = '',
   List<String> concepts = const [],
   bool hotSector = false,
+  bool strong = false,
 }) {
   return BandHit(
     symbol: symbol,
@@ -43,6 +44,7 @@ BandHit _hit({
     crossDate: '2026-05-20',
     limitUp: limitUp,
     fromTop: fromTop,
+    strong: strong,
     industry: industry,
     concepts: concepts,
     hotSector: hotSector,
@@ -74,13 +76,15 @@ void main() {
               padding: const EdgeInsets.symmetric(horizontal: 16),
               children: [
                 BandHitCard(
-                  hit: _hit(limitUp: true, fromTop: true),
+                  hit: _hit(limitUp: true, fromTop: true, strong: true),
                   index: 0,
                   onTap: () {},
                 ),
                 BandHitCard(
                   hit: _hit(
-                      symbol: '600002', name: '名字特别长的一家上市公司股份有限公司'),
+                      symbol: '600002',
+                      name: '名字特别长的一家上市公司股份有限公司',
+                      strong: true),
                   index: 1,
                   onTap: () {},
                 ),

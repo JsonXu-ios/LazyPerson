@@ -66,15 +66,20 @@ class _FakeLonCheck extends LonCheckService {
   }
 }
 
-/// 注入的假板块取数：记录调用参数；映射里没有的股票视为取数失败
+/// 注入的假板块取数：记录调用参数；映射里没有的股票视为取数失败。
+/// [delay] 用来观察 sectorsOfMany 的并发度（inFlight 峰值）。
 class _FakeSectors extends SectorService {
   final Map<String, StockSectors> results;
   final Set<String> hotCodes;
+  final Duration delay;
   final List<String> requested = [];
   final List<Set<String>?> hotCodesSeen = [];
   int hotCodesCalls = 0;
+  int inFlight = 0;
+  int maxInFlight = 0;
 
-  _FakeSectors(LocalStore store, this.results, {this.hotCodes = const {}})
+  _FakeSectors(LocalStore store, this.results,
+      {this.hotCodes = const {}, this.delay = Duration.zero})
       : super(store: store);
 
   @override
@@ -87,9 +92,16 @@ class _FakeSectors extends SectorService {
   Future<StockSectors> sectorsOf(String symbol, {Set<String>? hotCodes}) async {
     requested.add(symbol);
     hotCodesSeen.add(hotCodes);
-    final found = results[symbol];
-    if (found == null) throw StateError('sector failed: $symbol');
-    return found;
+    inFlight += 1;
+    maxInFlight = math.max(maxInFlight, inFlight);
+    try {
+      if (delay > Duration.zero) await Future<void>.delayed(delay);
+      final found = results[symbol];
+      if (found == null) throw StateError('sector failed: $symbol');
+      return found;
+    } finally {
+      inFlight -= 1;
+    }
   }
 }
 
@@ -134,11 +146,11 @@ List<KlineBar> _waveBars({double low = 10.0, List<double> closesPct = const [5, 
   return bars;
 }
 
-Quote _quote(String symbol, String name) => Quote(
+Quote _quote(String symbol, String name, {double price = 13.5}) => Quote(
       symbol: symbol,
       market: 'SH',
       name: name,
-      price: 13.5, // 相对低点 10 涨 35% → 一档
+      price: price, // 默认 13.5：相对低点 10 涨 35% → 一档、非强信号
       preClose: 13.0,
       marketCap: 100.0,
     );
@@ -158,7 +170,9 @@ void main() {
   Future<void> setUpScan(Map<String, FundamentalsMarks> marks,
       {Map<String, bool> lonResults = const {},
       Map<String, StockSectors> sectorResults = const {},
-      Set<String> hotCodes = const {}}) async {
+      Set<String> hotCodes = const {},
+      Duration sectorDelay = Duration.zero,
+      List<Quote>? quoteOverride}) async {
     store = LocalStore(await databaseFactory.openDatabase(
       inMemoryDatabasePath,
       options: OpenDatabaseOptions(
@@ -166,11 +180,12 @@ void main() {
         onCreate: (db, version) => LocalStore.createSchema(db),
       ),
     ));
-    final quotes = [
-      _quote('600001', '甲股'),
-      _quote('600002', '乙股'),
-      _quote('600003', '丙股'),
-    ];
+    final quotes = quoteOverride ??
+        [
+          _quote('600001', '甲股'),
+          _quote('600002', '乙股'),
+          _quote('600003', '丙股'),
+        ];
     repository = MarketRepository(
       store: store,
       sync: SyncService(store: store, eastmoney: _FakeEastmoney(quotes)),
@@ -181,7 +196,8 @@ void main() {
     }
     fundamentals = _FakeFundamentals(store, marks);
     lonCheck = _FakeLonCheck(store, lonResults);
-    sectors = _FakeSectors(store, sectorResults, hotCodes: hotCodes);
+    sectors = _FakeSectors(store, sectorResults,
+        hotCodes: hotCodes, delay: sectorDelay);
     controller = BandScanController(
       repository,
       nowFn: () => _today,
@@ -281,7 +297,7 @@ void main() {
     expect(controller.visibleHits.map((hit) => hit.symbol), ['600001']);
   });
 
-  test('标记随结果持久化（key v7），当日 restore 恢复', () async {
+  test('标记随结果持久化（key v8），当日 restore 恢复', () async {
     await setUpScan({
       '600001': const FundamentalsMarks(
           dividendRecent: true, profitOk: true, revenueOk: true),
@@ -290,7 +306,7 @@ void main() {
     });
     await controller.startScan();
 
-    final raw = await store.getState('band_scan:last:v7');
+    final raw = await store.getState('band_scan:last:v8');
     expect(raw, isNotNull);
     final persisted = (jsonDecode(raw!) as Map).cast<String, Object?>();
     final rows = (persisted['hits'] as List).cast<Map>();
@@ -314,6 +330,104 @@ void main() {
     expect(hit.revenueOk, isTrue);
     expect(hit.lonOk, isTrue);
     restored.dispose();
+  });
+
+  group('强信号（strong）', () {
+    const marks = FundamentalsMarks(
+        dividendRecent: true, profitOk: true, revenueOk: true);
+
+    /// 甲=45%（过40强信号）、乙=35%（一档非强）、丙=75%（二档，未过70? 75≥70 强）
+    List<Quote> strongQuotes() => [
+          _quote('600001', '甲股', price: 14.5), // pct 45 → 1档 强
+          _quote('600002', '乙股', price: 13.5), // pct 35 → 1档 非强
+          _quote('600003', '丙股', price: 16.6), // pct 66 → 2档 非强（未过70）
+        ];
+
+    test('evaluateStock 的 strong 标记贯穿扫描/筛选/持久化（v8）', () async {
+      final quotes = strongQuotes();
+      await setUpScan(
+        {for (final q in quotes) q.symbol: marks},
+        lonResults: {for (final q in quotes) q.symbol: true},
+        quoteOverride: quotes,
+      );
+      await controller.startScan();
+      controller.setLimitUpFilter(false); // 测试数据无涨停，先放开
+
+      final bySymbol = {for (final hit in controller.hits) hit.symbol: hit};
+      expect(bySymbol['600001']!.group, 1);
+      expect(bySymbol['600001']!.strong, isTrue);
+      expect(bySymbol['600002']!.group, 1);
+      expect(bySymbol['600002']!.strong, isFalse);
+      expect(bySymbol['600003']!.group, 2);
+      expect(bySymbol['600003']!.strong, isFalse);
+
+      // 默认关 → 不过滤
+      expect(controller.strongFilter, isFalse);
+      expect(controller.visibleHits, hasLength(3));
+
+      controller.setStrongFilter(true);
+      expect(controller.visibleHits.map((hit) => hit.symbol), ['600001']);
+
+      // 与其他开关取交集（&& 语义）
+      controller.setNorthFilter(true);
+      expect(controller.visibleHits.where((hit) => !hit.northOk), isEmpty);
+      controller.setNorthFilter(false);
+      controller.setStrongFilter(false);
+      expect(controller.visibleHits, hasLength(3));
+
+      // 持久化 key 升到 v8，strong 随行落盘
+      expect(await store.getState('band_scan:last:v7'), isNull);
+      final raw = await store.getState('band_scan:last:v8');
+      final persisted = (jsonDecode(raw!) as Map).cast<String, Object?>();
+      final rows = (persisted['hits'] as List).cast<Map>();
+      expect(rows.firstWhere((r) => r['symbol'] == '600001')['strong'], isTrue);
+      expect(
+          rows.firstWhere((r) => r['symbol'] == '600002')['strong'], isFalse);
+
+      // 当日 restore 把 strong 带回来
+      final restored = BandScanController(repository,
+          nowFn: () => _today,
+          fundamentals: fundamentals,
+          lonCheck: lonCheck,
+          sectors: sectors);
+      await restored.restore();
+      expect(
+          restored.hits.firstWhere((h) => h.symbol == '600001').strong, isTrue);
+      expect(restored.hits.firstWhere((h) => h.symbol == '600002').strong,
+          isFalse);
+      restored.dispose();
+    });
+
+    test('v7 旧结果不再被 v8 读到（换 key 即作废）', () async {
+      final quotes = strongQuotes();
+      await setUpScan(
+        {for (final q in quotes) q.symbol: marks},
+        lonResults: {for (final q in quotes) q.symbol: true},
+        quoteOverride: quotes,
+      );
+      await store.setState(
+        'band_scan:last:v7',
+        jsonEncode({
+          'trade_date': _today.toIso8601String().substring(0, 10),
+          'total': 1,
+          'hits': [
+            {
+              'symbol': '600009',
+              'price': 13.5,
+              'low90': 10.0,
+              'pct': 35.0,
+              'group': 1,
+              'threshold': 20.0,
+              'over': 15.0,
+              'max_pct': 35.0,
+            }
+          ],
+        }),
+      );
+      await controller.restore();
+      expect(controller.status, BandScanStatus.idle);
+      expect(controller.hits, isEmpty);
+    });
   });
 
   test('旧持久化数据缺 revenue_ok/lon_ok 字段 → 默认 false', () {
@@ -443,7 +557,7 @@ void main() {
           {'600001', '600003'});
     });
 
-    test('板块标记随结果持久化（v7），当日 restore 恢复', () async {
+    test('板块标记随结果持久化（v8），当日 restore 恢复', () async {
       await setUpScan(marks, lonResults: lonAll, sectorResults: {
         '600001': const StockSectors(
           symbol: '600001',
@@ -454,7 +568,7 @@ void main() {
       });
       await controller.startScan();
 
-      final raw = await store.getState('band_scan:last:v7');
+      final raw = await store.getState('band_scan:last:v8');
       final persisted = (jsonDecode(raw!) as Map).cast<String, Object?>();
       final rows = (persisted['hits'] as List).cast<Map>();
       final row = rows.firstWhere((item) => item['symbol'] == '600001');
@@ -475,6 +589,41 @@ void main() {
       expect(hit.concepts, ['酿酒概念', '茅指数']);
       expect(hit.hotSector, isTrue);
       restored.dispose();
+    });
+
+    test('sector 阶段并发补标记（不再逐只串行）', () async {
+      // 20 只命中，每只假取数 20ms：串行要 ≥400ms，7 路并发 ≈ 60ms；
+      // 用 inFlight 峰值直接证明是并发而不是串行
+      final quotes = [
+        for (var i = 1; i <= 20; i++)
+          _quote('6000${i.toString().padLeft(2, '0')}', '股$i'),
+      ];
+      await setUpScan(
+        {
+          for (final q in quotes)
+            q.symbol: const FundamentalsMarks(
+                dividendRecent: true, profitOk: true, revenueOk: true),
+        },
+        lonResults: {for (final q in quotes) q.symbol: true},
+        sectorResults: {
+          for (final q in quotes)
+            q.symbol: StockSectors(symbol: q.symbol, industry: '白酒Ⅱ'),
+        },
+        sectorDelay: const Duration(milliseconds: 20),
+        quoteOverride: quotes,
+      );
+
+      final startedAt = DateTime.now();
+      await controller.startScan();
+      final elapsed = DateTime.now().difference(startedAt);
+
+      expect(controller.hits, hasLength(20));
+      expect(sectors.requested.toSet(), quotes.map((q) => q.symbol).toSet());
+      expect(sectors.maxInFlight, greaterThan(1), reason: '必须并发');
+      expect(sectors.maxInFlight, lessThanOrEqualTo(sectorFetchConcurrency));
+      // 串行下限是 20×20ms=400ms，并发后应该远低于它
+      expect(elapsed.inMilliseconds, lessThan(400));
+      expect(controller.hits.every((hit) => hit.industry == '白酒Ⅱ'), isTrue);
     });
 
     test('旧持久化数据缺 industry/concepts/hot_sector → 默认空/false', () {

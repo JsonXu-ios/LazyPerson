@@ -19,8 +19,8 @@ class BandScanController extends ChangeNotifier {
   /// 总市值下限（亿元），勾选“总市值>40亿”时生效
   static const marketCapMin = 40.0;
 
-  /// v7: 命中行含 industry/concepts/hotSector（板块标记），旧结果作废
-  static const _stateKey = 'band_scan:last:v7';
+  /// v8: 档位区间改 [主线,下一主线) + 命中行新增 strong 强信号，旧结果作废
+  static const _stateKey = 'band_scan:last:v8';
 
   final MarketRepository repository;
   final DateTime Function() now;
@@ -101,6 +101,9 @@ class BandScanController extends ChangeNotifier {
   /// 展示层过滤：只看所属概念里有今日热点板块的，默认关
   bool hotFilter = false;
 
+  /// 展示层过滤：只看强信号（本档内又过了 主线+20：40/70/100/…），默认关
+  bool strongFilter = false;
+
   int activeGroup = 1;
 
   bool _disposed = false;
@@ -119,7 +122,8 @@ class BandScanController extends ChangeNotifier {
           (!revenueFilter || hit.revenueOk) &&
           (!lonFilter || hit.lonOk) &&
           (!northFilter || hit.northOk) &&
-          (!hotFilter || hit.hotSector))
+          (!hotFilter || hit.hotSector) &&
+          (!strongFilter || hit.strong))
       .toList();
 
   Map<int, int> get groupCounts {
@@ -203,6 +207,12 @@ class BandScanController extends ChangeNotifier {
   void setHotFilter(bool value) {
     if (value == hotFilter) return;
     hotFilter = value;
+    _notify();
+  }
+
+  void setStrongFilter(bool value) {
+    if (value == strongFilter) return;
+    strongFilter = value;
     _notify();
   }
 
@@ -362,7 +372,9 @@ class BandScanController extends ChangeNotifier {
 
     // 板块标记（行业/概念/热点）：只查命中股，个股板块按天缓存；
     // 热点概念榜取一次复用（榜单 5 分钟缓存），单只失败保持默认空/false
-    // （对齐 scanner.py::_default_sector_enricher）
+    // （对齐 scanner.py::_default_sector_enricher）。
+    // 命中动辄一两百只、每只一轮东财往返，串行要一两分钟，这里按
+    // sectorFetchConcurrency 路并发（同 lon/同步阶段的 worker 池写法）。
     stage = 'sector';
     hits = List.of(collected);
     _notify();
@@ -372,22 +384,28 @@ class BandScanController extends ChangeNotifier {
     } catch (_) {
       // 热点榜取不到就只补行业/概念，hotSector 保持 false
     }
-    for (var i = 0; i < collected.length; i++) {
-      if (runId != _runId) return;
-      try {
-        final marks =
-            await sectors.sectorsOf(collected[i].symbol, hotCodes: hotCodes);
-        collected[i] = collected[i].copyWith(
+    if (runId != _runId) return;
+    final indexBySymbol = {
+      for (var i = 0; i < collected.length; i++) collected[i].symbol: i,
+    };
+    await sectors.sectorsOfMany(
+      [for (final hit in collected) hit.symbol],
+      hotCodes: hotCodes,
+      shouldStop: () => runId != _runId,
+      onEach: (symbol, marks) {
+        if (runId != _runId || marks == null) return;
+        final index = indexBySymbol[symbol];
+        if (index == null) return;
+        collected[index] = collected[index].copyWith(
           industry: marks.industry,
           concepts: marks.concepts.length > sectorMaxConcepts
               ? marks.concepts.sublist(0, sectorMaxConcepts)
               : marks.concepts,
           hotSector: marks.hot,
         );
-      } catch (_) {
-        // 取数失败保持默认空/false
-      }
-    }
+      },
+    );
+    if (runId != _runId) return;
 
     collected.sort((a, b) {
       final byGroup = a.group.compareTo(b.group);

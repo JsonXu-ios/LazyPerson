@@ -23,27 +23,21 @@ ALLOWED_PREFIXES = ("60", "00")  # 仅沪深主板，排除创业板(30)/科创�
 
 
 def classify_group(pct: float | None) -> int | None:
-    """按最新涨幅归档。一档须站上30确认：[30,40)；40是奇点，[40,50)不入档；
-    二档及以上过主线即入：[50,70)、[80,100)、[110,130)…（上沿 = 下一主线−10 的奇点）；
-    过渡区（70~80/100~110/…）与超250%不入档。"""
-    if pct is None or pct < GROUP_FINAL_BASE + GROUP_PRE_OFFSET:  # <30：过20未站上30只是"站稳20"，不入档
+    """按最新收盘涨幅归档：过 20/50/80/110/… 主线依次为 1/2/3/4… 档。
+    每档区间 [主线, 下一主线)：一档 [20,50)、二档 [50,80)、三档 [80,110)…
+    即 20% 上下（0~40%）都属于一档的活动范围，过 50% 才被二档接手。"""
+    if pct is None or pct < GROUP_FINAL_BASE:
         return None
-    if pct < 40:
-        return 1
-    if pct < 50:
-        return None  # 40是奇点：过了40、还没站上50（利欧 41.7%/600617 47.4% 场景）
     k = int(math.floor((pct - GROUP_FINAL_BASE) / GROUP_STEP)) + 1
-    if k > MAX_GROUPS:
-        return None
-    offset = pct - group_threshold(k)
-    if offset >= GROUP_STEP - GROUP_PRE_OFFSET:  # 到达下一奇点（主线+20）→ 过渡区
-        return None
-    return k
+    return min(k, MAX_GROUPS)
 
 
-def group_entry_line(group: int) -> float:
-    """入档线：一档需站上30确认，二档及以上过主线即入。"""
-    return GROUP_FINAL_BASE + GROUP_PRE_OFFSET if group == 1 else group_threshold(group)
+def is_strong_signal(pct: float | None, group: int) -> bool:
+    """强信号：在本档内又过了 主线+20（40/70/100/130/…）且没有回落下来。
+    档位归属不变，只作为额外过滤条件。"""
+    if pct is None:
+        return False
+    return pct >= group_threshold(group) + GROUP_STEP - GROUP_PRE_OFFSET
 
 
 def group_threshold(group: int) -> float:
@@ -169,7 +163,7 @@ def evaluate_stock(
     north = is_north_bound(window, low_index)
 
     threshold = group_threshold(group)
-    entry_level = low90 * (1 + group_entry_line(group) / 100)
+    entry_level = low90 * (1 + threshold / 100)
 
     cross_date = None
     for bar in window[low_index + 1 :]:
@@ -194,10 +188,11 @@ def evaluate_stock(
         "cross_date": cross_date,
         "from_top": from_top,
         "north_ok": north,
+        "strong": is_strong_signal(pct, group),
     }
 
 
-STATE_KEY = "moneygrab:last_scan:v9"  # v9: 命中行含 industry/concepts/hot_sector
+STATE_KEY = "moneygrab:last_scan:v10"  # v10: 档位区间改 [主线,下一主线) + strong 强信号
 
 
 def _default_fundamentals_enricher(cache: CacheStore, hits: list[dict], caps: dict) -> None:

@@ -48,58 +48,74 @@ def make_bars(days: int, low: float, today: date | None = None) -> list[dict]:
 class TestClassifyGroup:
     def test_below_20_no_group(self):
         assert classify_group(19.9) is None
-        assert classify_group(15.0) is None  # 000408 场景：区间刚过20%但现价没站上20%
+        assert classify_group(15.0) is None
         assert classify_group(-3.0) is None
         assert classify_group(None) is None
 
-    def test_group1_needs_30_confirm(self):
-        # 一档需站上30确认：[30,40)。过20未到30（振江25.4%）只是"站稳20"，不入档
-        assert classify_group(30.0) == 1
-        assert classify_group(31.0) == 1
-        assert classify_group(39.9) == 1
-        assert classify_group(25.37) is None
-        assert classify_group(20.0) is None
-        assert classify_group(29.9) is None
+    def test_group1_zone_20_to_50(self):
+        # 一档 [20,50)：20% 上下（0~40%）都是一档活动范围，过50%才被二档接手
+        assert classify_group(20.0) == 1
+        assert classify_group(25.37) == 1  # 振江
+        assert classify_group(35.0) == 1
+        assert classify_group(41.71) == 1  # 利欧
+        assert classify_group(47.43) == 1  # 600617
+        assert classify_group(49.9) == 1
         assert group_threshold(1) == 20.0
 
-    def test_40_is_singular_point(self):
-        # 40是奇点：过了40、还没站上50 → 不入档（利欧41.7%/600617 47.4%场景）
-        assert classify_group(40.0) is None
-        assert classify_group(41.71) is None
-        assert classify_group(47.43) is None
-        assert classify_group(49.9) is None
-
-    def test_group2_zone_50_to_70(self):
-        # 二档及以上过主线即入：[50,70)
+    def test_group2_zone_50_to_80(self):
         assert classify_group(50.0) == 2
-        assert classify_group(55.0) == 2
-        assert classify_group(66.0) == 2  # 紫光66%回归二档
-        assert classify_group(69.9) == 2
+        assert classify_group(66.0) == 2
+        assert classify_group(75.0) == 2
+        assert classify_group(79.9) == 2
         assert group_threshold(2) == 50.0
 
-    def test_transition_zones_not_grouped(self):
-        # 奇点后的过渡区：70~80、100~110、130~140…
-        assert classify_group(70.0) is None
-        assert classify_group(75.0) is None
-        assert classify_group(105.0) is None
-        assert classify_group(135.0) is None
-
     def test_group_zones_step_30(self):
-        # 三档[80,100)、四档[110,130)、五档[140,160)、六档[170,190)、七档[200,220)、八档[230,250)
         assert [group_threshold(k) for k in range(1, 9)] == [20.0, 50.0, 80.0, 110.0, 140.0, 170.0, 200.0, 230.0]
         assert classify_group(80.0) == 3
-        assert classify_group(99.9) == 3
+        assert classify_group(105.0) == 3
         assert classify_group(110.0) == 4
-        assert classify_group(125.0) == 4
+        assert classify_group(135.0) == 4
         assert classify_group(150.0) == 5
         assert classify_group(181.0) == 6
         assert classify_group(215.0) == 7
         assert classify_group(241.0) == 8
 
-    def test_beyond_group8_zone_not_grouped(self):
-        assert classify_group(249.9) == 8
-        assert classify_group(250.0) is None
-        assert classify_group(500.0) is None
+    def test_beyond_group8_stays_group8(self):
+        assert classify_group(259.9) == 8
+        assert classify_group(500.0) == 8
+
+
+class TestStrongSignal:
+    def test_strong_needs_mainline_plus_20(self):
+        from backend.app.scanner import is_strong_signal
+
+        # 一档：过40才是强信号（档位仍是1档）
+        assert not is_strong_signal(35.0, 1)
+        assert is_strong_signal(40.0, 1)
+        assert is_strong_signal(47.43, 1)
+        assert is_strong_signal(49.9, 1)
+        # 二档：过70才是强信号
+        assert not is_strong_signal(66.0, 2)
+        assert is_strong_signal(70.0, 2)
+        assert is_strong_signal(79.9, 2)
+        # 三档：过100
+        assert not is_strong_signal(95.0, 3)
+        assert is_strong_signal(100.0, 3)
+        assert not is_strong_signal(None, 1)
+
+    def test_evaluate_carries_strong_flag(self):
+        today = date(2026, 7, 24)
+        # 现价 pct=45% → 一档且强信号（过40）
+        bars = make_wave_bars(today, 10.0, [5, 12, 32])
+        row = evaluate_stock("600001", "强信号股", 14.5, bars, today=today)
+        assert row is not None
+        assert row["group"] == 1
+        assert row["strong"] is True
+        # 现价 pct=35% → 一档但非强信号
+        row2 = evaluate_stock("600001", "普通股", 13.5, bars, today=today)
+        assert row2 is not None
+        assert row2["group"] == 1
+        assert row2["strong"] is False
 
 
 class TestEligibleSymbol:
@@ -173,13 +189,16 @@ class TestEvaluateStock:
         assert row["low90"] == 10.0
         assert round(row["pct"], 1) == 35.0
         assert row["low_date"] < row["cross_date"]  # 低点在先，过线在后
-        # 首次收盘站上一档入档线30%的是 32% 那天（最后一根）
-        assert row["cross_date"] == bars[-1]["time"]
+        # 首次收盘站上主线20%的日期
+        assert row["cross_date"] <= bars[-1]["time"]
 
-    def test_just_over_mainline_not_hit(self):
-        # 振江场景：现价 12.54 → pct=25.4%，过了20没过30 → 不入档
+    def test_just_over_mainline_now_group1(self):
+        # 振江场景：pct=25.4% → 新规则下属于一档（20~50 都是一档活动范围）
         bars = make_wave_bars(self.today, 10.0, [5, 12, 18])
-        assert evaluate_stock("603507", "振江场景", 12.54, bars, today=self.today) is None
+        row = evaluate_stock("603507", "振江场景", 12.54, bars, today=self.today)
+        assert row is not None
+        assert row["group"] == 1
+        assert row["strong"] is False
 
     def test_below_20_not_hit(self):
         # 000408 场景：现价只到 15%，不入任何档
@@ -193,13 +212,16 @@ class TestEvaluateStock:
         assert row is not None
         assert row["group"] == 2
         assert row["threshold"] == 50.0
-        # 首次收盘站上二档入档线50%的是 52% 那天（最后一根）
+        # 首次收盘站上二档主线50%的是 52% 那天（最后一根）
         assert row["cross_date"] == bars[-1]["time"]
 
-    def test_singular_point_not_hit(self):
-        # 利欧场景：41.7% 处于奇点40后、未站上50 → 不入档
+    def test_singular_point_is_strong_group1(self):
+        # 利欧场景：41.7% → 一档 + 强信号（过40没回落）
         bars = make_wave_bars(self.today, 10.0, [10, 28, 38])
-        assert evaluate_stock("002131", "利欧场景", 14.17, bars, today=self.today) is None
+        row = evaluate_stock("002131", "利欧场景", 14.17, bars, today=self.today)
+        assert row is not None
+        assert row["group"] == 1
+        assert row["strong"] is True
 
     def test_low_on_last_day_not_hit(self):
         # 低点若是最后一天，没有低点→高点的波段
@@ -510,7 +532,7 @@ class TestFallingFromTop:
         bars = make_wave_bars(self.today, 10.0, [40, 85, 90])
         row = evaluate_stock("600001", "持稳股", 19.2, bars, today=self.today)
         assert row is not None
-        assert row["group"] == 3
+        assert row["group"] == 3  # 92% ∈ [80,110)
         assert row["max_pct"] >= 90.0
         assert row["from_top"] is False
 

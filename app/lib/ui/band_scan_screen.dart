@@ -256,6 +256,11 @@ class _BandScanScreenState extends State<BandScanScreen> {
             onChanged: controller.setLimitUpFilter,
           ),
           _FilterChip(
+            label: '强信号',
+            value: controller.strongFilter,
+            onChanged: controller.setStrongFilter,
+          ),
+          _FilterChip(
             label: '一路北上',
             value: controller.northFilter,
             onChanged: controller.setNorthFilter,

@@ -59,6 +59,30 @@ class BandHitCard extends StatelessWidget {
                       style: mono(
                           size: FontSize.tableNumber, color: AppColors.textDim),
                     ),
+                    // 强信号：本档内又过了 主线+20（40/70/100/…）。
+                    // 标题行还要放代码和涨停标，窄屏（360dp）挤不下两个字，
+                    // 只用一个 ▲ + warn 色，够醒目也不抢名称的宽度
+                    if (hit.strong) ...[
+                      const SizedBox(width: 6),
+                      Container(
+                        padding: const EdgeInsets.symmetric(
+                            horizontal: 4, vertical: 1),
+                        decoration: BoxDecoration(
+                          color: AppColors.warn.withValues(alpha: 0.18),
+                          borderRadius: BorderRadius.circular(3),
+                          border: Border.all(
+                              color: AppColors.warn.withValues(alpha: 0.7)),
+                        ),
+                        child: Text(
+                          '▲',
+                          style: mono(
+                            size: FontSize.badge,
+                            color: AppColors.warn,
+                            weight: FontWeight.w700,
+                          ),
+                        ),
+                      ),
+                    ],
                     if (hit.limitUp) ...[
                       const SizedBox(width: 7),
                       Container(
@@ -180,7 +204,9 @@ class BandHitCard extends StatelessWidget {
     );
   }
 
-  /// 波段进度条：填充 = pct/maxPct，轨上两根针 = 主线与入档线（主线+10）
+  /// 波段进度条：填充 = pct/maxPct，轨上两根针 = 主线（= 入档线）与
+  /// 强信号线（主线+20）。入档线现在就是主线本身，第二根针画在强信号线上
+  /// 才有信息量（两根重合等于没画）。
   Widget _progress() {
     final span = hit.maxPct <= 0 ? 1.0 : hit.maxPct;
     double at(double pct) => (pct / span).clamp(0.0, 1.0);
@@ -215,8 +241,10 @@ class BandHitCard extends StatelessWidget {
                 ),
                 _needle(box.maxWidth * at(threshold), AppColors.yellowLine),
                 _needle(
-                  box.maxWidth * at(groupEntryLine(hit.group)),
-                  AppColors.text.withValues(alpha: 0.8),
+                  box.maxWidth * at(threshold + groupStep - groupPreOffset),
+                  hit.strong
+                      ? AppColors.warn
+                      : AppColors.text.withValues(alpha: 0.8),
                 ),
               ],
             ),

@@ -38,6 +38,10 @@ const sectorHotTop = 15;
 /// 命中卡/摘要上最多展示几个概念（对齐 backend row["concepts"] = concepts[:6]）
 const sectorMaxConcepts = 6;
 
+/// 批量补板块标记时的并发路数（对齐 SyncService.concurrency 的量级；
+/// 再高东财会开始限流，收益也被 RTT 抹平）
+const sectorFetchConcurrency = 7;
+
 class SectorService {
   final LocalStore store;
   final EastmoneySectorProvider provider;
@@ -49,6 +53,12 @@ class SectorService {
     DateTime Function()? nowFn,
   })  : provider = provider ?? EastmoneySectorProvider(),
         now = nowFn ?? DateTime.now;
+
+  /// 概念板块全集的进程内记忆（day → future）。app_state 里已按天缓存，
+  /// 但批量补标记时每只股票都去读一次 sqlite 再 jsonDecode 近千条板块，
+  /// 白白吃掉几百毫秒；同一天只解析一次。
+  String? _conceptNamesDay;
+  Future<Map<String, String>>? _conceptNamesMemo;
 
   String get _today => now().toIso8601String().substring(0, 10);
 
@@ -147,9 +157,57 @@ class SectorService {
     );
   }
 
+  /// 批量补板块标记（八档局 sector 阶段用）：按 [concurrency] 路并发跑
+  /// [sectorsOf]，命中当日缓存的股票不发请求。单只失败不进结果集，
+  /// 由调用方保持默认空/false。返回 symbol → 标记（缺失即取数失败）。
+  ///
+  /// 串行版在命中 200 只时是 200×RTT（实测东财 slist+stock/get 一轮 300~600ms，
+  /// 合计 60~120 秒）；7 路并发后 ≈ 29 轮，10~20 秒。
+  Future<Map<String, StockSectors>> sectorsOfMany(
+    List<String> symbols, {
+    Set<String>? hotCodes,
+    int concurrency = sectorFetchConcurrency,
+    void Function(String symbol, StockSectors? marks)? onEach,
+    bool Function()? shouldStop,
+  }) async {
+    final hot = hotCodes ?? await hotConceptCodes();
+    final result = <String, StockSectors>{};
+    if (symbols.isEmpty) return result;
+    // 概念全集由 conceptBoardNames 的进程内记忆去重：N 路 worker 同时要，
+    // 只有第一路真去取，其余等同一个 future（全命中缓存时一次都不取）
+    final queue = symbols.iterator;
+    Future<void> worker() async {
+      // Iterator 在单 isolate 事件循环内串行推进，无并发竞争
+      while (queue.moveNext()) {
+        if (shouldStop?.call() ?? false) return; // 扫描被取消/重启，别再打网络
+        final symbol = queue.current;
+        StockSectors? marks;
+        try {
+          marks = await sectorsOf(symbol, hotCodes: hot);
+          result[symbol] = marks;
+        } catch (_) {
+          marks = null; // 取数失败：不写结果，调用方保持默认空/false
+        }
+        onEach?.call(symbol, marks);
+      }
+    }
+
+    final lanes = concurrency < 1 ? 1 : concurrency;
+    await Future.wait([for (var i = 0; i < lanes; i++) worker()]);
+    return result;
+  }
+
   /// slist 拿个股所有所属板块，用概念板块全集过滤出概念；
   /// 行业单独走 stock/get 的 f127（slist 里行业是一串父子级，不好挑）。
   /// 两个请求并发，行业取数失败不影响概念，反之亦然。
+  ///
+  /// 为什么没能把 stock/get 省掉（每只从 2 请求降到 1）：slist 返回里行业是
+  /// 一整串父子级板块——600519 就带回「食品饮料(BK0438) / 白酒Ⅲ(BK1575) /
+  /// 白酒Ⅱ(BK1277)」三条，而 f127 的权威值是中间那级的「白酒Ⅱ」，
+  /// 光靠"在行业板块全集里"这个条件挑不出是哪一级（顺序也不稳）。
+  /// 好在两个请求本来就是并发发的，每只的耗时仍是 1 个 RTT，
+  /// 去掉它省的是请求数不是墙上时间；真正的瓶颈是外层串行，已由
+  /// [sectorsOfMany] 解决。
   Future<_StockSectorRaw> _fetchStockSectors(String symbol) async {
     final results = await Future.wait([
       provider.stockIndustry(symbol).then<Object?>((value) => value,
@@ -177,7 +235,22 @@ class SectorService {
   /// 东财概念板块全集（代码 → 名称），按天缓存。
   /// 用它把 slist 返回的"所属板块"过滤成真正的概念板块
   /// （地域板块、指数成分等不在概念榜里的会被滤掉）。
-  Future<Map<String, String>> conceptBoardNames({bool refresh = false}) async {
+  Future<Map<String, String>> conceptBoardNames({bool refresh = false}) {
+    if (refresh || _conceptNamesDay != _today) {
+      _conceptNamesDay = _today;
+      _conceptNamesMemo = null;
+    }
+    // 空结果/失败都不留记忆（下次重试），拿到的板块表复用一天
+    return _conceptNamesMemo ??= _loadConceptBoardNames(refresh).then((map) {
+      if (map.isEmpty) _conceptNamesMemo = null;
+      return map;
+    }, onError: (Object error, StackTrace stack) {
+      _conceptNamesMemo = null;
+      Error.throwWithStackTrace(error, stack);
+    });
+  }
+
+  Future<Map<String, String>> _loadConceptBoardNames(bool refresh) async {
     if (!refresh) {
       final raw = await store.getState(sectorConceptBoardsKey);
       if (raw != null) {

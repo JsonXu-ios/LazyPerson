@@ -1,6 +1,6 @@
 /// 八档局核心筛选逻辑（纯函数），逐条移植自 backend/app/scanner.py。
-/// 90 日波段（低点→现在）分档：一档须站上30确认[30,40)，40是奇点；
-/// 二档及以上过主线即入（[50,70)、[80,100)…）。低点不区分反转/起点。
+/// 90 日波段（低点→现在）分档：过 20/50/80/110/… 主线依次为 1/2/3/4… 档，
+/// 每档区间 [主线, 下一主线)。低点不区分反转/起点。
 library;
 
 import 'dart:math' as math;
@@ -20,27 +20,22 @@ const maxGroups = 8;
 const scanWindowDays = 90;
 const scanMinBars = 20;
 
-/// 按最新涨幅归档。一档须站上30确认：[30,40)；40是奇点，[40,50)不入档；
-/// 二档及以上过主线即入：[50,70)、[80,100)、[110,130)…（上沿 = 下一主线−10 的奇点）；
-/// 过渡区（70~80/100~110/…）与超250%不入档。
+/// 按最新收盘涨幅归档：过 20/50/80/110/… 主线依次为 1/2/3/4… 档。
+/// 每档区间 [主线, 下一主线)：一档 [20,50)、二档 [50,80)、三档 [80,110)…
+/// 即 20% 上下（0~40%）都属于一档的活动范围，过 50% 才被二档接手；
+/// 超过八档主线（230%）一律归第 8 档，不再有“超上限不入档”。
 int? classifyGroup(double? pct) {
-  if (pct == null || pct < groupFinalBase + groupPreOffset) {
-    return null; // <30：过20未站上30只是“站稳20”，不入档
-  }
-  if (pct < 40) return 1;
-  if (pct < 50) return null; // 40是奇点：过了40、还没站上50（利欧 41.7% 场景）
+  if (pct == null || pct < groupFinalBase) return null;
   final k = ((pct - groupFinalBase) / groupStep).floor() + 1;
-  if (k > maxGroups) return null;
-  final offset = pct - groupThreshold(k);
-  if (offset >= groupStep - groupPreOffset) {
-    return null; // 到达下一奇点（主线+20）→ 过渡区
-  }
-  return k;
+  return k > maxGroups ? maxGroups : k;
 }
 
-/// 入档线：一档需站上30确认，二档及以上过主线即入。
-double groupEntryLine(int group) =>
-    group == 1 ? groupFinalBase + groupPreOffset : groupThreshold(group);
+/// 强信号：在本档内又过了 主线+20（一档40/二档70/三档100/…）且没有回落下来。
+/// 档位归属不变，只作为额外过滤条件。
+bool isStrongSignal(double? pct, int group) {
+  if (pct == null) return false;
+  return pct >= groupThreshold(group) + groupStep - groupPreOffset;
+}
 
 double groupThreshold(int group) => groupFinalBase + groupStep * (group - 1);
 
@@ -146,6 +141,9 @@ class BandHit {
   /// 一路北上：90日整体向上，低点在窗口前1/3、最高点在后1/3
   final bool northOk;
 
+  /// 强信号：本档内又过了 主线+20（一档40/二档70/三档100/…）
+  final bool strong;
+
   /// 近一年有分红（含已公告未除息的今年分红），基本面阶段补标
   final bool dividendRecent;
 
@@ -186,6 +184,7 @@ class BandHit {
     this.revenueOk = false,
     this.lonOk = false,
     this.northOk = false,
+    this.strong = false,
     this.industry = '',
     this.concepts = const [],
     this.hotSector = false,
@@ -220,6 +219,7 @@ class BandHit {
         revenueOk: revenueOk ?? this.revenueOk,
         lonOk: lonOk ?? this.lonOk,
         northOk: northOk,
+        strong: strong,
         industry: industry ?? this.industry,
         concepts: concepts ?? this.concepts,
         hotSector: hotSector ?? this.hotSector,
@@ -244,6 +244,7 @@ class BandHit {
         'revenue_ok': revenueOk,
         'lon_ok': lonOk,
         'north_ok': northOk,
+        'strong': strong,
         'industry': industry,
         'concepts': concepts,
         'hot_sector': hotSector,
@@ -269,6 +270,8 @@ class BandHit {
         revenueOk: (json['revenue_ok'] as bool?) ?? false,
         lonOk: (json['lon_ok'] as bool?) ?? false,
         northOk: (json['north_ok'] as bool?) ?? false,
+        // 旧持久化数据缺强信号字段，默认 false
+        strong: (json['strong'] as bool?) ?? false,
         // 旧持久化数据缺板块字段，默认空/false
         industry: (json['industry'] as String?) ?? '',
         concepts: [
@@ -283,7 +286,9 @@ double _roundTo(double value, int digits) {
   return (value * factor).roundToDouble() / factor;
 }
 
-/// 对齐 scanner.py::evaluate_stock。命中返回 BandHit（limitUp 由调用方补），
+/// 对齐 scanner.py::evaluate_stock。90 日波段（低点→现在）按 [主线, 下一主线)
+/// 分档，本档内再过 主线+20 打 strong 强信号标记。
+/// 命中返回 BandHit（limitUp 由调用方补），
 /// 不命中返回 null。跌破曾站上主线（fromTop）只打标记不丢弃，
 /// 由展示层筛选开关决定是否显示。
 BandHit? evaluateStock(
@@ -332,7 +337,8 @@ BandHit? evaluateStock(
   final northOk = isNorthBound(window, lowIndex);
 
   final threshold = groupThreshold(group);
-  final entryLevel = low90 * (1 + groupEntryLine(group) / 100);
+  // 入档线就是主线本身（一档 20%、二档 50%…）
+  final entryLevel = low90 * (1 + threshold / 100);
 
   String? crossDate;
   for (final bar in window.sublist(lowIndex + 1)) {
@@ -361,5 +367,6 @@ BandHit? evaluateStock(
     crossDate: crossDate,
     fromTop: fromTop,
     northOk: northOk,
+    strong: isStrongSignal(pct, group),
   );
 }

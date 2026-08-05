@@ -77,57 +77,64 @@ void main() {
       expect(classifyGroup(null), isNull);
     });
 
-    test('一档需站上30确认：[30,40)；过20未到30不入档（振江 25.37 场景）', () {
-      expect(classifyGroup(30.0), 1);
-      expect(classifyGroup(31.0), 1);
-      expect(classifyGroup(39.9), 1);
-      expect(classifyGroup(25.37), isNull);
-      expect(classifyGroup(20.0), isNull);
-      expect(classifyGroup(29.9), isNull);
+    test('一档 [20,50)：20% 上下都是一档活动范围（振江 25.37/利欧 41.71 场景）', () {
+      expect(classifyGroup(20.0), 1);
+      expect(classifyGroup(25.37), 1); // 振江
+      expect(classifyGroup(35.0), 1);
+      expect(classifyGroup(41.71), 1); // 利欧
+      expect(classifyGroup(47.43), 1); // 600617
+      expect(classifyGroup(49.9), 1);
       expect(groupThreshold(1), 20.0);
-      expect(groupEntryLine(1), 30.0);
     });
 
-    test('40 是奇点：[40,50) 不入档（利欧 41.71/600617 47.43 场景）', () {
-      expect(classifyGroup(40.0), isNull);
-      expect(classifyGroup(41.71), isNull);
-      expect(classifyGroup(47.43), isNull);
-      expect(classifyGroup(49.9), isNull);
-    });
-
-    test('二档及以上过主线即入：[50,70)', () {
+    test('二档 [50,80)：过 50 才被二档接手', () {
       expect(classifyGroup(50.0), 2);
-      expect(classifyGroup(55.0), 2);
-      expect(classifyGroup(66.0), 2); // 紫光66%回归二档
-      expect(classifyGroup(69.9), 2);
+      expect(classifyGroup(66.0), 2); // 紫光
+      expect(classifyGroup(75.0), 2);
+      expect(classifyGroup(79.9), 2);
       expect(groupThreshold(2), 50.0);
-      expect(groupEntryLine(2), 50.0);
     });
 
-    test('奇点后的过渡区不入档', () {
-      expect(classifyGroup(70.0), isNull);
-      expect(classifyGroup(75.0), isNull);
-      expect(classifyGroup(105.0), isNull);
-      expect(classifyGroup(135.0), isNull);
-    });
-
-    test('八档主线 20 起每 30 一档', () {
+    test('八档主线 20 起每 30 一档，区间 [主线, 下一主线)', () {
       expect([for (var k = 1; k <= 8; k++) groupThreshold(k)],
           [20.0, 50.0, 80.0, 110.0, 140.0, 170.0, 200.0, 230.0]);
       expect(classifyGroup(80.0), 3);
-      expect(classifyGroup(99.9), 3);
+      expect(classifyGroup(105.0), 3);
+      expect(classifyGroup(109.9), 3);
       expect(classifyGroup(110.0), 4);
-      expect(classifyGroup(125.0), 4);
+      expect(classifyGroup(135.0), 4);
       expect(classifyGroup(150.0), 5);
       expect(classifyGroup(181.0), 6);
       expect(classifyGroup(215.0), 7);
       expect(classifyGroup(241.0), 8);
     });
 
-    test('超过八档上限（250%）不入档', () {
-      expect(classifyGroup(249.9), 8);
-      expect(classifyGroup(250.0), isNull);
-      expect(classifyGroup(500.0), isNull);
+    test('超过八档主线（230%）一律归第 8 档', () {
+      expect(classifyGroup(230.0), 8);
+      expect(classifyGroup(259.9), 8);
+      expect(classifyGroup(500.0), 8);
+    });
+  });
+
+  group('isStrongSignal（本档内再过 主线+20）', () {
+    test('一档过 40 才是强信号（档位仍是 1 档）', () {
+      expect(isStrongSignal(35.0, 1), isFalse);
+      expect(isStrongSignal(40.0, 1), isTrue);
+      expect(isStrongSignal(47.43, 1), isTrue);
+      expect(isStrongSignal(49.9, 1), isTrue);
+      expect(classifyGroup(47.43), 1); // 强信号不改变归档
+    });
+
+    test('二档过 70、三档过 100', () {
+      expect(isStrongSignal(66.0, 2), isFalse);
+      expect(isStrongSignal(70.0, 2), isTrue);
+      expect(isStrongSignal(79.9, 2), isTrue);
+      expect(isStrongSignal(95.0, 3), isFalse);
+      expect(isStrongSignal(100.0, 3), isTrue);
+    });
+
+    test('无涨幅不是强信号', () {
+      expect(isStrongSignal(null, 1), isFalse);
     });
   });
 
@@ -185,8 +192,8 @@ void main() {
   group('evaluateStock', () {
     final today = _defaultToday;
 
-    test('一档命中：pct=35% ∈ [30,40)，低点日在过线日之前', () {
-      // 低点10 → 收盘依次 5%、12%、32%（首次收盘站上30入档线），今日现价 13.5
+    test('一档命中：pct=35% ∈ [20,50)，低点日在过线日之前', () {
+      // 低点10 → 收盘依次 5%、12%、32%（首次收盘站上20主线），今日现价 13.5
       final raw = _makeWaveBars(today, closesPct: [5, 12, 32]);
       final bars = _seal(raw);
       final row = evaluateStock('600001', '测试股', 13.5, bars, today: today);
@@ -196,20 +203,25 @@ void main() {
       expect(row.low90, 10.0);
       expect((row.pct * 10).round() / 10, 35.0);
       expect(row.lowDate.compareTo(row.crossDate), lessThan(0));
-      // 首次收盘站上一档入档线30%的是 32% 那天（最后一根）
+      // 首次收盘站上一档主线20%的是 32% 那天（最后一根）
       expect(row.crossDate, bars[bars.length - 1].time);
+      expect(row.strong, isFalse); // 35% 未过 40 强信号线
     });
 
-    test('利欧场景：pct=41.7% 在奇点后、未站上50 → 不命中', () {
+    test('利欧场景：pct=41.7% → 一档命中且是强信号（过 40）', () {
       final bars = _seal(_makeWaveBars(today, closesPct: [10, 28, 38]));
-      expect(evaluateStock('002131', '利欧场景', 14.17, bars, today: today),
-          isNull);
+      final row = evaluateStock('002131', '利欧场景', 14.17, bars, today: today);
+      expect(row, isNotNull);
+      expect(row!.group, 1);
+      expect(row.strong, isTrue);
     });
 
-    test('振江场景：pct=25.4% 刚过主线不足 10 点不命中', () {
+    test('振江场景：pct=25.4% → 一档命中，非强信号', () {
       final bars = _seal(_makeWaveBars(today, closesPct: [5, 12, 18]));
-      expect(evaluateStock('603507', '振江场景', 12.54, bars, today: today),
-          isNull);
+      final row = evaluateStock('603507', '振江场景', 12.54, bars, today: today);
+      expect(row, isNotNull);
+      expect(row!.group, 1);
+      expect(row.strong, isFalse);
     });
 
     test('000408 场景：现价只到 15% 不命中', () {
@@ -218,7 +230,7 @@ void main() {
           evaluateStock('000408', '测试股', 11.5, bars, today: today), isNull);
     });
 
-    test('二档命中：pct=55% ∈ [50,70)，过主线即入', () {
+    test('二档命中：pct=55% ∈ [50,80)，过主线即入', () {
       final raw = _makeWaveBars(today, closesPct: [20, 42, 52]);
       final bars = _seal(raw);
       final row = evaluateStock('600001', '测试股', 15.5, bars, today: today);
@@ -328,6 +340,7 @@ void main() {
       });
       expect(hit.dividendRecent, isFalse);
       expect(hit.profitOk, isFalse);
+      expect(hit.strong, isFalse); // 旧数据没有 strong 键
     });
 
     test('标记字段随 toJson/fromJson 往返', () {
@@ -345,9 +358,11 @@ void main() {
         crossDate: '2026-07-01',
         dividendRecent: true,
         profitOk: true,
+        strong: true,
       ).toJson());
       expect(hit.dividendRecent, isTrue);
       expect(hit.profitOk, isTrue);
+      expect(hit.strong, isTrue);
     });
   });
 

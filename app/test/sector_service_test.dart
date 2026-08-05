@@ -33,6 +33,11 @@ class _FakeSectorProvider extends EastmoneySectorProvider {
   int stockBoardsCalls = 0;
   int industryCalls = 0;
 
+  /// 每个个股接口的模拟 RTT，用来观察 sectorsOfMany 的并发度
+  Duration stockDelay = Duration.zero;
+  int inFlight = 0;
+  int maxInFlight = 0;
+
   _FakeSectorProvider({
     this.industryBoards = const [],
     this.conceptBoards = const [],
@@ -61,8 +66,15 @@ class _FakeSectorProvider extends EastmoneySectorProvider {
   @override
   Future<List<StockBoardRef>> stockBoards(String symbol) async {
     stockBoardsCalls += 1;
-    if (failStockBoards) throw StateError('slist down');
-    return boardsBySymbol[symbol] ?? const <StockBoardRef>[];
+    inFlight += 1;
+    maxInFlight = inFlight > maxInFlight ? inFlight : maxInFlight;
+    try {
+      if (stockDelay > Duration.zero) await Future<void>.delayed(stockDelay);
+      if (failStockBoards) throw StateError('slist down');
+      return boardsBySymbol[symbol] ?? const <StockBoardRef>[];
+    } finally {
+      inFlight -= 1;
+    }
   }
 
   @override
@@ -336,6 +348,130 @@ void main() {
       final result =
           await service(provider).sectorsOf('000001', hotCodes: const {});
       expect(result.isEmpty, isTrue);
+    });
+
+    test('概念全集在同一个 service 实例里只解析一次（批量补标记不重复读盘）',
+        () async {
+      final provider = maotaiProvider();
+      final sectors = service(provider);
+      // 先落一次盘（boardsCalls=1）
+      await sectors.conceptBoardNames();
+      expect(provider.boardsCalls, 1);
+      // 并发 10 次同时要：既不重复打接口，也不重复 decode
+      final maps = await Future.wait(
+          [for (var i = 0; i < 10; i++) sectors.conceptBoardNames()]);
+      expect(provider.boardsCalls, 1);
+      expect(maps.every((map) => map.length == 3), isTrue);
+    });
+  });
+
+  group('sectorsOfMany（批量并发补标记）', () {
+    _FakeSectorProvider batchProvider(List<String> symbols) =>
+        _FakeSectorProvider(
+          conceptBoards: [
+            _board('BK0477', '酿酒概念', sectorKindConcept, 5.0),
+            _board('BK0999', '茅指数', sectorKindConcept, 0.5),
+          ],
+          boardsBySymbol: {
+            for (final symbol in symbols)
+              symbol: const [
+                StockBoardRef(code: 'BK0477', name: '酿酒概念'),
+                StockBoardRef(code: 'BK0173', name: '贵州板块'), // 地域，过滤掉
+                StockBoardRef(code: 'BK0999', name: '茅指数'),
+              ],
+          },
+          industryBySymbol: {for (final symbol in symbols) symbol: '白酒Ⅱ'},
+        );
+
+    test('并发跑而不是逐只串行，耗时远低于串行下限', () async {
+      final symbols = [for (var i = 0; i < 21; i++) '60${1000 + i}'];
+      final provider = batchProvider(symbols)
+        ..stockDelay = const Duration(milliseconds: 20);
+      final sectors = service(provider);
+
+      final startedAt = DateTime.now();
+      final marks = await sectors.sectorsOfMany(symbols, hotCodes: {'BK0477'});
+      final elapsed = DateTime.now().difference(startedAt);
+
+      expect(marks, hasLength(21));
+      expect(marks['601000']!.industry, '白酒Ⅱ');
+      expect(marks['601000']!.concepts, ['酿酒概念', '茅指数']);
+      expect(marks['601000']!.hot, isTrue);
+      expect(provider.maxInFlight, greaterThan(1), reason: '必须并发');
+      expect(provider.maxInFlight, lessThanOrEqualTo(sectorFetchConcurrency));
+      // 串行下限 21×20ms=420ms；7 路并发 ≈ 3 轮 ≈ 60ms
+      expect(elapsed.inMilliseconds, lessThan(420));
+    });
+
+    test('并发路数不超过 concurrency', () async {
+      final symbols = [for (var i = 0; i < 12; i++) '60${2000 + i}'];
+      final provider = batchProvider(symbols)
+        ..stockDelay = const Duration(milliseconds: 10);
+      await service(provider)
+          .sectorsOfMany(symbols, hotCodes: const {}, concurrency: 3);
+      expect(provider.maxInFlight, 3);
+    });
+
+    test('当日缓存命中的股票一个请求都不发', () async {
+      final symbols = ['601000', '601001', '601002'];
+      final provider = batchProvider(symbols);
+      final sectors = service(provider);
+      await sectors.sectorsOfMany(symbols, hotCodes: const {});
+      expect(provider.stockBoardsCalls, 3);
+      expect(provider.industryCalls, 3);
+
+      // 第二轮全走 app_state 当日缓存
+      final again = await sectors.sectorsOfMany(symbols, hotCodes: {'BK0999'});
+      expect(provider.stockBoardsCalls, 3);
+      expect(provider.industryCalls, 3);
+      // 热点标记不跟着缓存走，换热点集即时生效
+      expect(again['601000']!.hotConcepts, ['茅指数']);
+    });
+
+    test('单只失败不写结果、不影响其余（onEach 收到 null）', () async {
+      final symbols = ['601000', '601001'];
+      final provider = _FakeSectorProvider(
+        conceptBoards: [_board('BK0477', '酿酒概念', sectorKindConcept, 5.0)],
+        boardsBySymbol: {
+          '601000': const [StockBoardRef(code: 'BK0477', name: '酿酒概念')],
+        },
+        industryBySymbol: const {'601000': '白酒Ⅱ'},
+      );
+      final failures = <String>[];
+      final marks = await service(provider).sectorsOfMany(
+        symbols,
+        hotCodes: const {},
+        onEach: (symbol, row) {
+          if (row == null || row.isEmpty) failures.add(symbol);
+        },
+      );
+      expect(marks['601000']!.industry, '白酒Ⅱ');
+      expect(failures, ['601001']); // 查不到板块 → 调用方保持默认空/false
+    });
+
+    test('shouldStop 立刻收工（扫描被取消/重启）', () async {
+      final symbols = [for (var i = 0; i < 30; i++) '60${3000 + i}'];
+      final provider = batchProvider(symbols)
+        ..stockDelay = const Duration(milliseconds: 5);
+      var stop = false;
+      final marks = await service(provider).sectorsOfMany(
+        symbols,
+        hotCodes: const {},
+        concurrency: 2,
+        onEach: (symbol, row) => stop = true, // 第一只回来就叫停
+        shouldStop: () => stop,
+      );
+      expect(marks.length, lessThan(symbols.length));
+      expect(provider.stockBoardsCalls, lessThan(symbols.length));
+    });
+
+    test('空列表不打接口', () async {
+      final provider = batchProvider(const []);
+      final marks =
+          await service(provider).sectorsOfMany(const [], hotCodes: const {});
+      expect(marks, isEmpty);
+      expect(provider.stockBoardsCalls, 0);
+      expect(provider.boardsCalls, 0);
     });
   });
 }

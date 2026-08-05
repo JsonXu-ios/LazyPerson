@@ -13,4 +13,5 @@ declare module "lucide-react" {
   export const Database: ComponentType<IconProps>;
   export const Plus: ComponentType<IconProps>;
   export const Zap: ComponentType<IconProps>;
+  export const Flame: ComponentType<IconProps>;
 }

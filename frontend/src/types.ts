@@ -105,6 +105,12 @@ export type MoneyGrabHit = {
   lon_ok?: boolean;
   /** 一路北上：90日整体向上，低点在窗口前1/3、最高点在后1/3 */
   north_ok?: boolean;
+  /** 证监会行业分类 */
+  industry?: string;
+  /** 所属概念板块（最多6个） */
+  concepts?: string[];
+  /** 所属概念中有今日涨幅前列的热点板块 */
+  hot_sector?: boolean;
 };
 
 export type FundamentalValuation = {
@@ -176,4 +182,37 @@ export type MoneyGrabStatus = {
   trade_date: string | null;
   min_market_cap: number | null;
   limit_up_only: boolean;
+};
+
+export type SectorBoard = {
+  code: string;
+  name: string;
+  pct_chg: number | null;
+  amount: number | null;
+  up_count: number | null;
+  down_count: number | null;
+  leader: string;
+  leader_pct: number | null;
+  kind: "industry" | "concept";
+  source: string;
+};
+
+export type HotSectors = {
+  industries: SectorBoard[];
+  concepts: SectorBoard[];
+};
+
+export type SectorConstituent = {
+  symbol: string;
+  name: string;
+  price: number | null;
+  pct_chg: number | null;
+  amount: number | null;
+  market_cap: number | null;
+};
+
+export type StockIndustry = {
+  symbol: string;
+  industry: string;
+  concepts: string[];
 };

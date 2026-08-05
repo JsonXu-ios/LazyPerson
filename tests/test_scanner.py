@@ -237,6 +237,14 @@ def _noop_lon(cache, hits):
         row["lon_ok"] = False
 
 
+def _noop_sector(cache, hits, hot_top=15):
+    """测试用：不联网，板块标记默认空。"""
+    for row in hits:
+        row["industry"] = ""
+        row["concepts"] = []
+        row["hot_sector"] = False
+
+
 class TestMoneyGrabScanner:
     today = date(2026, 7, 24)
 
@@ -267,7 +275,7 @@ class TestMoneyGrabScanner:
         quote_fetcher, kline_fetcher = self._fetchers()
         scanner = MoneyGrabScanner(
             DummySettings(tmp_path), quote_fetcher=quote_fetcher, kline_fetcher=kline_fetcher, max_workers=2,
-            fundamentals_enricher=_noop_fundamentals, lon_enricher=_noop_lon
+            fundamentals_enricher=_noop_fundamentals, lon_enricher=_noop_lon, sector_enricher=_noop_sector
         )
         state = scanner.start()
         assert state["status"] in ("running", "done")  # 小数据集可能瞬间扫完
@@ -286,7 +294,7 @@ class TestMoneyGrabScanner:
         quote_fetcher, kline_fetcher = self._fetchers()
         scanner = MoneyGrabScanner(
             DummySettings(tmp_path), quote_fetcher=quote_fetcher, kline_fetcher=kline_fetcher, max_workers=2,
-            fundamentals_enricher=_noop_fundamentals, lon_enricher=_noop_lon
+            fundamentals_enricher=_noop_fundamentals, lon_enricher=_noop_lon, sector_enricher=_noop_sector
         )
         scanner.start(min_market_cap=40.0)
         state = self._wait_done(scanner)
@@ -304,7 +312,7 @@ class TestMoneyGrabScanner:
 
         scanner = MoneyGrabScanner(
             DummySettings(tmp_path), quote_fetcher=quote_fetcher, kline_fetcher=slow_kline, max_workers=1,
-            fundamentals_enricher=_noop_fundamentals, lon_enricher=_noop_lon
+            fundamentals_enricher=_noop_fundamentals, lon_enricher=_noop_lon, sector_enricher=_noop_sector
         )
         scanner.start()
         second = scanner.start()
@@ -314,11 +322,11 @@ class TestMoneyGrabScanner:
     def test_result_persisted_and_restored(self, tmp_path):
         quote_fetcher, kline_fetcher = self._fetchers()
         settings = DummySettings(tmp_path)
-        scanner = MoneyGrabScanner(settings, quote_fetcher=quote_fetcher, kline_fetcher=kline_fetcher, fundamentals_enricher=_noop_fundamentals, lon_enricher=_noop_lon)
+        scanner = MoneyGrabScanner(settings, quote_fetcher=quote_fetcher, kline_fetcher=kline_fetcher, fundamentals_enricher=_noop_fundamentals, lon_enricher=_noop_lon, sector_enricher=_noop_sector)
         scanner.start()
         self._wait_done(scanner)
 
-        fresh = MoneyGrabScanner(settings, quote_fetcher=quote_fetcher, kline_fetcher=kline_fetcher, fundamentals_enricher=_noop_fundamentals, lon_enricher=_noop_lon)
+        fresh = MoneyGrabScanner(settings, quote_fetcher=quote_fetcher, kline_fetcher=kline_fetcher, fundamentals_enricher=_noop_fundamentals, lon_enricher=_noop_lon, sector_enricher=_noop_sector)
         state = fresh.status()
         # 持久化的 trade_date 是真实运行日，与结果一同恢复
         assert state["status"] == "done"
@@ -328,7 +336,7 @@ class TestMoneyGrabScanner:
         def broken():
             raise RuntimeError("snapshot down")
 
-        scanner = MoneyGrabScanner(DummySettings(tmp_path), quote_fetcher=broken, kline_fetcher=lambda s: [], fundamentals_enricher=_noop_fundamentals, lon_enricher=_noop_lon)
+        scanner = MoneyGrabScanner(DummySettings(tmp_path), quote_fetcher=broken, kline_fetcher=lambda s: [], fundamentals_enricher=_noop_fundamentals, lon_enricher=_noop_lon, sector_enricher=_noop_sector)
         scanner.start()
         state = self._wait_done(scanner)
         assert state["status"] == "failed"
@@ -433,6 +441,7 @@ class TestLimitUp:
             max_workers=2,
             fundamentals_enricher=_noop_fundamentals,
             lon_enricher=_noop_lon,
+            sector_enricher=_noop_sector,
         )
         scanner.start(limit_up_only=True)
         deadline = time.time() + 5

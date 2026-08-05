@@ -34,6 +34,7 @@ export function MoneyGrabPanel({ onSelect }: { onSelect: (symbol: string) => voi
   const [revenueFilter, setRevenueFilter] = useState(false);     // 估市值：年化营收×10>总市值
   const [lonFilter, setLonFilter] = useState(false);             // 日/周/月 LON 多头
   const [northFilter, setNorthFilter] = useState(false);         // 一路北上：低点在前高点在后
+  const [hotFilter, setHotFilter] = useState(false);             // 只看今日热点概念板块内的
   const timerRef = useRef<number | null>(null);
 
   const loadStatus = useCallback(async () => {
@@ -89,7 +90,8 @@ export function MoneyGrabPanel({ onSelect }: { onSelect: (symbol: string) => voi
       (!profitFilter || hit.profit_ok === true) &&
       (!revenueFilter || hit.revenue_ok === true) &&
       (!lonFilter || hit.lon_ok === true) &&
-      (!northFilter || hit.north_ok === true),
+      (!northFilter || hit.north_ok === true) &&
+      (!hotFilter || hit.hot_sector === true),
   );
   const groupCounts = new Map<number, number>();
   const groupHits = new Map<number, MoneyGrabHit[]>();
@@ -170,6 +172,14 @@ export function MoneyGrabPanel({ onSelect }: { onSelect: (symbol: string) => voi
           />
           一路北上
         </label>
+        <label className="moneygrab-filter" title="所属概念板块中有今日涨幅前列的热点板块">
+          <input
+            type="checkbox"
+            checked={hotFilter}
+            onChange={(event) => setHotFilter(event.target.checked)}
+          />
+          热点板块
+        </label>
         {status && (running || status.status === "done") && (
           <span className="moneygrab-meta">
             {status.trade_date} · 命中 {visibleHits.length} / 全部 {status.hits.length}
@@ -221,6 +231,7 @@ export function MoneyGrabPanel({ onSelect }: { onSelect: (symbol: string) => voi
                   <th>低点日</th>
                   <th>过线日</th>
                   <th>超出</th>
+                  <th>行业/概念</th>
                   <th>形态</th>
                 </tr>
               </thead>
@@ -236,6 +247,10 @@ export function MoneyGrabPanel({ onSelect }: { onSelect: (symbol: string) => voi
                     <td>{hit.low_date.slice(5)}</td>
                     <td>{hit.cross_date.slice(5)}</td>
                     <td className="moneygrab-over">+{hit.over.toFixed(1)}%</td>
+                    <td className="moneygrab-sector" title={[hit.industry, ...(hit.concepts || [])].filter(Boolean).join(" · ")}>
+                      {hit.hot_sector && <span className="moneygrab-hot">热</span>}
+                      {(hit.concepts || []).slice(0, 2).join(" ") || hit.industry || "-"}
+                    </td>
                     <td className="moneygrab-shape">
                       {hit.from_top && <span title="跌破曾站上的主线，或冲过奇点后回落低于奇点−10（收回后自动恢复）">异常回落</span>}
                     </td>
@@ -243,7 +258,7 @@ export function MoneyGrabPanel({ onSelect }: { onSelect: (symbol: string) => voi
                 ))}
                 {!activeHits.length && (
                   <tr>
-                    <td colSpan={10}>{running ? "本档暂无命中（扫描中…）" : "本档无命中"}</td>
+                    <td colSpan={11}>{running ? "本档暂无命中（扫描中…）" : "本档无命中"}</td>
                   </tr>
                 )}
               </tbody>

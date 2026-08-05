@@ -6,7 +6,7 @@ from fastapi.middleware.cors import CORSMiddleware
 from backend.app.cache import CacheStore
 from backend.app.config import Settings, get_settings
 from backend.app.errors import ProviderError
-from backend.app.models import ApiResponse, WatchlistCreate
+from backend.app.models import ApiResponse, DataQuality, WatchlistCreate
 from backend.app.scanner import get_scanner
 from backend.app.services import MarketService
 
@@ -150,6 +150,40 @@ def create_app() -> FastAPI:
     ) -> ApiResponse:
         service.remove_watchlist(symbol, group_name)
         return ApiResponse(data={"ok": True})
+
+    @app.get("/api/sectors/hot", response_model=ApiResponse)
+    def hot_sectors(
+        limit: int = Query(default=20, ge=1, le=60),
+        refresh: bool = False,
+        cache: CacheStore = Depends(get_cache),
+    ) -> ApiResponse:
+        from backend.app.sectors import SectorService
+
+        data, warnings = SectorService(cache).hot_boards(limit=limit, refresh=refresh)
+        return ApiResponse(data=data, quality=DataQuality(source="mixed", warnings=warnings))
+
+    @app.get("/api/sectors/{code}/constituents", response_model=ApiResponse)
+    def sector_constituents(
+        code: str,
+        limit: int = Query(default=60, ge=1, le=200),
+        refresh: bool = False,
+        cache: CacheStore = Depends(get_cache),
+    ) -> ApiResponse:
+        from backend.app.sectors import SectorService
+
+        rows, warnings = SectorService(cache).constituents(code, limit=limit, refresh=refresh)
+        return ApiResponse(data=rows, quality=DataQuality(source="eastmoney", warnings=warnings))
+
+    @app.get("/api/stock/{symbol}/industry", response_model=ApiResponse)
+    def stock_industry(
+        symbol: str,
+        refresh: bool = False,
+        cache: CacheStore = Depends(get_cache),
+    ) -> ApiResponse:
+        from backend.app.industry import IndustryService
+
+        data, warnings = IndustryService(cache).industry_of(symbol, refresh=refresh)
+        return ApiResponse(data=data, quality=DataQuality(source="baostock", warnings=warnings))
 
     @app.post("/api/moneygrab/scan", response_model=ApiResponse)
     def start_moneygrab_scan(

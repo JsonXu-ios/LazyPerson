@@ -197,7 +197,7 @@ def evaluate_stock(
     }
 
 
-STATE_KEY = "moneygrab:last_scan:v8"  # v8: 命中行含 north_ok（一路北上）标记
+STATE_KEY = "moneygrab:last_scan:v9"  # v9: 命中行含 industry/concepts/hot_sector
 
 
 def _default_fundamentals_enricher(cache: CacheStore, hits: list[dict], caps: dict) -> None:
@@ -210,6 +210,28 @@ def _default_lon_enricher(cache: CacheStore, hits: list[dict]) -> None:
     from backend.app.lon_check import LonChecker
 
     LonChecker(cache).enrich(hits)
+
+
+def _default_sector_enricher(cache: CacheStore, hits: list[dict], hot_top: int = 15) -> None:
+    """给命中行补 industry / concepts / hot_sector（所属概念在今日涨幅前 hot_top 之内）。"""
+    from backend.app.industry import IndustryService
+    from backend.app.sectors import SectorService
+
+    service = IndustryService(cache)
+    industries, _ = service.industry_map()
+    concept_map, _ = service.concept_map()
+    hot_names: set[str] = set()
+    try:
+        boards, _ = SectorService(cache).hot_boards(limit=hot_top)
+        hot_names = {board["name"] for board in boards.get("concepts", [])}
+    except Exception:
+        pass
+    for row in hits:
+        symbol = row["symbol"]
+        concepts = concept_map.get(symbol, [])
+        row["industry"] = industries.get(symbol, "")
+        row["concepts"] = concepts[:6]
+        row["hot_sector"] = any(name in hot_names for name in concepts)
 
 
 @dataclass
@@ -364,6 +386,7 @@ class MoneyGrabScanner:
         max_workers: int = 16,
         fundamentals_enricher=None,
         lon_enricher=None,
+        sector_enricher=None,
     ):
         self.settings = settings
         self.max_workers = max_workers
@@ -371,6 +394,7 @@ class MoneyGrabScanner:
         self._kline_fetcher = kline_fetcher  # None 时在 _run 内用 MarketService
         self._fundamentals_enricher = fundamentals_enricher or _default_fundamentals_enricher
         self._lon_enricher = lon_enricher or _default_lon_enricher
+        self._sector_enricher = sector_enricher or _default_sector_enricher
         self._lock = threading.Lock()
         self._state = ScanState()
         self._thread: threading.Thread | None = None
@@ -492,6 +516,17 @@ class MoneyGrabScanner:
                 pass
             for row in hits_snapshot:
                 row.setdefault("lon_ok", False)
+
+            with self._lock:
+                self._state.stage = "sector"
+            try:
+                self._sector_enricher(cache, hits_snapshot)
+            except Exception:
+                pass
+            for row in hits_snapshot:
+                row.setdefault("industry", "")
+                row.setdefault("concepts", [])
+                row.setdefault("hot_sector", False)
 
             with self._lock:
                 self._state.hits.sort(key=lambda item: (item["group"], -item["over"]))

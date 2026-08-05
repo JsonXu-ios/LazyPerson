@@ -1,4 +1,7 @@
+import { useEffect, useState } from "react";
 import { RefreshCw, Star, Trash2 } from "lucide-react";
+import { api } from "../api";
+import type { StockIndustry } from "../types";
 import type { DataQuality, KlineBar, Quote } from "../types";
 import type { AutoDrawing } from "../utils/autoDrawing";
 import { trendLabel } from "../utils/autoDrawing";
@@ -41,6 +44,7 @@ export function StockSummary({
         <div>
           <h2>{quote?.name || symbol}</h2>
           <span>{symbol}.{quote?.market || "--"}</span>
+          <IndustryLine symbol={symbol} />
         </div>
         <div className="summary-actions">
           <button className="icon-button" onClick={onRefresh} title="刷新资产">
@@ -114,6 +118,37 @@ function Metric({ label, value }: { label: string; value: string }) {
     <div className="summary-metric">
       <span>{label}</span>
       <strong>{value}</strong>
+    </div>
+  );
+}
+
+/// 个股行业（证监会分类）与所属概念板块
+function IndustryLine({ symbol }: { symbol: string }) {
+  const [info, setInfo] = useState<StockIndustry | null>(null);
+
+  useEffect(() => {
+    let alive = true;
+    setInfo(null);
+    if (!/^\d{6}$/.test(symbol)) return;
+    api.stockIndustry(symbol)
+      .then((response) => {
+        if (alive) setInfo(response.data);
+      })
+      .catch(() => {
+        if (alive) setInfo(null);
+      });
+    return () => {
+      alive = false;
+    };
+  }, [symbol]);
+
+  if (!info || (!info.industry && !info.concepts.length)) return null;
+  return (
+    <div className="summary-industry">
+      {info.industry && <span className="summary-industry-main">{info.industry}</span>}
+      {info.concepts.slice(0, 5).map((name) => (
+        <span key={name} className="summary-concept">{name}</span>
+      ))}
     </div>
   );
 }

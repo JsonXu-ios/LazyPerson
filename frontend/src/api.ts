@@ -1,5 +1,8 @@
 import type {
   ApiResponse,
+  HotSectors,
+  SectorConstituent,
+  StockIndustry,
   Fundamentals,
   KlinePayload,
   MoneyFlowPayload,
@@ -59,4 +62,10 @@ export const api = {
       { method: "POST" },
     ),
   getMoneyGrabScanStatus: () => request<MoneyGrabStatus>("/api/moneygrab/scan/status"),
+  hotSectors: (limit = 20, refresh = false) =>
+    request<HotSectors>(`/api/sectors/hot?limit=${limit}&refresh=${refresh}`),
+  sectorConstituents: (code: string, limit = 60) =>
+    request<SectorConstituent[]>(`/api/sectors/${encodeURIComponent(code)}/constituents?limit=${limit}`),
+  stockIndustry: (symbol: string) =>
+    request<StockIndustry>(`/api/stock/${encodeURIComponent(symbol)}/industry`),
 };

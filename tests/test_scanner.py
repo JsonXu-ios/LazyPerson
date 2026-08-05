@@ -637,6 +637,30 @@ class TestNorthBound:
         window, low_i = self._window(0.1, 0.5)  # 高点在中段（冲高后阴跌）
         assert not is_north_bound(window, low_i)
 
+    def test_deep_pullback_not_north(self):
+        from backend.app.scanner import is_north_bound
+
+        # 低点在前、高点在后，但中途从 20.0 回撤到 13.0（-35%）→ 不算一路北上
+        window, low_i = self._window(0.1, 0.9)
+        mid = len(window) // 2
+        for index in range(mid - 4, mid):
+            window[index]["close"] = 20.0
+        for index in range(mid, len(window)):
+            window[index]["close"] = 13.0  # 自峰值 20 回撤 35%
+        assert not is_north_bound(window, low_i)
+
+    def test_shallow_pullback_still_north(self):
+        from backend.app.scanner import is_north_bound
+
+        # 同样形态但只回撤到 15.0（-25%，未超30%）→ 仍算一路北上
+        window, low_i = self._window(0.1, 0.9)
+        mid = len(window) // 2
+        for index in range(mid - 4, mid):
+            window[index]["close"] = 20.0
+        for index in range(mid, len(window)):
+            window[index]["close"] = 15.0  # 自峰值 20 回撤 25%，未超阈值
+        assert is_north_bound(window, low_i)
+
     def test_evaluate_carries_north_flag(self):
         # make_wave_bars 低点在窗口末端 → 不是一路北上
         bars = make_wave_bars(self.today, 10.0, [5, 12, 32])

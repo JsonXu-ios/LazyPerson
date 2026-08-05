@@ -430,6 +430,42 @@ void main() {
       expect(isNorthBound(w, lowIndexOf(w)), isTrue);
     });
 
+    test('中途回撤超过30% → false', () {
+      final w = windowWith(0.1, 0.9);
+      final mid = w.length ~/ 2;
+      final adjusted = [
+        for (var i = 0; i < w.length; i++)
+          KlineBar(
+            time: w[i].time,
+            open: w[i].open,
+            high: w[i].high,
+            low: w[i].low,
+            close: i >= mid - 4 && i < mid
+                ? 20.0
+                : (i >= mid ? 13.0 : w[i].close),
+          ),
+      ];
+      expect(isNorthBound(adjusted, lowIndexOf(adjusted)), isFalse);
+    });
+
+    test('中途回撤25%（未超阈值）→ true', () {
+      final w = windowWith(0.1, 0.9);
+      final mid = w.length ~/ 2;
+      final adjusted = [
+        for (var i = 0; i < w.length; i++)
+          KlineBar(
+            time: w[i].time,
+            open: w[i].open,
+            high: w[i].high,
+            low: w[i].low,
+            close: i >= mid - 4 && i < mid
+                ? 20.0
+                : (i >= mid ? 15.0 : w[i].close),
+          ),
+      ];
+      expect(isNorthBound(adjusted, lowIndexOf(adjusted)), isTrue);
+    });
+
     test('低点在后段（V型反转类）→ false', () {
       final w = windowWith(0.9, 0.95);
       expect(isNorthBound(w, lowIndexOf(w)), isFalse);

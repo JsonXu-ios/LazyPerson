@@ -15,6 +15,9 @@ const maxGroups = 8;
 const scanWindowDays = 90;
 const scanMinBars = 20;
 
+/// 一路北上允许的最大回撤（收盘口径）
+const northMaxDrawdown = 0.30;
+
 /// 按最新收盘涨幅归档，档位分界 20/40/70/100/130/160/190/220：
 /// 一档 [20,40)、二档 [40,70)、三档 [70,100)、四档 [100,130)、五档 [130,160)、
 /// 六档 [160,190)、七档 [190,220)、八档 [220,∞)。
@@ -43,17 +46,31 @@ bool isFallingBack(double? pct, double? maxPct) {
 }
 
 /// 一路北上：90日整体向上——波段低点在窗口前1/3、最高点在窗口后1/3，中间回落不限。
-bool isNorthBound(List<KlineBar> window, int lowIndex) {
+bool isNorthBound(List<KlineBar> window, int lowIndex,
+    {double maxDrawdown = northMaxDrawdown}) {
   final n = window.length;
   if (n < 3) return false;
   var highIndex = 0;
   for (var i = 1; i < n; i++) {
     final h = window[i].high;
-    if (h != null && (window[highIndex].high == null || h > window[highIndex].high!)) {
+    if (h != null &&
+        (window[highIndex].high == null || h > window[highIndex].high!)) {
       highIndex = i;
     }
   }
-  return lowIndex <= (n - 1) / 3 && highIndex >= (n - 1) * 2 / 3;
+  if (lowIndex > (n - 1) / 3 || highIndex < (n - 1) * 2 / 3) return false;
+  // 低点之后的震荡回落（收盘口径最大回撤）不能超过 maxDrawdown
+  double? peak;
+  for (final bar in window.sublist(lowIndex)) {
+    final close = bar.close;
+    if (close == null) continue;
+    if (peak == null || close > peak) {
+      peak = close;
+    } else if (peak > 0 && (peak - close) / peak > maxDrawdown) {
+      return false;
+    }
+  }
+  return true;
 }
 
 /// 主板涨停判定：现价（收盘后即收盘价）等于 round(昨收×1.1, 2)。

@@ -17,6 +17,7 @@ GROUP_FINAL_BASE = 20.0  # 一档下沿
 GROUP_PRE_OFFSET = 10.0
 # 八档分界：一档 [20,40)，之后每 30 一档，分界线 = K线主线(20/50/80/110…) − 10
 GROUP_LOWER = (20.0, 40.0, 70.0, 100.0, 130.0, 160.0, 190.0, 220.0)
+NORTH_MAX_DRAWDOWN = 0.30  # 一路北上允许的最大回撤（收盘口径）
 MAX_GROUPS = len(GROUP_LOWER)
 WINDOW_DAYS = 90
 MIN_BARS = 20
@@ -52,13 +53,26 @@ def group_threshold(group: int) -> float:
     return GROUP_LOWER[max(1, min(group, MAX_GROUPS)) - 1]
 
 
-def is_north_bound(window: list[dict], low_index: int) -> bool:
-    """一路北上：90日整体向上——波段低点在窗口前1/3、最高点在窗口后1/3，中间回落不限。"""
+def is_north_bound(window: list[dict], low_index: int, max_drawdown: float = NORTH_MAX_DRAWDOWN) -> bool:
+    """一路北上：90日整体向上——波段低点在窗口前1/3、最高点在窗口后1/3，
+    且低点之后的震荡回落（收盘口径的最大回撤）不超过 max_drawdown（默认30%）。"""
     n = len(window)
     if n < 3:
         return False
     high_index = max(range(n), key=lambda i: float(window[i]["high"]))
-    return low_index <= (n - 1) / 3 and high_index >= (n - 1) * 2 / 3
+    if not (low_index <= (n - 1) / 3 and high_index >= (n - 1) * 2 / 3):
+        return False
+    peak: float | None = None
+    for bar in window[low_index:]:
+        close = bar.get("close")
+        if close is None:
+            continue
+        value = float(close)
+        if peak is None or value > peak:
+            peak = value
+        elif peak > 0 and (peak - value) / peak > max_drawdown:
+            return False  # 中间回撤超过阈值，不算一路向北
+    return True
 
 
 def is_limit_up(price: float | None, pre_close: float | None, ratio: float = 1.1) -> bool:

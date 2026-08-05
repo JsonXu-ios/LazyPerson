@@ -143,50 +143,119 @@ class _BandScanScreenState extends State<BandScanScreen> {
       child: Row(
         children: [
           _ScanButton(
-            running: running,
+            // 补齐期间也锁住（补齐会占满网络，且 startScan 此时直接返回）
+            running: running || controller.backfilling,
             label: running
                 ? '扫描中…'
+                : controller.backfilling
+                ? '补齐中…'
                 : controller.status == BandScanStatus.done
-                    ? '重新扫描'
-                    : '开始扫描',
+                ? '重新扫描'
+                : '开始扫描',
             onPressed: controller.startScan,
           ),
           const Spacer(),
-          Column(
-            crossAxisAlignment: CrossAxisAlignment.end,
-            children: [
-              Text(
-                controller.tradeDate ?? '',
-                style: mono(
-                    size: FontSize.secondaryNumber,
-                    color: AppColors.textFaint),
-              ),
-              const SizedBox(height: 2),
-              Text(
-                controller.status == BandScanStatus.done
-                    ? 'SCAN ${controller.total}'
-                    : controller.minMarketCap != null
-                        ? 'CAP>${controller.minMarketCap!.toInt()}亿'
-                        : 'CAP ALL',
-                style: mono(
-                  size: FontSize.legend,
-                  color: AppColors.textDim,
-                  letterSpacing: 0.8,
-                ),
-              ),
-              if (controller.skippedNoData > 0) ...[
-                const SizedBox(height: 2),
+          // 补齐提示可能挺长，右侧整列可压缩（窄屏 360dp 不顶出去）
+          Flexible(
+            child: Column(
+              crossAxisAlignment: CrossAxisAlignment.end,
+              children: [
                 Text(
-                  '本地日K缺失 跳过${controller.skippedNoData}只',
+                  controller.tradeDate ?? '',
                   style: mono(
-                    size: FontSize.legend,
-                    color: AppColors.warn,
-                    letterSpacing: 0.4,
+                    size: FontSize.secondaryNumber,
+                    color: AppColors.textFaint,
                   ),
                 ),
+                const SizedBox(height: 2),
+                Text(
+                  controller.status == BandScanStatus.done
+                      ? 'SCAN ${controller.total}'
+                      : controller.minMarketCap != null
+                      ? 'CAP>${controller.minMarketCap!.toInt()}亿'
+                      : 'CAP ALL',
+                  style: mono(
+                    size: FontSize.legend,
+                    color: AppColors.textDim,
+                    letterSpacing: 0.8,
+                  ),
+                ),
+                if (controller.skippedNoData > 0 ||
+                    controller.backfilling ||
+                    controller.backfillNote != null) ...[
+                  const SizedBox(height: 2),
+                  _backfillLine(running),
+                ],
               ],
-            ],
+            ),
           ),
+        ],
+      ),
+    );
+  }
+
+  /// 本地日K缺失提示 → 可点的「补齐」按钮（补齐中显示进度，完成后给重扫提示）
+  Widget _backfillLine(bool running) {
+    if (controller.backfilling) {
+      return Text(
+        '补齐中 ${controller.backfillDone}/${controller.backfillTotal}',
+        overflow: TextOverflow.ellipsis,
+        style: mono(
+          size: FontSize.legend,
+          color: AppColors.accent,
+          letterSpacing: 0.4,
+        ),
+      );
+    }
+    if (controller.skippedNoData == 0) {
+      return Text(
+        controller.backfillNote ?? '',
+        overflow: TextOverflow.ellipsis,
+        textAlign: TextAlign.end,
+        style: mono(
+          size: FontSize.legend,
+          color: AppColors.accent,
+          letterSpacing: 0.4,
+        ),
+      );
+    }
+    final canBackfill = !running && controller.skippedSymbols.isNotEmpty;
+    return GestureDetector(
+      onTap: canBackfill ? controller.backfillMissing : null,
+      behavior: HitTestBehavior.opaque,
+      child: Row(
+        mainAxisSize: MainAxisSize.min,
+        children: [
+          Flexible(
+            child: Text(
+              '本地日K缺失 跳过${controller.skippedNoData}只',
+              overflow: TextOverflow.ellipsis,
+              style: mono(
+                size: FontSize.legend,
+                color: AppColors.warn,
+                letterSpacing: 0.4,
+              ),
+            ),
+          ),
+          if (canBackfill) ...[
+            const SizedBox(width: 6),
+            Container(
+              padding: const EdgeInsets.symmetric(horizontal: 7, vertical: 3),
+              decoration: BoxDecoration(
+                borderRadius: BorderRadius.circular(4),
+                color: AppColors.hudFillActive,
+                border: Border.all(color: AppColors.hudBorderActive),
+              ),
+              child: Text(
+                '补齐',
+                style: mono(
+                  size: FontSize.legend,
+                  color: AppColors.accent,
+                  weight: FontWeight.w700,
+                ),
+              ),
+            ),
+          ],
         ],
       ),
     );
@@ -207,8 +276,7 @@ class _BandScanScreenState extends State<BandScanScreen> {
     } else {
       final today = DateTime.now();
       final dataDay = DateTime.tryParse('${controller.dataDate}T00:00:00');
-      final lagDays =
-          dataDay == null ? 99 : today.difference(dataDay).inDays;
+      final lagDays = dataDay == null ? 99 : today.difference(dataDay).inDays;
       text = '本地数据同步至 ${controller.dataDate}';
       color = lagDays > 3 ? AppColors.warn : AppColors.textDim;
     }
@@ -256,17 +324,12 @@ class _BandScanScreenState extends State<BandScanScreen> {
             onChanged: controller.setLimitUpFilter,
           ),
           _FilterChip(
-            label: '强信号',
-            value: controller.strongFilter,
-            onChanged: controller.setStrongFilter,
-          ),
-          _FilterChip(
             label: '一路北上',
             value: controller.northFilter,
             onChanged: controller.setNorthFilter,
           ),
           _FilterChip(
-            label: '含异常回落',
+            label: '含回落',
             value: controller.showFromTop,
             onChanged: controller.setShowFromTop,
           ),
@@ -289,11 +352,6 @@ class _BandScanScreenState extends State<BandScanScreen> {
             label: 'LON',
             value: controller.lonFilter,
             onChanged: controller.setLonFilter,
-          ),
-          _FilterChip(
-            label: '热点板块',
-            value: controller.hotFilter,
-            onChanged: controller.setHotFilter,
           ),
         ],
       ),
@@ -324,12 +382,10 @@ class _BandScanScreenState extends State<BandScanScreen> {
     final text = controller.stage == 'fundamentals'
         ? '补基本面标记（分红/净利润/估市值）…'
         : controller.stage == 'lon'
-            ? '校验 LON 多头（日/周/月K）…'
-            : controller.stage == 'sector'
-                ? '补板块标记（行业/概念/热点）…'
-                    : controller.stage == 'snapshot' || total == 0
-                        ? '正在拉取全市场行情快照…'
-                        : '本地日线计算档位 ${controller.done} / $total';
+        ? '校验 LON 多头（日/周/月K）…'
+        : controller.stage == 'snapshot' || total == 0
+        ? '正在拉取全市场行情快照…'
+        : '本地日线计算档位 ${controller.done} / $total';
     return Padding(
       padding: const EdgeInsets.fromLTRB(16, 12, 16, 0),
       child: Column(
@@ -340,7 +396,9 @@ class _BandScanScreenState extends State<BandScanScreen> {
           Text(
             text,
             style: mono(
-                size: FontSize.secondaryNumber, color: AppColors.textMuted),
+              size: FontSize.secondaryNumber,
+              color: AppColors.textMuted,
+            ),
           ),
         ],
       ),
@@ -412,9 +470,7 @@ class _ScanButton extends StatelessWidget {
           disabledBackgroundColor: AppColors.accent.withValues(alpha: 0.22),
           disabledForegroundColor: AppColors.accent,
           padding: const EdgeInsets.symmetric(horizontal: 16),
-          shape: RoundedRectangleBorder(
-            borderRadius: BorderRadius.circular(8),
-          ),
+          shape: RoundedRectangleBorder(borderRadius: BorderRadius.circular(8)),
         ),
         icon: running
             ? const SizedBox(
@@ -485,8 +541,8 @@ class _FilterChip extends StatelessWidget {
               color: !enabled
                   ? AppColors.textDim
                   : value
-                      ? AppColors.accent
-                      : AppColors.textFaint,
+                  ? AppColors.accent
+                  : AppColors.textFaint,
             ),
             const SizedBox(width: 7),
             Text(
@@ -497,8 +553,8 @@ class _FilterChip extends StatelessWidget {
                 color: !enabled
                     ? AppColors.textDim
                     : active
-                        ? AppColors.text
-                        : AppColors.textMuted,
+                    ? AppColors.text
+                    : AppColors.textMuted,
               ),
             ),
           ],

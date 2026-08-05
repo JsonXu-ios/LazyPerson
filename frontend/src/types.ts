@@ -111,8 +111,7 @@ export type MoneyGrabHit = {
   concepts?: string[];
   /** 所属概念中有今日涨幅前列的热点板块 */
   hot_sector?: boolean;
-  /** 强信号：本档内又过了 主线+20（40/70/100…）且没有回落 */
-  strong?: boolean;
+
 };
 
 export type FundamentalValuation = {

@@ -1,64 +1,45 @@
 /// 八档局核心筛选逻辑（纯函数），逐条移植自 backend/app/scanner.py。
-/// 90 日波段（低点→现在）分档：过 20/50/80/110/… 主线依次为 1/2/3/4… 档，
-/// 每档区间 [主线, 下一主线)。低点不区分反转/起点。
+/// 90 日波段（低点→现在）按档位下沿 20/40/70/100/130/160/190/220 分档，
+/// 每档区间 [本档下沿, 下一档下沿)。低点不区分反转/起点。
 library;
 
 import 'dart:math' as math;
 
 import '../models/models.dart';
 
-/// 相邻两档间隔
-const groupStep = 30.0;
-
-/// 第 k 档“最后一天至少过”阈值 = 20 + 30*(k-1)
-const groupFinalBase = 20.0;
-
-/// “先过”线 = 阈值 - 10（第一档先过10%、第二档先过40%…）
-const groupPreOffset = 10.0;
+/// 八档下沿（入档线）：分界线 = K线主线(20/50/80/110…) − 10，
+/// 一档 20 除外（对齐 scanner.py::GROUP_LOWER）
+const groupLower = <double>[20, 40, 70, 100, 130, 160, 190, 220];
 
 const maxGroups = 8;
 const scanWindowDays = 90;
 const scanMinBars = 20;
 
-/// 按最新收盘涨幅归档：过 20/50/80/110/… 主线依次为 1/2/3/4… 档。
-/// 每档区间 [主线, 下一主线)：一档 [20,50)、二档 [50,80)、三档 [80,110)…
-/// 即 20% 上下（0~40%）都属于一档的活动范围，过 50% 才被二档接手；
-/// 超过八档主线（230%）一律归第 8 档，不再有“超上限不入档”。
+/// 按最新收盘涨幅归档，档位分界 20/40/70/100/130/160/190/220：
+/// 一档 [20,40)、二档 [40,70)、三档 [70,100)、四档 [100,130)、五档 [130,160)、
+/// 六档 [160,190)、七档 [190,220)、八档 [220,∞)。
+/// 过 40% 即从一档升为二档（"快到下一条主线"就升档）；八档没有上限。
 int? classifyGroup(double? pct) {
-  if (pct == null || pct < groupFinalBase) return null;
-  final k = ((pct - groupFinalBase) / groupStep).floor() + 1;
-  return k > maxGroups ? maxGroups : k;
-}
-
-/// 强信号：在本档内又过了 主线+20（一档40/二档70/三档100/…）且没有回落下来。
-/// 档位归属不变，只作为额外过滤条件。
-bool isStrongSignal(double? pct, int group) {
-  if (pct == null) return false;
-  return pct >= groupThreshold(group) + groupStep - groupPreOffset;
-}
-
-double groupThreshold(int group) => groupFinalBase + groupStep * (group - 1);
-
-/// 跌破曾站上的最高主线（20/50/80/…）→ 打标记；重新站回主线上方即恢复。
-bool isFallingFromTop(double pct, double maxPct, [double? maxHighPct]) {
-  // 异常回落（收回后自动恢复）：
-  // 1) 收盘曾站上的最高主线（20/50/80/…），现价跌破；
-  // 2) 盘中曾冲过某奇点（40/70/100/…，用最高价判"冲高"），现价低于 奇点−10（30/60/90/…）。
-  final high = maxHighPct ?? maxPct;
-  double? floor;
-  for (var j = 1; j <= maxGroups; j++) {
-    final main = groupThreshold(j);
-    final singular = main + groupStep - groupPreOffset; // 40/70/100/…
-    if (maxPct >= main) {
-      floor = floor == null ? main : math.max(floor, main);
-    }
-    if (high >= singular) {
-      final level = singular - groupPreOffset; // 30/60/90/…
-      floor = floor == null ? level : math.max(floor, level);
-    }
+  if (pct == null || pct < groupLower[0]) return null;
+  var group = 1;
+  for (var index = 0; index < groupLower.length; index++) {
+    if (pct >= groupLower[index]) group = index + 1;
   }
-  if (floor == null) return false;
-  return pct < floor;
+  return group;
+}
+
+/// 档位下沿（入档线）
+double groupThreshold(int group) =>
+    groupLower[(group < 1 ? 1 : (group > maxGroups ? maxGroups : group)) - 1];
+
+/// 回落判定：历史收盘最高档高于当前档 → 是从更高档掉下来的，不算当前档。
+/// 例：冲到 45%（二档）后回落到 35%（一档区间）→ true，
+/// 要重新站上 40% 才以二档出现（对齐 scanner.py::is_falling_back）。
+bool isFallingBack(double? pct, double? maxPct) {
+  final current = classifyGroup(pct);
+  final peak = classifyGroup(maxPct);
+  if (current == null || peak == null) return false;
+  return peak > current;
 }
 
 /// 一路北上：90日整体向上——波段低点在窗口前1/3、最高点在窗口后1/3，中间回落不限。
@@ -135,14 +116,12 @@ class BandHit {
   final String crossDate;
   final bool limitUp;
 
-  /// 跌破主线：波段峰值曾站上某条主线（20/50/80/…），现价已跌破
+  /// 回落：历史收盘最高档高于当前档（曾进过更高档、现已回落），
+  /// 重新站上该档下沿即恢复
   final bool fromTop;
 
   /// 一路北上：90日整体向上，低点在窗口前1/3、最高点在后1/3
   final bool northOk;
-
-  /// 强信号：本档内又过了 主线+20（一档40/二档70/三档100/…）
-  final bool strong;
 
   /// 近一年有分红（含已公告未除息的今年分红），基本面阶段补标
   final bool dividendRecent;
@@ -155,15 +134,6 @@ class BandHit {
 
   /// 日/周/月三周期 LON 与 LONMA 都向上且 LON≥LONMA，lon 阶段补标
   final bool lonOk;
-
-  /// 所属行业（东财口径，如"白酒Ⅱ"），sector 阶段补标
-  final String industry;
-
-  /// 所属概念板块名（最多 6 个），sector 阶段补标
-  final List<String> concepts;
-
-  /// 所属概念里有今日涨幅前列的热点板块，sector 阶段补标
-  final bool hotSector;
 
   const BandHit({
     required this.symbol,
@@ -184,10 +154,6 @@ class BandHit {
     this.revenueOk = false,
     this.lonOk = false,
     this.northOk = false,
-    this.strong = false,
-    this.industry = '',
-    this.concepts = const [],
-    this.hotSector = false,
   });
 
   BandHit copyWith({
@@ -196,9 +162,6 @@ class BandHit {
     bool? profitOk,
     bool? revenueOk,
     bool? lonOk,
-    String? industry,
-    List<String>? concepts,
-    bool? hotSector,
   }) =>
       BandHit(
         symbol: symbol,
@@ -219,10 +182,6 @@ class BandHit {
         revenueOk: revenueOk ?? this.revenueOk,
         lonOk: lonOk ?? this.lonOk,
         northOk: northOk,
-        strong: strong,
-        industry: industry ?? this.industry,
-        concepts: concepts ?? this.concepts,
-        hotSector: hotSector ?? this.hotSector,
       );
 
   Map<String, Object?> toJson() => {
@@ -244,10 +203,6 @@ class BandHit {
         'revenue_ok': revenueOk,
         'lon_ok': lonOk,
         'north_ok': northOk,
-        'strong': strong,
-        'industry': industry,
-        'concepts': concepts,
-        'hot_sector': hotSector,
       };
 
   factory BandHit.fromJson(Map<String, Object?> json) => BandHit(
@@ -270,14 +225,6 @@ class BandHit {
         revenueOk: (json['revenue_ok'] as bool?) ?? false,
         lonOk: (json['lon_ok'] as bool?) ?? false,
         northOk: (json['north_ok'] as bool?) ?? false,
-        // 旧持久化数据缺强信号字段，默认 false
-        strong: (json['strong'] as bool?) ?? false,
-        // 旧持久化数据缺板块字段，默认空/false
-        industry: (json['industry'] as String?) ?? '',
-        concepts: [
-          for (final item in (json['concepts'] as List? ?? const [])) '$item',
-        ],
-        hotSector: (json['hot_sector'] as bool?) ?? false,
       );
 }
 
@@ -286,11 +233,11 @@ double _roundTo(double value, int digits) {
   return (value * factor).roundToDouble() / factor;
 }
 
-/// 对齐 scanner.py::evaluate_stock。90 日波段（低点→现在）按 [主线, 下一主线)
-/// 分档，本档内再过 主线+20 打 strong 强信号标记。
-/// 命中返回 BandHit（limitUp 由调用方补），
-/// 不命中返回 null。跌破曾站上主线（fromTop）只打标记不丢弃，
-/// 由展示层筛选开关决定是否显示。
+/// 对齐 scanner.py::evaluate_stock。90 日波段（低点→现在）按档位下沿
+/// 20/40/70/100/130/160/190/220 分档，每档区间 [本档下沿, 下一档下沿)。
+/// 命中返回 BandHit（limitUp 由调用方补），不命中返回 null。
+/// 回落（fromTop：历史最高档高于当前档）只打标记不丢弃，
+/// 由展示层筛选开关决定是否显示（重新站上该档下沿即自动恢复）。
 BandHit? evaluateStock(
   String symbol,
   String name,
@@ -325,19 +272,16 @@ BandHit? evaluateStock(
   if (group == null) return null;
 
   var maxPct = pct;
-  var maxHighPct = pct;
   for (final bar in window.sublist(lowIndex)) {
     final close = bar.close;
     if (close != null) maxPct = math.max(maxPct, (close / low90 - 1) * 100);
-    final high = bar.high;
-    if (high != null) maxHighPct = math.max(maxHighPct, (high / low90 - 1) * 100);
   }
-  // 异常回落只打标记，由展示层筛选开关决定是否显示（收回后自动恢复）
-  final fromTop = isFallingFromTop(pct, maxPct, maxHighPct);
+  // 回落只打标记，由展示层筛选开关决定是否显示（重新站上该档下沿即恢复）
+  final fromTop = isFallingBack(pct, maxPct);
   final northOk = isNorthBound(window, lowIndex);
 
   final threshold = groupThreshold(group);
-  // 入档线就是主线本身（一档 20%、二档 50%…）
+  // 入档线就是本档下沿（一档 20%、二档 40%、三档 70%…）
   final entryLevel = low90 * (1 + threshold / 100);
 
   String? crossDate;
@@ -367,6 +311,5 @@ BandHit? evaluateStock(
     crossDate: crossDate,
     fromTop: fromTop,
     northOk: northOk,
-    strong: isStrongSignal(pct, group),
   );
 }

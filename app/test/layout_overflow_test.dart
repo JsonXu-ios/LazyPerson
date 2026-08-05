@@ -25,10 +25,6 @@ BandHit _hit({
   String name = '某某科技股份',
   bool limitUp = false,
   bool fromTop = false,
-  String industry = '',
-  List<String> concepts = const [],
-  bool hotSector = false,
-  bool strong = false,
 }) {
   return BandHit(
     symbol: symbol,
@@ -44,10 +40,6 @@ BandHit _hit({
     crossDate: '2026-05-20',
     limitUp: limitUp,
     fromTop: fromTop,
-    strong: strong,
-    industry: industry,
-    concepts: concepts,
-    hotSector: hotSector,
   );
 }
 
@@ -67,7 +59,7 @@ Future<void> _pumpAt(
 void main() {
   _sizes.forEach((label, size) {
     group('$label 不溢出', () {
-      testWidgets('命中卡（长名称 + 涨停 + 两个形态标记）', (tester) async {
+      testWidgets('命中卡（长名称 + 涨停 + 回落标记）', (tester) async {
         await _pumpAt(
           tester,
           size,
@@ -76,15 +68,15 @@ void main() {
               padding: const EdgeInsets.symmetric(horizontal: 16),
               children: [
                 BandHitCard(
-                  hit: _hit(limitUp: true, fromTop: true, strong: true),
+                  hit: _hit(limitUp: true, fromTop: true),
                   index: 0,
                   onTap: () {},
                 ),
                 BandHitCard(
                   hit: _hit(
-                      symbol: '600002',
-                      name: '名字特别长的一家上市公司股份有限公司',
-                      strong: true),
+                    symbol: '600002',
+                    name: '名字特别长的一家上市公司股份有限公司',
+                  ),
                   index: 1,
                   onTap: () {},
                 ),
@@ -119,38 +111,8 @@ void main() {
         expect(cardRight - pctRight, lessThan(20));
       });
 
-      testWidgets('命中卡：板块行（热点标 + 超长概念名）', (tester) async {
-        await _pumpAt(
-          tester,
-          size,
-          Scaffold(
-            body: ListView(
-              padding: const EdgeInsets.symmetric(horizontal: 16),
-              children: [
-                BandHitCard(
-                  hit: _hit(
-                    limitUp: true,
-                    fromTop: true,
-                    industry: '半导体材料',
-                    concepts: const ['名字特别长的一个概念板块名称', '另一个同样很长的概念板块'],
-                    hotSector: true,
-                  ),
-                  index: 0,
-                  onTap: () {},
-                ),
-                // 没有概念时退回行业
-                BandHitCard(
-                  hit: _hit(symbol: '600002', industry: '专用设备'),
-                  index: 1,
-                  onTap: () {},
-                ),
-              ],
-            ),
-          ),
-        );
-      });
-
       testWidgets('八档雷达（八档都有命中）', (tester) async {
+        final semantics = tester.ensureSemantics();
         await _pumpAt(
           tester,
           size,
@@ -164,6 +126,15 @@ void main() {
             ),
           ),
         );
+
+        // 档位提示是区间 [本档下沿, 下一档下沿)，第八档只显示下沿
+        // 语义 label 会把柱子里的数字/档名并进来，这里只匹配开头的提示部分
+        expect(find.bySemanticsLabel(RegExp('一档 20~40% 命中 128')), findsOneWidget);
+        expect(find.bySemanticsLabel(RegExp('二档 40~70% 命中 64')), findsOneWidget);
+        expect(find.bySemanticsLabel(RegExp('三档 70~100% 命中 32')), findsOneWidget);
+        expect(find.bySemanticsLabel(RegExp('七档 190~220% 命中 2')), findsOneWidget);
+        expect(find.bySemanticsLabel(RegExp(r'八档 220%\+ 命中 1')), findsOneWidget);
+        semantics.dispose();
       });
     });
   });

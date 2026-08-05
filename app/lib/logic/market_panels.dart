@@ -42,7 +42,8 @@ const aShareConfig = MarketConfig(
   windowDays: 90,
   windowMode: WindowMode.calendar,
   lineStep: 10,
-  // 粗线 = 20 起每 30 一档（20/50/80/110/…/230），对齐八档局主线
+  // 粗线 = 20 起每 30 一档（20/50/80/110/…/230）；八档局的档位下沿是
+  // 这些主线各减 10（20/40/70/100/…/220），二者是同一套坐标
   majorLineStep: 30,
   majorLineAnchor: 20,
   showLevelPrices: true,

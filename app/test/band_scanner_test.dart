@@ -69,7 +69,7 @@ List<_Bar> _makeWaveBars(DateTime today,
 }
 
 void main() {
-  group('classifyGroup', () {
+  group('classifyGroup（分界 20/40/70/100/130/160/190/220）', () {
     test('低于 20 不入档', () {
       expect(classifyGroup(19.9), isNull);
       expect(classifyGroup(15.0), isNull); // 000408 场景
@@ -77,64 +77,39 @@ void main() {
       expect(classifyGroup(null), isNull);
     });
 
-    test('一档 [20,50)：20% 上下都是一档活动范围（振江 25.37/利欧 41.71 场景）', () {
+    test('一档 [20,40)：过 40 就交给二档（振江 25.37 场景）', () {
       expect(classifyGroup(20.0), 1);
       expect(classifyGroup(25.37), 1); // 振江
       expect(classifyGroup(35.0), 1);
-      expect(classifyGroup(41.71), 1); // 利欧
-      expect(classifyGroup(47.43), 1); // 600617
-      expect(classifyGroup(49.9), 1);
+      expect(classifyGroup(39.9), 1);
       expect(groupThreshold(1), 20.0);
     });
 
-    test('二档 [50,80)：过 50 才被二档接手', () {
-      expect(classifyGroup(50.0), 2);
-      expect(classifyGroup(66.0), 2); // 紫光
-      expect(classifyGroup(75.0), 2);
-      expect(classifyGroup(79.9), 2);
-      expect(groupThreshold(2), 50.0);
+    test('二档 [40,70)：过 40 即从一档升为二档（利欧 41.71 场景）', () {
+      expect(classifyGroup(40.0), 2);
+      expect(classifyGroup(41.71), 2); // 利欧
+      expect(classifyGroup(47.43), 2); // 600617
+      expect(classifyGroup(55.0), 2);
+      expect(classifyGroup(69.9), 2);
+      expect(groupThreshold(2), 40.0);
     });
 
-    test('八档主线 20 起每 30 一档，区间 [主线, 下一主线)', () {
+    test('八档下沿 20/40/70/100/130/160/190/220，区间 [本档下沿, 下一档下沿)', () {
       expect([for (var k = 1; k <= 8; k++) groupThreshold(k)],
-          [20.0, 50.0, 80.0, 110.0, 140.0, 170.0, 200.0, 230.0]);
-      expect(classifyGroup(80.0), 3);
-      expect(classifyGroup(105.0), 3);
-      expect(classifyGroup(109.9), 3);
-      expect(classifyGroup(110.0), 4);
-      expect(classifyGroup(135.0), 4);
-      expect(classifyGroup(150.0), 5);
-      expect(classifyGroup(181.0), 6);
-      expect(classifyGroup(215.0), 7);
-      expect(classifyGroup(241.0), 8);
+          [20.0, 40.0, 70.0, 100.0, 130.0, 160.0, 190.0, 220.0]);
+      expect(groupLower, [20.0, 40.0, 70.0, 100.0, 130.0, 160.0, 190.0, 220.0]);
+      expect(classifyGroup(70.0), 3);
+      expect(classifyGroup(99.9), 3);
+      expect(classifyGroup(100.0), 4);
+      expect(classifyGroup(130.0), 5);
+      expect(classifyGroup(160.0), 6);
+      expect(classifyGroup(190.0), 7);
+      expect(classifyGroup(220.0), 8);
     });
 
-    test('超过八档主线（230%）一律归第 8 档', () {
-      expect(classifyGroup(230.0), 8);
-      expect(classifyGroup(259.9), 8);
+    test('第八档没有上限', () {
+      expect(classifyGroup(250.0), 8);
       expect(classifyGroup(500.0), 8);
-    });
-  });
-
-  group('isStrongSignal（本档内再过 主线+20）', () {
-    test('一档过 40 才是强信号（档位仍是 1 档）', () {
-      expect(isStrongSignal(35.0, 1), isFalse);
-      expect(isStrongSignal(40.0, 1), isTrue);
-      expect(isStrongSignal(47.43, 1), isTrue);
-      expect(isStrongSignal(49.9, 1), isTrue);
-      expect(classifyGroup(47.43), 1); // 强信号不改变归档
-    });
-
-    test('二档过 70、三档过 100', () {
-      expect(isStrongSignal(66.0, 2), isFalse);
-      expect(isStrongSignal(70.0, 2), isTrue);
-      expect(isStrongSignal(79.9, 2), isTrue);
-      expect(isStrongSignal(95.0, 3), isFalse);
-      expect(isStrongSignal(100.0, 3), isTrue);
-    });
-
-    test('无涨幅不是强信号', () {
-      expect(isStrongSignal(null, 1), isFalse);
     });
   });
 
@@ -192,7 +167,7 @@ void main() {
   group('evaluateStock', () {
     final today = _defaultToday;
 
-    test('一档命中：pct=35% ∈ [20,50)，低点日在过线日之前', () {
+    test('一档命中：pct=35% ∈ [20,40)，低点日在过线日之前', () {
       // 低点10 → 收盘依次 5%、12%、32%（首次收盘站上20主线），今日现价 13.5
       final raw = _makeWaveBars(today, closesPct: [5, 12, 32]);
       final bars = _seal(raw);
@@ -203,25 +178,26 @@ void main() {
       expect(row.low90, 10.0);
       expect((row.pct * 10).round() / 10, 35.0);
       expect(row.lowDate.compareTo(row.crossDate), lessThan(0));
-      // 首次收盘站上一档主线20%的是 32% 那天（最后一根）
+      // 首次收盘站上一档下沿20%的是 32% 那天（最后一根）
       expect(row.crossDate, bars[bars.length - 1].time);
-      expect(row.strong, isFalse); // 35% 未过 40 强信号线
+      expect(row.fromTop, isFalse); // 峰值就是现价，没有回落
     });
 
-    test('利欧场景：pct=41.7% → 一档命中且是强信号（过 40）', () {
+    test('利欧场景：pct=41.7% → 过 40 升为二档', () {
       final bars = _seal(_makeWaveBars(today, closesPct: [10, 28, 38]));
       final row = evaluateStock('002131', '利欧场景', 14.17, bars, today: today);
       expect(row, isNotNull);
-      expect(row!.group, 1);
-      expect(row.strong, isTrue);
+      expect(row!.group, 2);
+      expect(row.threshold, 40.0);
+      expect(row.fromTop, isFalse);
     });
 
-    test('振江场景：pct=25.4% → 一档命中，非强信号', () {
+    test('振江场景：pct=25.4% → 一档命中', () {
       final bars = _seal(_makeWaveBars(today, closesPct: [5, 12, 18]));
       final row = evaluateStock('603507', '振江场景', 12.54, bars, today: today);
       expect(row, isNotNull);
       expect(row!.group, 1);
-      expect(row.strong, isFalse);
+      expect(row.threshold, 20.0);
     });
 
     test('000408 场景：现价只到 15% 不命中', () {
@@ -230,15 +206,24 @@ void main() {
           evaluateStock('000408', '测试股', 11.5, bars, today: today), isNull);
     });
 
-    test('二档命中：pct=55% ∈ [50,80)，过主线即入', () {
+    test('二档命中：pct=55% ∈ [40,70)，过下沿即入', () {
       final raw = _makeWaveBars(today, closesPct: [20, 42, 52]);
       final bars = _seal(raw);
       final row = evaluateStock('600001', '测试股', 15.5, bars, today: today);
       expect(row, isNotNull);
       expect(row!.group, 2);
-      expect(row.threshold, 50.0);
-      // 首次收盘站上二档入档线50%的是 52% 那天（最后一根）
-      expect(row.crossDate, bars[bars.length - 1].time);
+      expect(row.threshold, 40.0);
+      // 首次收盘站上二档入档线40%的是 42% 那天（倒数第二根）
+      expect(row.crossDate, bars[bars.length - 2].time);
+    });
+
+    test('三档命中：pct=75% ∈ [70,100)', () {
+      final bars = _seal(_makeWaveBars(today, closesPct: [20, 45, 72]));
+      final row = evaluateStock('600001', '测试股', 17.5, bars, today: today);
+      expect(row, isNotNull);
+      expect(row!.group, 3);
+      expect(row.threshold, 70.0);
+      expect(row.fromTop, isFalse);
     });
 
     test('低点是最后一天不命中（无低点→高点波段）', () {
@@ -270,48 +255,38 @@ void main() {
     });
   });
 
-  group('isFallingFromTop（跌破主线标记）', () {
-    test('只看主线 20/50/80/…，收回即恢复', () {
-      // 曾到 85%（站上80主线），现价 65%/75% 跌破 → true
-      expect(isFallingFromTop(65.0, 85.0), isTrue);
-      expect(isFallingFromTop(75.0, 85.0), isTrue);
-      // 峰值 85% 回踩到 82%：仍站在 80 上方 → false
-      expect(isFallingFromTop(82.0, 85.0), isFalse);
-      // 紫光场景：峰值 79.9（摸过70奇点），现价 66 ≥ 60 → false
-      expect(isFallingFromTop(66.0, 79.9), isFalse);
-      // 冲过 50 主线（峰值66.3）又跌回 49.7% → true（002774 场景）
-      expect(isFallingFromTop(49.7, 66.3), isTrue);
-      // 跌回后重新站上 50 → 恢复
-      expect(isFallingFromTop(52.0, 66.3), isFalse);
-      // 峰值45摸过40奇点 → 地板30，31 ≥ 30 → false
-      expect(isFallingFromTop(31.0, 45.0), isFalse);
-      expect(isFallingFromTop(45.0, 45.0), isFalse);
-      expect(isFallingFromTop(22.0, 35.0), isFalse);
+  group('isFallingBack（历史最高档 > 当前档）', () {
+    test('冲到更高档后掉回低档区间 → 回落；重新站上该档下沿即恢复', () {
+      // 冲到 45%（二档）后回落到 35%（一档区间）→ 回落
+      expect(isFallingBack(35.0, 45.0), isTrue);
+      // 重新站上 40% → 恢复为二档，不再算回落
+      expect(isFallingBack(41.0, 45.0), isFalse);
+      // 一路上行、现价即峰值 → 不是回落
+      expect(isFallingBack(35.0, 35.0), isFalse);
+      expect(isFallingBack(45.0, 45.0), isFalse);
+      // 档内回落（48→41 都在二档）→ 不算
+      expect(isFallingBack(41.0, 48.0), isFalse);
+      // 三档跌回二档 → 回落
+      expect(isFallingBack(65.0, 75.0), isTrue);
     });
 
-    test('盘中冲过奇点后深回落 → 异常回落（闰土场景）', () {
-      // 收盘峰值65.5、盘中冲高71.7（摸过70奇点），现56.8 < 60 → true
-      expect(isFallingFromTop(56.8, 65.5, 71.7), isTrue);
-      // 回落守在 60~70 区间 → false
-      expect(isFallingFromTop(63.0, 65.5, 71.7), isFalse);
-      // 盘中最高 69.9 没摸到 70：地板只有主线 50 → false
-      expect(isFallingFromTop(56.8, 65.5, 69.9), isFalse);
-      // 摸过 40 奇点后跌回 30 以下 → true
-      expect(isFallingFromTop(28.0, 35.0, 41.7), isTrue);
-      expect(isFallingFromTop(32.0, 35.0, 41.7), isFalse);
+    test('任一侧未入档 → 不是回落', () {
+      expect(isFallingBack(null, 45.0), isFalse);
+      expect(isFallingBack(15.0, 45.0), isFalse); // 现价没入档，本就不会命中
+      expect(isFallingBack(35.0, null), isFalse);
     });
 
-    test('收盘走出 40%→85%→65%：曾站上80现跌破 → 打 fromTop 标记不丢弃', () {
+    test('收盘走出 20%→45%→45%、现价 35%：二档回落到一档区间 → 打 fromTop 标记不丢弃', () {
       final bars =
-          _seal(_makeWaveBars(_defaultToday, closesPct: [40, 85, 65]));
+          _seal(_makeWaveBars(_defaultToday, closesPct: [20, 45, 45]));
       final row =
-          evaluateStock('000938', '冲高回落', 16.5, bars, today: _defaultToday);
+          evaluateStock('000938', '冲高回落', 13.5, bars, today: _defaultToday);
       expect(row, isNotNull);
-      expect(row!.group, 2);
+      expect(row!.group, 1);
       expect(row.fromTop, isTrue);
     });
 
-    test('峰值 90% 现价 92% 仍站在 80 上方 → 第三档保留且无标记', () {
+    test('峰值 90% 现价 92% 仍在三档 → 第三档保留且无标记', () {
       final bars =
           _seal(_makeWaveBars(_defaultToday, closesPct: [40, 85, 90]));
       final row =
@@ -340,7 +315,47 @@ void main() {
       });
       expect(hit.dividendRecent, isFalse);
       expect(hit.profitOk, isFalse);
-      expect(hit.strong, isFalse); // 旧数据没有 strong 键
+      expect(hit.lonOk, isFalse);
+      expect(hit.northOk, isFalse);
+    });
+
+    test('去掉的 strong/板块字段不再出现在 toJson 里', () {
+      final json = const BandHit(
+        symbol: '600519',
+        name: '贵州茅台',
+        price: 1361.76,
+        low90: 1000.0,
+        pct: 36.18,
+        group: 1,
+        threshold: 20.0,
+        over: 16.18,
+        maxPct: 36.18,
+        lowDate: '2026-05-06',
+        crossDate: '2026-07-01',
+      ).toJson();
+      expect(json.containsKey('strong'), isFalse);
+      expect(json.containsKey('industry'), isFalse);
+      expect(json.containsKey('concepts'), isFalse);
+      expect(json.containsKey('hot_sector'), isFalse);
+    });
+
+    test('旧持久化数据带 strong/板块字段也能读（多余键忽略）', () {
+      final hit = BandHit.fromJson(const {
+        'symbol': '600519',
+        'price': 1361.76,
+        'low90': 1000.0,
+        'pct': 36.18,
+        'group': 1,
+        'threshold': 20.0,
+        'over': 16.18,
+        'max_pct': 36.18,
+        'strong': true,
+        'industry': '白酒Ⅱ',
+        'concepts': ['酿酒概念'],
+        'hot_sector': true,
+      });
+      expect(hit.symbol, '600519');
+      expect(hit.group, 1);
     });
 
     test('标记字段随 toJson/fromJson 往返', () {
@@ -358,11 +373,17 @@ void main() {
         crossDate: '2026-07-01',
         dividendRecent: true,
         profitOk: true,
-        strong: true,
+        revenueOk: true,
+        lonOk: true,
+        northOk: true,
+        fromTop: true,
       ).toJson());
       expect(hit.dividendRecent, isTrue);
       expect(hit.profitOk, isTrue);
-      expect(hit.strong, isTrue);
+      expect(hit.revenueOk, isTrue);
+      expect(hit.lonOk, isTrue);
+      expect(hit.northOk, isTrue);
+      expect(hit.fromTop, isTrue);
     });
   });
 

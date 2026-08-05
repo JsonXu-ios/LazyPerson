@@ -46,76 +46,79 @@ def make_bars(days: int, low: float, today: date | None = None) -> list[dict]:
 
 
 class TestClassifyGroup:
+    """档位分界 20/40/70/100/130/160/190/220：过40即从一档升二档。"""
+
     def test_below_20_no_group(self):
         assert classify_group(19.9) is None
-        assert classify_group(15.0) is None
         assert classify_group(-3.0) is None
         assert classify_group(None) is None
 
-    def test_group1_zone_20_to_50(self):
-        # 一档 [20,50)：20% 上下（0~40%）都是一档活动范围，过50%才被二档接手
+    def test_group1_zone_20_to_40(self):
         assert classify_group(20.0) == 1
         assert classify_group(25.37) == 1  # 振江
         assert classify_group(35.0) == 1
-        assert classify_group(41.71) == 1  # 利欧
-        assert classify_group(47.43) == 1  # 600617
-        assert classify_group(49.9) == 1
+        assert classify_group(39.9) == 1
         assert group_threshold(1) == 20.0
 
-    def test_group2_zone_50_to_80(self):
-        assert classify_group(50.0) == 2
-        assert classify_group(66.0) == 2
-        assert classify_group(75.0) == 2
-        assert classify_group(79.9) == 2
-        assert group_threshold(2) == 50.0
+    def test_group2_from_40(self):
+        # 过40即二档（不用等50）
+        assert classify_group(40.0) == 2
+        assert classify_group(41.71) == 2  # 利欧
+        assert classify_group(47.43) == 2  # 600617
+        assert classify_group(55.0) == 2
+        assert classify_group(69.9) == 2
+        assert group_threshold(2) == 40.0
 
-    def test_group_zones_step_30(self):
-        assert [group_threshold(k) for k in range(1, 9)] == [20.0, 50.0, 80.0, 110.0, 140.0, 170.0, 200.0, 230.0]
-        assert classify_group(80.0) == 3
-        assert classify_group(105.0) == 3
-        assert classify_group(110.0) == 4
-        assert classify_group(135.0) == 4
-        assert classify_group(150.0) == 5
-        assert classify_group(181.0) == 6
-        assert classify_group(215.0) == 7
-        assert classify_group(241.0) == 8
+    def test_group_boundaries(self):
+        assert [group_threshold(k) for k in range(1, 9)] == [20.0, 40.0, 70.0, 100.0, 130.0, 160.0, 190.0, 220.0]
+        assert classify_group(70.0) == 3
+        assert classify_group(99.9) == 3
+        assert classify_group(100.0) == 4
+        assert classify_group(130.0) == 5
+        assert classify_group(160.0) == 6
+        assert classify_group(190.0) == 7
+        assert classify_group(220.0) == 8
 
-    def test_beyond_group8_stays_group8(self):
-        assert classify_group(259.9) == 8
+    def test_group8_has_no_upper_bound(self):
+        assert classify_group(250.0) == 8
         assert classify_group(500.0) == 8
 
 
-class TestStrongSignal:
-    def test_strong_needs_mainline_plus_20(self):
-        from backend.app.scanner import is_strong_signal
+class TestFallingBack:
+    """回落记忆：曾进过更高档、现在掉回低档区间的不算。"""
 
-        # 一档：过40才是强信号（档位仍是1档）
-        assert not is_strong_signal(35.0, 1)
-        assert is_strong_signal(40.0, 1)
-        assert is_strong_signal(47.43, 1)
-        assert is_strong_signal(49.9, 1)
-        # 二档：过70才是强信号
-        assert not is_strong_signal(66.0, 2)
-        assert is_strong_signal(70.0, 2)
-        assert is_strong_signal(79.9, 2)
-        # 三档：过100
-        assert not is_strong_signal(95.0, 3)
-        assert is_strong_signal(100.0, 3)
-        assert not is_strong_signal(None, 1)
+    def test_is_falling_back(self):
+        from backend.app.scanner import is_falling_back
 
-    def test_evaluate_carries_strong_flag(self):
+        # 冲到45%（二档）后回落到35%（一档区间）→ 回落
+        assert is_falling_back(35.0, 45.0)
+        # 重新站上40% → 恢复为二档，不再算回落
+        assert not is_falling_back(41.0, 45.0)
+        # 一路上行、现价即峰值 → 不是回落
+        assert not is_falling_back(35.0, 35.0)
+        assert not is_falling_back(45.0, 45.0)
+        # 档内回落（45→41 都在二档）→ 不算
+        assert not is_falling_back(41.0, 48.0)
+        # 三档跌回二档 → 回落
+        assert is_falling_back(65.0, 75.0)
+        assert not is_falling_back(None, 45.0)
+
+    def test_evaluate_flags_falling_back(self):
         today = date(2026, 7, 24)
-        # 现价 pct=45% → 一档且强信号（过40）
-        bars = make_wave_bars(today, 10.0, [5, 12, 32])
-        row = evaluate_stock("600001", "强信号股", 14.5, bars, today=today)
+        # 收盘走到 45%（二档）后现价 35%（一档区间）→ 打 from_top 标记
+        bars = make_wave_bars(today, 10.0, [20, 45, 45])
+        row = evaluate_stock("600001", "回落股", 13.5, bars, today=today)
         assert row is not None
         assert row["group"] == 1
-        assert row["strong"] is True
-        # 现价 pct=35% → 一档但非强信号
-        row2 = evaluate_stock("600001", "普通股", 13.5, bars, today=today)
-        assert row2 is not None
-        assert row2["group"] == 1
-        assert row2["strong"] is False
+        assert row["from_top"] is True
+
+    def test_evaluate_no_flag_when_rising(self):
+        today = date(2026, 7, 24)
+        bars = make_wave_bars(today, 10.0, [5, 12, 32])
+        row = evaluate_stock("600001", "上行股", 13.5, bars, today=today)
+        assert row is not None
+        assert row["group"] == 1
+        assert row["from_top"] is False
 
 
 class TestEligibleSymbol:
@@ -192,13 +195,12 @@ class TestEvaluateStock:
         # 首次收盘站上主线20%的日期
         assert row["cross_date"] <= bars[-1]["time"]
 
-    def test_just_over_mainline_now_group1(self):
-        # 振江场景：pct=25.4% → 新规则下属于一档（20~50 都是一档活动范围）
+    def test_just_over_mainline_is_group1(self):
+        # 振江场景：pct=25.4% → 一档 [20,40)
         bars = make_wave_bars(self.today, 10.0, [5, 12, 18])
         row = evaluate_stock("603507", "振江场景", 12.54, bars, today=self.today)
         assert row is not None
         assert row["group"] == 1
-        assert row["strong"] is False
 
     def test_below_20_not_hit(self):
         # 000408 场景：现价只到 15%，不入任何档
@@ -206,22 +208,22 @@ class TestEvaluateStock:
         assert evaluate_stock("000408", "测试股", 11.5, bars, today=self.today) is None
 
     def test_group2_hit(self):
-        # 现价 pct=55% ∈ [50,70) → 第二档（过主线50即入）
+        # 现价 pct=55% ∈ [40,70) → 第二档
         bars = make_wave_bars(self.today, 10.0, [20, 42, 52])
         row = evaluate_stock("600001", "测试股", 15.5, bars, today=self.today)
         assert row is not None
         assert row["group"] == 2
-        assert row["threshold"] == 50.0
-        # 首次收盘站上二档主线50%的是 52% 那天（最后一根）
-        assert row["cross_date"] == bars[-1]["time"]
+        assert row["threshold"] == 40.0  # 二档下沿是40
+        # 首次收盘站上二档入档线40%的是 42% 那天（倒数第2根）
+        assert row["cross_date"] == bars[-2]["time"]
 
-    def test_singular_point_is_strong_group1(self):
-        # 利欧场景：41.7% → 一档 + 强信号（过40没回落）
+    def test_over_40_is_group2(self):
+        # 利欧场景：41.7% → 过40即二档
         bars = make_wave_bars(self.today, 10.0, [10, 28, 38])
         row = evaluate_stock("002131", "利欧场景", 14.17, bars, today=self.today)
         assert row is not None
-        assert row["group"] == 1
-        assert row["strong"] is True
+        assert row["group"] == 2
+        assert row["threshold"] == 40.0
 
     def test_low_on_last_day_not_hit(self):
         # 低点若是最后一天，没有低点→高点的波段
@@ -476,65 +478,6 @@ class TestLimitUp:
         assert state["limit_up_only"] is True
         assert state["total"] == 1
         assert [hit["symbol"] for hit in state["hits"]] == ["600001"]
-
-
-class TestFallingFromTop:
-    today = date(2026, 7, 24)
-
-    def test_is_falling_from_top(self):
-        from backend.app.scanner import is_falling_from_top
-
-        # 收盘站上主线后跌破 → True；收回恢复
-        assert is_falling_from_top(65.0, 85.0)
-        assert is_falling_from_top(75.0, 85.0)
-        assert not is_falling_from_top(82.0, 85.0)
-        assert is_falling_from_top(49.7, 66.3)
-        assert not is_falling_from_top(52.0, 66.3)
-        # 紫光场景：峰值79.9（摸过70奇点），现66 ≥ 60 → False（以二档回归）
-        assert not is_falling_from_top(66.0, 79.9)
-        # 40 不是主线；但峰值45摸过40奇点 → 地板30，31≥30 → False
-        assert not is_falling_from_top(31.0, 45.0)
-        assert not is_falling_from_top(45.0, 45.0)
-        assert not is_falling_from_top(22.0, 35.0)
-
-    def test_singular_touch_uses_intraday_high(self):
-        from backend.app.scanner import is_falling_from_top
-
-        # 闰土场景：收盘峰值65.5、盘中冲高71.7（摸过70奇点），现56.8 < 60 → 异常回落
-        assert is_falling_from_top(56.8, 65.5, 71.7)
-        # 同样摸过70，但回落守在60~70区间 → 正常
-        assert not is_falling_from_top(63.0, 65.5, 71.7)
-        # 没摸过70（盘中最高69.9）：地板只有主线50 → 56.8 ≥ 50 → False
-        assert not is_falling_from_top(56.8, 65.5, 69.9)
-        # 摸过40奇点（盘中41.7）后跌回30以下 → True
-        assert is_falling_from_top(28.0, 35.0, 41.7)
-        assert not is_falling_from_top(32.0, 35.0, 41.7)
-
-    def test_evaluate_flags_falling_stock(self):
-        # 收盘走出 40% → 85% → 65%：曾站上80主线、现价 65% 跌破 → 打 from_top 标记交给展示层筛选
-        bars = make_wave_bars(self.today, 10.0, [40, 85, 65])
-        row = evaluate_stock("000938", "冲高回落", 16.5, bars, today=self.today)
-        assert row is not None
-        assert row["group"] == 2
-        assert row["from_top"] is True
-
-    def test_evaluate_flags_singular_touch_fallback(self):
-        # 闰土场景：收盘走到65.5%、其中一天盘中冲高过70，现价 56.8% → 异常回落标记
-        bars = make_wave_bars(self.today, 10.0, [40, 64, 65.5])
-        bars[-2]["high"] = 10.0 * 1.717  # 盘中冲高 71.7%
-        row = evaluate_stock("002440", "闰土场景", 15.68, bars, today=self.today)
-        assert row is not None
-        assert row["group"] == 2
-        assert row["from_top"] is True
-
-    def test_evaluate_keeps_holding_stock(self):
-        # 峰值 90%，今日现价 19.2（92% ∈ [80,100)）仍站在 80 上方 → 第三档保留且无标记
-        bars = make_wave_bars(self.today, 10.0, [40, 85, 90])
-        row = evaluate_stock("600001", "持稳股", 19.2, bars, today=self.today)
-        assert row is not None
-        assert row["group"] == 3  # 92% ∈ [80,110)
-        assert row["max_pct"] >= 90.0
-        assert row["from_top"] is False
 
 
 class TestVShapeAccepted:

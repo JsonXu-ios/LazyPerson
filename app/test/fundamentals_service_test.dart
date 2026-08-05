@@ -110,6 +110,34 @@ FundamentalsService _service(LocalStore store, _FakeAdapter adapter) {
   );
 }
 
+/// 只记账不打网络的假实现，用来观察 marksForMany 的并发行为
+class _CountingFundamentals extends FundamentalsService {
+  final Set<String> failing;
+  final List<String> requested = [];
+  final Map<String, double?> capsSeen = {};
+  int inFlight = 0;
+  int maxInFlight = 0;
+
+  _CountingFundamentals(LocalStore store, {this.failing = const {}})
+      : super(store: store);
+
+  @override
+  Future<FundamentalsMarks> marksFor(String symbol, double? marketCapYi) async {
+    requested.add(symbol);
+    capsSeen[symbol] = marketCapYi;
+    inFlight += 1;
+    if (inFlight > maxInFlight) maxInFlight = inFlight;
+    try {
+      await Future<void>.delayed(const Duration(milliseconds: 1));
+      if (failing.contains(symbol)) throw StateError('failed: $symbol');
+      return const FundamentalsMarks(
+          dividendRecent: true, profitOk: true, revenueOk: true);
+    } finally {
+      inFlight -= 1;
+    }
+  }
+}
+
 void main() {
   TestWidgetsFlutterBinding.ensureInitialized();
   sqfliteFfiInit();
@@ -371,6 +399,53 @@ void main() {
       await expectLater(
           service.marksFor('600519', 16119.8), throwsA(anything));
       expect(await store.getState('fundamentals:v2:600519'), isNull);
+    });
+  });
+
+  group('marksForMany（批量并发）', () {
+    late LocalStore store;
+
+    setUp(() async {
+      store = await _openStore();
+    });
+
+    tearDown(() => store.close());
+
+    test('并发跑 marksFor：路数受限、失败的不进结果集、市值按 symbol 透传', () async {
+      final service = _CountingFundamentals(store, failing: {'600003'});
+      final symbols = [for (var i = 1; i <= 20; i++) '6000${i.toString().padLeft(2, '0')}'];
+      final seen = <String, FundamentalsMarks?>{};
+
+      final result = await service.marksForMany(
+        symbols,
+        marketCapOf: (symbol) => symbol == '600001' ? 100.0 : null,
+        onEach: (symbol, marks) => seen[symbol] = marks,
+      );
+
+      expect(result.keys.toSet(), symbols.toSet()..remove('600003'));
+      expect(seen['600003'], isNull); // 失败也会回调，marks 为 null
+      expect(service.capsSeen['600001'], 100.0);
+      expect(service.maxInFlight, greaterThan(1));
+      expect(service.maxInFlight, lessThanOrEqualTo(fundamentalsFetchConcurrency));
+    });
+
+    test('shouldStop 变 true 后立刻停止取数', () async {
+      final service = _CountingFundamentals(store);
+      var stop = false;
+      final symbols = [for (var i = 0; i < 100; i++) '60${i.toString().padLeft(4, '0')}'];
+
+      final result = await service.marksForMany(
+        symbols,
+        shouldStop: () => stop,
+        onEach: (_, _) {
+          if (service.requested.length >= 10) stop = true;
+        },
+      );
+
+      expect(result.length, lessThan(symbols.length));
+      // 最多每路 worker 再多跑一只（停之前已经在飞的那只）
+      expect(service.requested.length,
+          lessThanOrEqualTo(10 + fundamentalsFetchConcurrency));
     });
   });
 }

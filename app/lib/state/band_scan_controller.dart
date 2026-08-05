@@ -9,18 +9,21 @@ import 'package:flutter/foundation.dart';
 import '../data/fundamentals_service.dart';
 import '../data/lon_check_service.dart';
 import '../data/market_repository.dart';
-import '../data/sector_service.dart';
 import '../logic/band_scanner.dart';
 import '../models/models.dart';
 
 enum BandScanStatus { idle, running, done, failed }
 
+/// 补齐本地日K缺失股票时的并发路数（每只一轮腾讯/东财日K往返）
+const bandBackfillConcurrency = 6;
+
 class BandScanController extends ChangeNotifier {
   /// 总市值下限（亿元），勾选“总市值>40亿”时生效
   static const marketCapMin = 40.0;
 
-  /// v8: 档位区间改 [主线,下一主线) + 命中行新增 strong 强信号，旧结果作废
-  static const _stateKey = 'band_scan:last:v8';
+  /// v9: 档位分界改 20/40/70/100/…、回落判定重写、去强信号与板块字段，
+  /// 旧结果作废
+  static const _stateKey = 'band_scan:last:v9';
 
   final MarketRepository repository;
   final DateTime Function() now;
@@ -31,14 +34,10 @@ class BandScanController extends ChangeNotifier {
   /// LON 多头标记（日/周/月三周期），测试可注入假实现
   late final LonCheckService lonCheck;
 
-  /// 板块标记（行业/概念/热点），测试可注入假实现
-  late final SectorService sectors;
-
   BandScanController(this.repository,
       {DateTime Function()? nowFn,
       FundamentalsService? fundamentals,
-      LonCheckService? lonCheck,
-      SectorService? sectors})
+      LonCheckService? lonCheck})
       : now = nowFn ?? DateTime.now {
     this.fundamentals = fundamentals ??
         FundamentalsService(
@@ -52,12 +51,10 @@ class BandScanController extends ChangeNotifier {
           tencent: repository.tencent,
           nowFn: now,
         );
-    // 默认复用 repository 上那份，缓存与资产信息浮层/热点板块页共用
-    this.sectors = sectors ?? repository.sectors;
   }
 
   BandScanStatus status = BandScanStatus.idle;
-  String stage = ''; // snapshot | kline | fundamentals | lon | sector | ''
+  String stage = ''; // snapshot | kline | fundamentals | lon | ''
   int total = 0;
   int done = 0;
   List<BandHit> hits = [];
@@ -67,6 +64,19 @@ class BandScanController extends ChangeNotifier {
 
   /// 本地日K缺失/不足20根而未参与判定的股票数（数据完整性提示，非规则排除）
   int skippedNoData = 0;
+
+  /// 上面那批股票的代码，供「补齐」按钮逐只补拉 90 天日K
+  List<String> skippedSymbols = [];
+
+  /// 补齐进行中（补齐完成/失败后回 false）
+  bool backfilling = false;
+
+  /// 补齐进度：已处理 / 总数
+  int backfillDone = 0;
+  int backfillTotal = 0;
+
+  /// 补齐结果提示（成功若干只 / 失败原因），点开始扫描后清空
+  String? backfillNote;
 
   /// 同步状态：本地全市场日K的最新交易日（null = 尚无数据/未加载）
   String? dataDate;
@@ -80,7 +90,8 @@ class BandScanController extends ChangeNotifier {
   /// 展示层过滤：只看今日涨停（默认勾选，取消显示全部，无需重扫）
   bool limitUpFilter = true;
 
-  /// 展示层过滤：「从高处来」的两种形态默认隐藏，勾选后并入列表（无需重扫）
+  /// 展示层过滤：回落（曾进过更高档、现已回落）默认隐藏，
+  /// 勾选后并入列表（无需重扫）
   bool showFromTop = false;
 
   /// 展示层过滤：只看近一年有分红（含已公告的今年分红），默认关，无需重扫
@@ -97,12 +108,6 @@ class BandScanController extends ChangeNotifier {
 
   /// 展示层过滤：只看一路北上（低点在窗口前1/3、最高点在后1/3），默认关
   bool northFilter = false;
-
-  /// 展示层过滤：只看所属概念里有今日热点板块的，默认关
-  bool hotFilter = false;
-
-  /// 展示层过滤：只看强信号（本档内又过了 主线+20：40/70/100/…），默认关
-  bool strongFilter = false;
 
   int activeGroup = 1;
 
@@ -121,9 +126,7 @@ class BandScanController extends ChangeNotifier {
           (!profitFilter || hit.profitOk) &&
           (!revenueFilter || hit.revenueOk) &&
           (!lonFilter || hit.lonOk) &&
-          (!northFilter || hit.northOk) &&
-          (!hotFilter || hit.hotSector) &&
-          (!strongFilter || hit.strong))
+          (!northFilter || hit.northOk))
       .toList();
 
   Map<int, int> get groupCounts {
@@ -204,18 +207,6 @@ class BandScanController extends ChangeNotifier {
     _notify();
   }
 
-  void setHotFilter(bool value) {
-    if (value == hotFilter) return;
-    hotFilter = value;
-    _notify();
-  }
-
-  void setStrongFilter(bool value) {
-    if (value == strongFilter) return;
-    strongFilter = value;
-    _notify();
-  }
-
   String get _today => now().toIso8601String().substring(0, 10);
 
   /// 加载同步状态（初始化标记 + 本地数据最新交易日）
@@ -239,7 +230,13 @@ class BandScanController extends ChangeNotifier {
           BandHit.fromJson((row as Map).cast<String, Object?>()),
       ];
       total = (data['total'] as num?)?.toInt() ?? hits.length;
-      skippedNoData = (data['skipped_no_data'] as num?)?.toInt() ?? 0;
+      skippedSymbols = [
+        for (final item in (data['skipped_symbols'] as List? ?? const []))
+          '$item',
+      ];
+      // 旧结果没存代码清单时退回计数（补齐按钮此时不可用，重扫即可）
+      skippedNoData =
+          (data['skipped_no_data'] as num?)?.toInt() ?? skippedSymbols.length;
       done = total;
       tradeDate = data['trade_date'] as String?;
       minMarketCap = (data['min_market_cap'] as num?)?.toDouble();
@@ -252,7 +249,7 @@ class BandScanController extends ChangeNotifier {
   }
 
   Future<void> startScan() async {
-    if (running) return;
+    if (running || backfilling) return;
     // 全市场日K未同步完成时本地数据残缺，扫描结果会漏股票（如刚安装的设备），直接拒绝
     if (!await repository.sync.isInitialized()) {
       status = BandScanStatus.failed;
@@ -271,6 +268,8 @@ class BandScanController extends ChangeNotifier {
     hits = [];
     error = null;
     skippedNoData = 0;
+    skippedSymbols = [];
+    backfillNote = null;
     tradeDate = _today;
     minMarketCap = capLimit;
     _notify();
@@ -311,11 +310,13 @@ class BandScanController extends ChangeNotifier {
 
     final today = now();
     final collected = <BandHit>[];
+    final missing = <String>[];
     for (final quote in candidates) {
       if (runId != _runId) return;
       final bars = await repository.store.getDailyBars(quote.symbol);
       if (validScanBars(bars).length < scanMinBars) {
-        // 本地日K缺失/不足：不是规则排除，单独计数并在界面提示
+        // 本地日K缺失/不足：不是规则排除，单独记录代码供「补齐」按钮用
+        missing.add(quote.symbol);
         skippedNoData += 1;
       } else {
         final row = evaluateStock(quote.symbol, quote.name, quote.price, bars,
@@ -332,77 +333,54 @@ class BandScanController extends ChangeNotifier {
       }
     }
 
-    // 基本面标记（分红/净利润/估市值）：只查命中股（约一两百只），缓存3天；
-    // 单只取数失败不影响扫描结果，标记保持默认 false（对齐 scanner.py fundamentals 阶段）
+    skippedSymbols = missing;
+
+    // 命中股在这里按 symbol → 下标索引，供两个并发阶段回填
+    final indexBySymbol = {
+      for (var i = 0; i < collected.length; i++) collected[i].symbol: i,
+    };
+
+    // 基本面标记（分红/净利润/估市值）：只查命中股，缓存3天；
+    // 单只取数失败不影响扫描结果，标记保持默认 false（对齐 scanner.py fundamentals 阶段）。
+    // 规则放宽后命中数到 700+，逐只串行要几分钟，这里按
+    // fundamentalsFetchConcurrency 路并发（同 sector/同步阶段的 worker 池写法）。
     stage = 'fundamentals';
     hits = List.of(collected);
     _notify();
     final caps = {
       for (final quote in candidates) quote.symbol: quote.marketCap,
     };
-    for (var i = 0; i < collected.length; i++) {
-      if (runId != _runId) return;
-      final hit = collected[i];
-      try {
-        final marks = await fundamentals.marksFor(hit.symbol, caps[hit.symbol]);
-        collected[i] = hit.copyWith(
-          dividendRecent: marks.dividendRecent,
-          profitOk: marks.profitOk,
-          revenueOk: marks.revenueOk,
-        );
-      } catch (_) {
-        // 取数失败保持默认 false
-      }
-    }
-
-    // LON 多头标记（日/周/月三周期）：只对命中股计算，周/月K走缓存→腾讯；
-    // 单只失败保持默认 false（对齐 scanner.py lon 阶段）
-    stage = 'lon';
-    hits = List.of(collected);
-    _notify();
-    for (var i = 0; i < collected.length; i++) {
-      if (runId != _runId) return;
-      try {
-        collected[i] = collected[i]
-            .copyWith(lonOk: await lonCheck.lonOkFor(collected[i].symbol));
-      } catch (_) {
-        // 取数失败保持默认 false
-      }
-    }
-
-    // 板块标记（行业/概念/热点）：只查命中股，个股板块按天缓存；
-    // 热点概念榜取一次复用（榜单 5 分钟缓存），单只失败保持默认空/false
-    // （对齐 scanner.py::_default_sector_enricher）。
-    // 命中动辄一两百只、每只一轮东财往返，串行要一两分钟，这里按
-    // sectorFetchConcurrency 路并发（同 lon/同步阶段的 worker 池写法）。
-    stage = 'sector';
-    hits = List.of(collected);
-    _notify();
-    Set<String> hotCodes = const {};
-    try {
-      hotCodes = await sectors.hotConceptCodes();
-    } catch (_) {
-      // 热点榜取不到就只补行业/概念，hotSector 保持 false
-    }
-    if (runId != _runId) return;
-    final indexBySymbol = {
-      for (var i = 0; i < collected.length; i++) collected[i].symbol: i,
-    };
-    await sectors.sectorsOfMany(
+    await fundamentals.marksForMany(
       [for (final hit in collected) hit.symbol],
-      hotCodes: hotCodes,
+      marketCapOf: (symbol) => caps[symbol],
       shouldStop: () => runId != _runId,
       onEach: (symbol, marks) {
         if (runId != _runId || marks == null) return;
         final index = indexBySymbol[symbol];
         if (index == null) return;
         collected[index] = collected[index].copyWith(
-          industry: marks.industry,
-          concepts: marks.concepts.length > sectorMaxConcepts
-              ? marks.concepts.sublist(0, sectorMaxConcepts)
-              : marks.concepts,
-          hotSector: marks.hot,
+          dividendRecent: marks.dividendRecent,
+          profitOk: marks.profitOk,
+          revenueOk: marks.revenueOk,
         );
+      },
+    );
+    if (runId != _runId) return;
+
+    // LON 多头标记（日/周/月三周期）：只对命中股计算，周/月K走缓存→腾讯；
+    // 单只失败保持默认 false（对齐 scanner.py lon 阶段）。
+    // 每只最多三轮网络往返，并发路数比其他阶段保守（lonFetchConcurrency=6）。
+    stage = 'lon';
+    hits = List.of(collected);
+    _notify();
+    await lonCheck.lonOkForMany(
+      [for (final hit in collected) hit.symbol],
+      shouldStop: () => runId != _runId,
+      onEach: (symbol, ok) {
+        if (runId != _runId || !ok) return;
+        final index = indexBySymbol[symbol];
+        if (index == null) return;
+        collected[index] = collected[index].copyWith(lonOk: true);
       },
     );
     if (runId != _runId) return;
@@ -427,10 +405,67 @@ class BandScanController extends ChangeNotifier {
         'min_market_cap': minMarketCap,
         'total': total,
         'skipped_no_data': skippedNoData,
+        'skipped_symbols': skippedSymbols,
         'finished_at': now().toIso8601String(),
         'hits': [for (final hit in hits) hit.toJson()],
       }),
     );
+  }
+
+  /// 补齐本地日K缺失的股票：对 [skippedSymbols] 逐只补拉 90 天日K
+  /// （bandBackfillConcurrency 路并发），成功的从清单里移除；
+  /// 全部补齐后清空清单并提示可重扫。扫描进行中不允许启动。
+  Future<void> backfillMissing() async {
+    if (backfilling || running || skippedSymbols.isEmpty) return;
+    final runId = ++_runId; // 与扫描共用一个 runId：任一方重启，另一方立刻停
+    final pending = List.of(skippedSymbols);
+    backfilling = true;
+    backfillDone = 0;
+    backfillTotal = pending.length;
+    backfillNote = null;
+    _notify();
+
+    final failed = <String>[];
+    final queue = pending.iterator;
+    Future<void> worker() async {
+      // Iterator 在单 isolate 事件循环内串行推进，无并发竞争
+      while (queue.moveNext()) {
+        if (runId != _runId) return; // 期间点了重新扫描/页面销毁
+        final symbol = queue.current;
+        try {
+          await repository.sync.refreshSymbol(symbol);
+        } catch (_) {
+          failed.add(symbol); // 个别失败留在清单里，可再点一次
+        }
+        backfillDone += 1;
+        if (backfillDone % 5 == 0 || backfillDone == backfillTotal) _notify();
+      }
+    }
+
+    try {
+      await Future.wait([
+        for (var i = 0; i < bandBackfillConcurrency; i++) worker(),
+      ]);
+    } catch (exc) {
+      if (runId != _runId) return;
+      backfilling = false;
+      backfillNote = '补齐失败：$exc';
+      _notify();
+      return;
+    }
+    if (runId != _runId) return;
+
+    final filled = backfillTotal - failed.length;
+    skippedSymbols = failed;
+    skippedNoData = failed.length;
+    backfilling = false;
+    backfillNote = failed.isEmpty
+        ? '已补齐 $filled 只，点「重新扫描」纳入判定'
+        : '补齐 $filled/$backfillTotal 只，${failed.length} 只取数失败，可再点一次';
+    dataDate = await repository.sync.latestDataDate();
+    if (runId != _runId) return;
+    _notify();
+    if (status == BandScanStatus.done) await _persist();
   }
 
   /// 全市场A股快照：东财 clist（内置主备域名）优先，失败或残缺时

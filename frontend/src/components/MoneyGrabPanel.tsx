@@ -7,22 +7,19 @@ const POLL_MS = 2000;
 const GROUP_NAMES = ["一", "二", "三", "四", "五", "六", "七", "八"];
 const MARKET_CAP_MIN = 40; // 亿元
 
+// 档位分界 20/40/70/100/130/160/190/220：一档[20,40)、二档[40,70)、三档[70,100)…
+const GROUP_LOWER = [20, 40, 70, 100, 130, 160, 190, 220];
+
 function groupThreshold(group: number) {
-  return 20 + 30 * (group - 1);
+  return GROUP_LOWER[Math.min(Math.max(group, 1), 8) - 1];
 }
 
-// 档位区间 [主线, 下一主线)：一档 [20,50)、二档 [50,80)、三档 [80,110)…
 function zoneLower(group: number) {
   return groupThreshold(group);
 }
 
 function zoneUpper(group: number) {
-  return groupThreshold(group) + 30;
-}
-
-// 强信号线：本档主线 +20（40/70/100…）
-function strongLine(group: number) {
-  return groupThreshold(group) + 20;
+  return group >= 8 ? Infinity : GROUP_LOWER[group];
 }
 
 export function MoneyGrabPanel({ onSelect }: { onSelect: (symbol: string) => void }) {
@@ -40,7 +37,6 @@ export function MoneyGrabPanel({ onSelect }: { onSelect: (symbol: string) => voi
   const [lonFilter, setLonFilter] = useState(false);             // 日/周/月 LON 多头
   const [northFilter, setNorthFilter] = useState(false);         // 一路北上：低点在前高点在后
   const [hotFilter, setHotFilter] = useState(false);             // 只看今日热点概念板块内的
-  const [strongFilter, setStrongFilter] = useState(false);       // 强信号：本档内过了 主线+20
   const timerRef = useRef<number | null>(null);
 
   const loadStatus = useCallback(async () => {
@@ -97,8 +93,7 @@ export function MoneyGrabPanel({ onSelect }: { onSelect: (symbol: string) => voi
       (!revenueFilter || hit.revenue_ok === true) &&
       (!lonFilter || hit.lon_ok === true) &&
       (!northFilter || hit.north_ok === true) &&
-      (!hotFilter || hit.hot_sector === true) &&
-      (!strongFilter || hit.strong === true),
+      (!hotFilter || hit.hot_sector === true),
   );
   const groupCounts = new Map<number, number>();
   const groupHits = new Map<number, MoneyGrabHit[]>();
@@ -135,7 +130,7 @@ export function MoneyGrabPanel({ onSelect }: { onSelect: (symbol: string) => voi
           />
           今日涨停
         </label>
-        <label className="moneygrab-filter" title="展示过滤：跌破曾站上的主线（20/50/80/…），或盘中冲过奇点（40/70/100/…）后回落低于奇点−10 的，勾选后并入列表；收回自动恢复">
+        <label className="moneygrab-filter" title="展示过滤：曾进过更高档、现在回落到低档区间的（如冲到45%后跌回35%），勾选后并入列表；重新站上该档下沿即自动恢复">
           <input type="checkbox" checked={showFromTop} onChange={(event) => setShowFromTop(event.target.checked)} />
           含异常回落
         </label>
@@ -179,14 +174,6 @@ export function MoneyGrabPanel({ onSelect }: { onSelect: (symbol: string) => voi
           />
           一路北上
         </label>
-        <label className="moneygrab-filter" title="强信号：本档内又过了 主线+20（一档40、二档70、三档100…）且没有回落">
-          <input
-            type="checkbox"
-            checked={strongFilter}
-            onChange={(event) => setStrongFilter(event.target.checked)}
-          />
-          强信号
-        </label>
         <label className="moneygrab-filter" title="所属概念板块中有今日涨幅前列的热点板块">
           <input
             type="checkbox"
@@ -226,7 +213,7 @@ export function MoneyGrabPanel({ onSelect }: { onSelect: (symbol: string) => voi
                   key={group}
                   className={activeGroup === group ? "active" : ""}
                   onClick={() => setActiveGroup(group)}
-                  title={`收盘过 ${groupThreshold(group)}% 主线入档，区间 ${zoneLower(group)}~${zoneUpper(group)}%；过 ${strongLine(group)}% 为强信号`}
+                  title={group === 8 ? `收盘过 ${zoneLower(group)}% 入八档` : `收盘过 ${zoneLower(group)}% 入档，区间 ${zoneLower(group)}~${zoneUpper(group)}%`}
                 >
                   {cn}档 {group === 8 ? `${zoneLower(group)}%+` : `${zoneLower(group)}~${zoneUpper(group)}%`}
                   <em>{count}</em>
@@ -258,10 +245,7 @@ export function MoneyGrabPanel({ onSelect }: { onSelect: (symbol: string) => voi
                     <td>{hit.name}</td>
                     <td>{hit.price.toFixed(2)}</td>
                     <td>{hit.low90.toFixed(2)}</td>
-                    <td className="moneygrab-pct">
-                      {hit.strong && <span className="moneygrab-strong" title="强信号">▲</span>}
-                      {hit.pct.toFixed(1)}%
-                    </td>
+                    <td className="moneygrab-pct">{hit.pct.toFixed(1)}%</td>
                     <td>{hit.max_pct.toFixed(1)}%</td>
                     <td>{hit.low_date.slice(5)}</td>
                     <td>{hit.cross_date.slice(5)}</td>
@@ -271,7 +255,7 @@ export function MoneyGrabPanel({ onSelect }: { onSelect: (symbol: string) => voi
                       {(hit.concepts || []).slice(0, 2).join(" ") || hit.industry || "-"}
                     </td>
                     <td className="moneygrab-shape">
-                      {hit.from_top && <span title="跌破曾站上的主线，或冲过奇点后回落低于奇点−10（收回后自动恢复）">异常回落</span>}
+                      {hit.from_top && <span title="曾进过更高档、现已回落（重新站上该档下沿即恢复）">回落</span>}
                     </td>
                   </tr>
                 ))}

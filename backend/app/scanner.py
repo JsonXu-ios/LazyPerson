@@ -12,10 +12,12 @@ from backend.app.cache import CacheStore
 from backend.app.config import Settings, get_settings
 from backend.app.utils import now_utc
 
-GROUP_STEP = 30.0  # 相邻两档间隔
-GROUP_FINAL_BASE = 20.0  # 第 k 档"最后一天至少过"阈值 = 20 + 30*(k-1)
-GROUP_PRE_OFFSET = 10.0  # "先过"线 = 阈值 - 10（第一档先过10%、第二档先过40%…）
-MAX_GROUPS = 8
+GROUP_STEP = 30.0  # 相邻两档间隔（二档起）
+GROUP_FINAL_BASE = 20.0  # 一档下沿
+GROUP_PRE_OFFSET = 10.0
+# 八档分界：一档 [20,40)，之后每 30 一档，分界线 = K线主线(20/50/80/110…) − 10
+GROUP_LOWER = (20.0, 40.0, 70.0, 100.0, 130.0, 160.0, 190.0, 220.0)
+MAX_GROUPS = len(GROUP_LOWER)
 WINDOW_DAYS = 90
 MIN_BARS = 20
 OHLC_KEYS = ("open", "high", "low", "close")
@@ -23,46 +25,31 @@ ALLOWED_PREFIXES = ("60", "00")  # 仅沪深主板，排除创业板(30)/科创�
 
 
 def classify_group(pct: float | None) -> int | None:
-    """按最新收盘涨幅归档：过 20/50/80/110/… 主线依次为 1/2/3/4… 档。
-    每档区间 [主线, 下一主线)：一档 [20,50)、二档 [50,80)、三档 [80,110)…
-    即 20% 上下（0~40%）都属于一档的活动范围，过 50% 才被二档接手。"""
-    if pct is None or pct < GROUP_FINAL_BASE:
+    """按最新收盘涨幅归档，档位分界 20/40/70/100/130/160/190/220：
+    一档 [20,40)、二档 [40,70)、三档 [70,100)…八档 [220,∞)。
+    过 40% 即从一档剔除、升为二档（"快到下一条主线"就升档）。"""
+    if pct is None or pct < GROUP_LOWER[0]:
         return None
-    k = int(math.floor((pct - GROUP_FINAL_BASE) / GROUP_STEP)) + 1
-    return min(k, MAX_GROUPS)
+    group = 1
+    for index, lower in enumerate(GROUP_LOWER, start=1):
+        if pct >= lower:
+            group = index
+    return group
 
 
-def is_strong_signal(pct: float | None, group: int) -> bool:
-    """强信号：在本档内又过了 主线+20（40/70/100/130/…）且没有回落下来。
-    档位归属不变，只作为额外过滤条件。"""
-    if pct is None:
+def is_falling_back(pct: float | None, max_pct: float | None) -> bool:
+    """回落判定：历史收盘最高档高于当前档 → 是从更高档掉下来的，不算当前档。
+    例：冲到 45%（二档）后回落到 35%（一档区间）→ True，要重新站上 40% 才以二档出现。"""
+    current = classify_group(pct)
+    peak = classify_group(max_pct)
+    if current is None or peak is None:
         return False
-    return pct >= group_threshold(group) + GROUP_STEP - GROUP_PRE_OFFSET
+    return peak > current
 
 
 def group_threshold(group: int) -> float:
-    return GROUP_FINAL_BASE + GROUP_STEP * (group - 1)
-
-
-def is_falling_from_top(pct: float, max_pct: float, max_high_pct: float | None = None) -> bool:
-    """异常回落判定（收回后自动恢复）：
-    - 收盘曾站上的最高主线（20/50/80/…），现价跌破 → True；
-    - 盘中曾冲过某奇点（40/70/100/…，用最高价判"冲高"），现价低于 奇点−10（30/60/90/…）→ True。
-    例：闰土冲高71.7%（过70奇点）回落到56.8%（<60）→ True；紫光峰值79.9现66（≥60）→ False。"""
-    if max_high_pct is None:
-        max_high_pct = max_pct
-    floor = None
-    for j in range(1, MAX_GROUPS + 1):
-        main = group_threshold(j)
-        singular = main + GROUP_STEP - GROUP_PRE_OFFSET  # 40/70/100/…
-        if max_pct >= main:
-            floor = main if floor is None else max(floor, main)
-        if max_high_pct >= singular:
-            level = singular - GROUP_PRE_OFFSET  # 30/60/90/…
-            floor = level if floor is None else max(floor, level)
-    if floor is None:
-        return False
-    return pct < floor
+    """档位下沿（入档线）。"""
+    return GROUP_LOWER[max(1, min(group, MAX_GROUPS)) - 1]
 
 
 def is_north_bound(window: list[dict], low_index: int) -> bool:
@@ -126,9 +113,9 @@ def evaluate_stock(
     bars: list[dict],
     today: date | None = None,
 ) -> dict | None:
-    """90日波段（低点→现在）分档：一档须站上30确认[30,40)，40是奇点；
-    二档及以上过主线即入（[50,70)、[80,100)…）。低点不区分反转/起点（V型不排除）。
-    from_top（跌破曾站上的主线且未收回）只打标记，由展示层开关决定是否显示。"""
+    """90日波段（低点→现在）分档：档位分界 20/40/70/100/130/160/190/220，
+    一档[20,40)、二档[40,70)、三档[70,100)…八档[220,∞)。低点不区分反转/起点。
+    from_top（历史最高档高于当前档＝从更高档回落）只打标记，由展示层开关决定是否显示。"""
     if price is None:
         return None
     today = today or date.today()
@@ -156,10 +143,8 @@ def evaluate_stock(
 
     closes_after_low = [float(bar["close"]) for bar in window[low_index:] if bar.get("close") is not None]
     max_pct = max([(c / low90 - 1) * 100 for c in closes_after_low] + [pct])
-    highs_after_low = [float(bar["high"]) for bar in window[low_index:] if bar.get("high") is not None]
-    max_high_pct = max([(h / low90 - 1) * 100 for h in highs_after_low] + [pct])
-    # 异常回落只打标记，由展示层筛选开关决定是否显示（收回后标记自动消失）
-    from_top = is_falling_from_top(pct, max_pct, max_high_pct)
+    # 回落只打标记，由展示层开关决定是否显示（重新站上该档下沿即自动恢复）
+    from_top = is_falling_back(pct, max_pct)
     north = is_north_bound(window, low_index)
 
     threshold = group_threshold(group)
@@ -188,11 +173,10 @@ def evaluate_stock(
         "cross_date": cross_date,
         "from_top": from_top,
         "north_ok": north,
-        "strong": is_strong_signal(pct, group),
     }
 
 
-STATE_KEY = "moneygrab:last_scan:v10"  # v10: 档位区间改 [主线,下一主线) + strong 强信号
+STATE_KEY = "moneygrab:last_scan:v11"  # v11: 档位分界 20/40/70/100/…，回落记忆，去强信号
 
 
 def _default_fundamentals_enricher(cache: CacheStore, hits: list[dict], caps: dict) -> None:

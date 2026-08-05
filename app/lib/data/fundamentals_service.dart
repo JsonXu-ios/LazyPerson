@@ -23,6 +23,10 @@ const fundCacheDays = 3;
 /// v2: 估市值/净利润拆分为独立条件，按最新报告期年化，多存 revenue_ok）
 const fundStatePrefix = 'fundamentals:v2:';
 
+/// 批量补基本面标记时的并发路数（每只两轮东财往返：分红 + 业绩报表；
+/// 与 sectorFetchConcurrency 同量级，再高东财会限流）
+const fundamentalsFetchConcurrency = 7;
+
 /// 按报告期年化系数：一季报×4、半年报×2、三季报×4/3、年报×1
 /// （财报数据为年内累计值；对齐 backend annualize_factor）。
 double? annualizeFactor(String? statDate) {
@@ -126,6 +130,43 @@ class FundamentalsService {
     );
     await _writeCache(symbol, marks);
     return marks;
+  }
+
+  /// 批量补标记（八档局 fundamentals 阶段用）：按 [concurrency] 路并发跑
+  /// [marksFor]，命中 3 天缓存的股票不发请求。单只失败不进结果集，
+  /// 由调用方保持默认 false。返回 symbol → 标记（缺失即取数失败）。
+  ///
+  /// 串行版在命中 700 只时是 700×(分红+财报两轮 RTT)，实测 5~10 分钟；
+  /// 7 路并发后 ≈ 100 轮，40~90 秒。
+  Future<Map<String, FundamentalsMarks>> marksForMany(
+    List<String> symbols, {
+    double? Function(String symbol)? marketCapOf,
+    int concurrency = fundamentalsFetchConcurrency,
+    void Function(String symbol, FundamentalsMarks? marks)? onEach,
+    bool Function()? shouldStop,
+  }) async {
+    final result = <String, FundamentalsMarks>{};
+    if (symbols.isEmpty) return result;
+    final queue = symbols.iterator;
+    Future<void> worker() async {
+      // Iterator 在单 isolate 事件循环内串行推进，无并发竞争
+      while (queue.moveNext()) {
+        if (shouldStop?.call() ?? false) return; // 扫描被取消/重启，别再打网络
+        final symbol = queue.current;
+        FundamentalsMarks? marks;
+        try {
+          marks = await marksFor(symbol, marketCapOf?.call(symbol));
+          result[symbol] = marks;
+        } catch (_) {
+          marks = null; // 取数失败：不写结果，调用方保持默认 false
+        }
+        onEach?.call(symbol, marks);
+      }
+    }
+
+    final lanes = concurrency < 1 ? 1 : concurrency;
+    await Future.wait([for (var i = 0; i < lanes; i++) worker()]);
+    return result;
   }
 
   /// 现金分红>0 的记录取除权除息日，缺除息日（已公告未实施）用预案公告日

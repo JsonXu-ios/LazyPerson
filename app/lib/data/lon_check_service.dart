@@ -26,6 +26,10 @@ const lonMaxLagDays = {'day': 4, 'week': 11, 'month': 45};
 /// 历史给足让指标收敛（对齐 backend FETCH_DAYS）
 const lonFetchDays = {'day': 420, 'week': 1100, 'month': 4200};
 
+/// 批量校验时的并发路数：每只要拉日/周/月三个周期（缓存未命中时三轮腾讯
+/// 往返），6 路已经把网络吃满，再高只会互相排队/触发限流
+const lonFetchConcurrency = 6;
+
 class LonCheckService {
   final LocalStore store;
   final TencentProvider tencent;
@@ -49,6 +53,42 @@ class LonCheckService {
     } catch (_) {
       return false;
     }
+  }
+
+  /// 批量校验（八档局 lon 阶段用）：按 [concurrency] 路并发跑 [lonOkFor]，
+  /// 命中周期缓存的股票不发请求。单只失败/抛错记 false，不影响其他。
+  /// 返回 symbol → 是否 LON 多头。
+  ///
+  /// 串行版在命中 700 只时是 700×最多 3 轮腾讯往返，实测 6~12 分钟；
+  /// 6 路并发后 ≈ 117 轮，1~2 分钟（缓存命中的更快）。
+  Future<Map<String, bool>> lonOkForMany(
+    List<String> symbols, {
+    int concurrency = lonFetchConcurrency,
+    void Function(String symbol, bool ok)? onEach,
+    bool Function()? shouldStop,
+  }) async {
+    final result = <String, bool>{};
+    if (symbols.isEmpty) return result;
+    final queue = symbols.iterator;
+    Future<void> worker() async {
+      // Iterator 在单 isolate 事件循环内串行推进，无并发竞争
+      while (queue.moveNext()) {
+        if (shouldStop?.call() ?? false) return; // 扫描被取消/重启，别再打网络
+        final symbol = queue.current;
+        var ok = false;
+        try {
+          ok = await lonOkFor(symbol);
+        } catch (_) {
+          ok = false; // 取数失败保持默认 false
+        }
+        result[symbol] = ok;
+        onEach?.call(symbol, ok);
+      }
+    }
+
+    final lanes = concurrency < 1 ? 1 : concurrency;
+    await Future.wait([for (var i = 0; i < lanes; i++) worker()]);
+    return result;
   }
 
   bool _trendOk(List<KlineBar> bars) {

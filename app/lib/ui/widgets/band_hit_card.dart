@@ -59,30 +59,6 @@ class BandHitCard extends StatelessWidget {
                       style: mono(
                           size: FontSize.tableNumber, color: AppColors.textDim),
                     ),
-                    // 强信号：本档内又过了 主线+20（40/70/100/…）。
-                    // 标题行还要放代码和涨停标，窄屏（360dp）挤不下两个字，
-                    // 只用一个 ▲ + warn 色，够醒目也不抢名称的宽度
-                    if (hit.strong) ...[
-                      const SizedBox(width: 6),
-                      Container(
-                        padding: const EdgeInsets.symmetric(
-                            horizontal: 4, vertical: 1),
-                        decoration: BoxDecoration(
-                          color: AppColors.warn.withValues(alpha: 0.18),
-                          borderRadius: BorderRadius.circular(3),
-                          border: Border.all(
-                              color: AppColors.warn.withValues(alpha: 0.7)),
-                        ),
-                        child: Text(
-                          '▲',
-                          style: mono(
-                            size: FontSize.badge,
-                            color: AppColors.warn,
-                            weight: FontWeight.w700,
-                          ),
-                        ),
-                      ),
-                    ],
                     if (hit.limitUp) ...[
                       const SizedBox(width: 7),
                       Container(
@@ -134,15 +110,14 @@ class BandHitCard extends StatelessWidget {
               ),
             ],
           ),
-          if (_sectorLabels.isNotEmpty) ...[
-            const SizedBox(height: 7),
-            _sectorLine(),
-          ],
           if (hit.fromTop) ...[
             const SizedBox(height: 8),
             Row(
               children: [
-                _shapeTag('异常回落'),
+                Tooltip(
+                  message: '曾进过更高档、现已回落（重新站上该档下沿即恢复）',
+                  child: _shapeTag('回落'),
+                ),
               ],
             ),
           ],
@@ -157,56 +132,8 @@ class BandHitCard extends StatelessWidget {
             mono(size: FontSize.secondaryNumber, color: AppColors.textFaint),
       );
 
-  /// 板块小字：概念优先（最多 2 个），没有概念退回行业
-  /// （对齐 MoneyGrabPanel 的板块列 concepts.slice(0,2) || industry）
-  List<String> get _sectorLabels {
-    final concepts = hit.concepts.where((name) => name.isNotEmpty).toList();
-    if (concepts.isNotEmpty) {
-      return concepts.length > 2 ? concepts.sublist(0, 2) : concepts;
-    }
-    return hit.industry.isEmpty ? const [] : [hit.industry];
-  }
-
-  /// 行业/概念行：热点带醒目的「热」标
-  Widget _sectorLine() {
-    return Row(
-      children: [
-        if (hit.hotSector) ...[
-          Container(
-            padding: const EdgeInsets.symmetric(horizontal: 5, vertical: 1),
-            decoration: BoxDecoration(
-              color: AppColors.warn.withValues(alpha: 0.18),
-              borderRadius: BorderRadius.circular(3),
-              border: Border.all(color: AppColors.warn.withValues(alpha: 0.7)),
-            ),
-            child: Text(
-              '热',
-              style: mono(
-                size: FontSize.badge,
-                color: AppColors.warn,
-                weight: FontWeight.w700,
-              ),
-            ),
-          ),
-          const SizedBox(width: 6),
-        ],
-        Expanded(
-          child: Text(
-            _sectorLabels.join(' · '),
-            overflow: TextOverflow.ellipsis,
-            style: TextStyle(
-              fontSize: FontSize.legend,
-              color: hit.hotSector ? AppColors.warn : AppColors.textMuted,
-            ),
-          ),
-        ),
-      ],
-    );
-  }
-
-  /// 波段进度条：填充 = pct/maxPct，轨上两根针 = 主线（= 入档线）与
-  /// 强信号线（主线+20）。入档线现在就是主线本身，第二根针画在强信号线上
-  /// 才有信息量（两根重合等于没画）。
+  /// 波段进度条：填充 = pct/maxPct，轨上一根针 = 本档下沿（入档线，
+  /// 一档 20%、二档 40%、三档 70%…）。
   Widget _progress() {
     final span = hit.maxPct <= 0 ? 1.0 : hit.maxPct;
     double at(double pct) => (pct / span).clamp(0.0, 1.0);
@@ -240,12 +167,6 @@ class BandHitCard extends StatelessWidget {
                   ),
                 ),
                 _needle(box.maxWidth * at(threshold), AppColors.yellowLine),
-                _needle(
-                  box.maxWidth * at(threshold + groupStep - groupPreOffset),
-                  hit.strong
-                      ? AppColors.warn
-                      : AppColors.text.withValues(alpha: 0.8),
-                ),
               ],
             ),
           ),

@@ -1,7 +1,8 @@
 /// 八档局扫描控制器的标记流程测试：扫描完成后逐只补
-/// dividendRecent/profitOk/revenueOk（注入假基本面取数）与 lonOk
-/// （注入假 LON 校验），取数失败不影响扫描结果，
-/// 四个展示层过滤开关对齐网页版 MoneyGrabPanel。
+/// dividendRecent/profitOk/revenueOk（注入假基本面取数）、lonOk
+/// （注入假 LON 校验）与 industry/concepts/hotSector（注入假板块取数），
+/// 取数失败不影响扫描结果，
+/// 五个展示层过滤开关对齐网页版 MoneyGrabPanel。
 library;
 
 import 'dart:convert';
@@ -13,6 +14,7 @@ import 'package:lazyperson/data/local_store.dart';
 import 'package:lazyperson/data/lon_check_service.dart';
 import 'package:lazyperson/data/market_repository.dart';
 import 'package:lazyperson/data/providers/eastmoney_provider.dart';
+import 'package:lazyperson/data/sector_service.dart';
 import 'package:lazyperson/data/sync_service.dart';
 import 'package:lazyperson/logic/band_scanner.dart';
 import 'package:lazyperson/models/models.dart';
@@ -60,6 +62,33 @@ class _FakeLonCheck extends LonCheckService {
     requested.add(symbol);
     final found = results[symbol];
     if (found == null) throw StateError('lon failed: $symbol');
+    return found;
+  }
+}
+
+/// 注入的假板块取数：记录调用参数；映射里没有的股票视为取数失败
+class _FakeSectors extends SectorService {
+  final Map<String, StockSectors> results;
+  final Set<String> hotCodes;
+  final List<String> requested = [];
+  final List<Set<String>?> hotCodesSeen = [];
+  int hotCodesCalls = 0;
+
+  _FakeSectors(LocalStore store, this.results, {this.hotCodes = const {}})
+      : super(store: store);
+
+  @override
+  Future<Set<String>> hotConceptCodes({int top = sectorHotTop}) async {
+    hotCodesCalls += 1;
+    return hotCodes;
+  }
+
+  @override
+  Future<StockSectors> sectorsOf(String symbol, {Set<String>? hotCodes}) async {
+    requested.add(symbol);
+    hotCodesSeen.add(hotCodes);
+    final found = results[symbol];
+    if (found == null) throw StateError('sector failed: $symbol');
     return found;
   }
 }
@@ -123,10 +152,13 @@ void main() {
   late MarketRepository repository;
   late _FakeFundamentals fundamentals;
   late _FakeLonCheck lonCheck;
+  late _FakeSectors sectors;
   late BandScanController controller;
 
   Future<void> setUpScan(Map<String, FundamentalsMarks> marks,
-      {Map<String, bool> lonResults = const {}}) async {
+      {Map<String, bool> lonResults = const {},
+      Map<String, StockSectors> sectorResults = const {},
+      Set<String> hotCodes = const {}}) async {
     store = LocalStore(await databaseFactory.openDatabase(
       inMemoryDatabasePath,
       options: OpenDatabaseOptions(
@@ -149,11 +181,13 @@ void main() {
     }
     fundamentals = _FakeFundamentals(store, marks);
     lonCheck = _FakeLonCheck(store, lonResults);
+    sectors = _FakeSectors(store, sectorResults, hotCodes: hotCodes);
     controller = BandScanController(
       repository,
       nowFn: () => _today,
       fundamentals: fundamentals,
       lonCheck: lonCheck,
+      sectors: sectors,
     );
   }
 
@@ -247,7 +281,7 @@ void main() {
     expect(controller.visibleHits.map((hit) => hit.symbol), ['600001']);
   });
 
-  test('标记随结果持久化（key v6），当日 restore 恢复', () async {
+  test('标记随结果持久化（key v7），当日 restore 恢复', () async {
     await setUpScan({
       '600001': const FundamentalsMarks(
           dividendRecent: true, profitOk: true, revenueOk: true),
@@ -256,7 +290,7 @@ void main() {
     });
     await controller.startScan();
 
-    final raw = await store.getState('band_scan:last:v6');
+    final raw = await store.getState('band_scan:last:v7');
     expect(raw, isNotNull);
     final persisted = (jsonDecode(raw!) as Map).cast<String, Object?>();
     final rows = (persisted['hits'] as List).cast<Map>();
@@ -295,5 +329,168 @@ void main() {
     });
     expect(hit.revenueOk, isFalse);
     expect(hit.lonOk, isFalse);
+  });
+
+  group('板块标记（sector 阶段）', () {
+    const marks = {
+      '600001': FundamentalsMarks(
+          dividendRecent: true, profitOk: true, revenueOk: true),
+      '600002': FundamentalsMarks(
+          dividendRecent: true, profitOk: true, revenueOk: true),
+      '600003': FundamentalsMarks(
+          dividendRecent: true, profitOk: true, revenueOk: true),
+    };
+    const lonAll = {'600001': true, '600002': true, '600003': true};
+
+    test('扫描完成后逐只补行业/概念/热点；取数失败保持默认空值', () async {
+      await setUpScan(marks, lonResults: lonAll, sectorResults: {
+        '600001': const StockSectors(
+          symbol: '600001',
+          industry: '白酒Ⅱ',
+          concepts: ['酿酒概念', '茅指数'],
+          hotConcepts: ['酿酒概念'],
+        ),
+        '600003': const StockSectors(
+          symbol: '600003',
+          industry: '半导体',
+          concepts: ['国产芯片'],
+        ),
+        // 600002 缺失 → sectorsOf 抛异常，模拟取数失败
+      }, hotCodes: {
+        'BK0477'
+      });
+
+      await controller.startScan();
+
+      expect(controller.status, BandScanStatus.done);
+      expect(controller.stage, '');
+      // 只对命中的股票取数
+      expect(sectors.requested.toSet(), {'600001', '600002', '600003'});
+      // 热点概念榜只取一次，复用给所有命中（不是每只都重拉）
+      expect(sectors.hotCodesCalls, 1);
+      expect(sectors.hotCodesSeen.every((seen) => seen?.contains('BK0477') == true),
+          isTrue);
+
+      final bySymbol = {for (final hit in controller.hits) hit.symbol: hit};
+      expect(bySymbol['600001']!.industry, '白酒Ⅱ');
+      expect(bySymbol['600001']!.concepts, ['酿酒概念', '茅指数']);
+      expect(bySymbol['600001']!.hotSector, isTrue);
+      expect(bySymbol['600003']!.industry, '半导体');
+      expect(bySymbol['600003']!.concepts, ['国产芯片']);
+      expect(bySymbol['600003']!.hotSector, isFalse); // 概念不在热点榜
+      // 取数失败 → 默认空/false，且不影响扫描结果
+      expect(bySymbol['600002']!.industry, '');
+      expect(bySymbol['600002']!.concepts, isEmpty);
+      expect(bySymbol['600002']!.hotSector, isFalse);
+      expect(controller.hits, hasLength(3));
+    });
+
+    test('概念最多留 6 个（对齐 backend concepts[:6]）', () async {
+      await setUpScan(marks, lonResults: lonAll, sectorResults: {
+        '600001': const StockSectors(
+          symbol: '600001',
+          concepts: ['c1', 'c2', 'c3', 'c4', 'c5', 'c6', 'c7', 'c8'],
+        ),
+      });
+      await controller.startScan();
+      final hit = controller.hits.firstWhere((row) => row.symbol == '600001');
+      expect(hit.concepts, ['c1', 'c2', 'c3', 'c4', 'c5', 'c6']);
+    });
+
+    test('热点榜取不到 → 只补行业/概念，hotSector 保持 false', () async {
+      await setUpScan(marks, lonResults: lonAll, sectorResults: {
+        '600001': const StockSectors(
+          symbol: '600001',
+          industry: '白酒Ⅱ',
+          concepts: ['酿酒概念'],
+          // hotConcepts 为空 → hot=false
+        ),
+      });
+      await controller.startScan();
+      final hit = controller.hits.firstWhere((row) => row.symbol == '600001');
+      expect(hit.industry, '白酒Ⅱ');
+      expect(hit.hotSector, isFalse);
+    });
+
+    test('「热点板块」是展示层过滤（默认关），与其他开关取交集', () async {
+      await setUpScan(marks, lonResults: {
+        '600001': true,
+        '600002': false,
+        '600003': true,
+      }, sectorResults: {
+        '600001': const StockSectors(
+            symbol: '600001', concepts: ['酿酒概念'], hotConcepts: ['酿酒概念']),
+        '600002': const StockSectors(
+            symbol: '600002', concepts: ['MLCC'], hotConcepts: ['MLCC']),
+        '600003': const StockSectors(symbol: '600003', concepts: ['国产芯片']),
+      });
+      await controller.startScan();
+      controller.setLimitUpFilter(false); // 测试数据无涨停，先放开
+
+      expect(controller.hotFilter, isFalse); // 默认关
+      expect(controller.visibleHits, hasLength(3));
+
+      controller.setHotFilter(true);
+      expect(controller.visibleHits.map((hit) => hit.symbol).toSet(),
+          {'600001', '600002'});
+
+      // 与 LON 开关取交集（&& 语义对齐 MoneyGrabPanel.visibleHits）
+      controller.setLonFilter(true);
+      expect(controller.visibleHits.map((hit) => hit.symbol), ['600001']);
+
+      controller.setHotFilter(false);
+      expect(controller.visibleHits.map((hit) => hit.symbol).toSet(),
+          {'600001', '600003'});
+    });
+
+    test('板块标记随结果持久化（v7），当日 restore 恢复', () async {
+      await setUpScan(marks, lonResults: lonAll, sectorResults: {
+        '600001': const StockSectors(
+          symbol: '600001',
+          industry: '白酒Ⅱ',
+          concepts: ['酿酒概念', '茅指数'],
+          hotConcepts: ['酿酒概念'],
+        ),
+      });
+      await controller.startScan();
+
+      final raw = await store.getState('band_scan:last:v7');
+      final persisted = (jsonDecode(raw!) as Map).cast<String, Object?>();
+      final rows = (persisted['hits'] as List).cast<Map>();
+      final row = rows.firstWhere((item) => item['symbol'] == '600001');
+      expect(row['industry'], '白酒Ⅱ');
+      expect(row['concepts'], ['酿酒概念', '茅指数']);
+      expect(row['hot_sector'], isTrue);
+
+      final restored = BandScanController(
+        repository,
+        nowFn: () => _today,
+        fundamentals: fundamentals,
+        lonCheck: lonCheck,
+        sectors: sectors,
+      );
+      await restored.restore();
+      final hit = restored.hits.firstWhere((item) => item.symbol == '600001');
+      expect(hit.industry, '白酒Ⅱ');
+      expect(hit.concepts, ['酿酒概念', '茅指数']);
+      expect(hit.hotSector, isTrue);
+      restored.dispose();
+    });
+
+    test('旧持久化数据缺 industry/concepts/hot_sector → 默认空/false', () {
+      final hit = BandHit.fromJson({
+        'symbol': '600001',
+        'price': 13.5,
+        'low90': 10.0,
+        'pct': 35.0,
+        'group': 1,
+        'threshold': 20.0,
+        'over': 15.0,
+        'max_pct': 35.0,
+      });
+      expect(hit.industry, '');
+      expect(hit.concepts, isEmpty);
+      expect(hit.hotSector, isFalse);
+    });
   });
 }

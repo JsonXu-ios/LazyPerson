@@ -158,6 +158,15 @@ class BandHit {
   /// 日/周/月三周期 LON 与 LONMA 都向上且 LON≥LONMA，lon 阶段补标
   final bool lonOk;
 
+  /// 所属行业（东财口径，如"白酒Ⅱ"），sector 阶段补标
+  final String industry;
+
+  /// 所属概念板块名（最多 6 个），sector 阶段补标
+  final List<String> concepts;
+
+  /// 所属概念里有今日涨幅前列的热点板块，sector 阶段补标
+  final bool hotSector;
+
   const BandHit({
     required this.symbol,
     required this.name,
@@ -177,6 +186,9 @@ class BandHit {
     this.revenueOk = false,
     this.lonOk = false,
     this.northOk = false,
+    this.industry = '',
+    this.concepts = const [],
+    this.hotSector = false,
   });
 
   BandHit copyWith({
@@ -185,6 +197,9 @@ class BandHit {
     bool? profitOk,
     bool? revenueOk,
     bool? lonOk,
+    String? industry,
+    List<String>? concepts,
+    bool? hotSector,
   }) =>
       BandHit(
         symbol: symbol,
@@ -205,6 +220,9 @@ class BandHit {
         revenueOk: revenueOk ?? this.revenueOk,
         lonOk: lonOk ?? this.lonOk,
         northOk: northOk,
+        industry: industry ?? this.industry,
+        concepts: concepts ?? this.concepts,
+        hotSector: hotSector ?? this.hotSector,
       );
 
   Map<String, Object?> toJson() => {
@@ -226,6 +244,9 @@ class BandHit {
         'revenue_ok': revenueOk,
         'lon_ok': lonOk,
         'north_ok': northOk,
+        'industry': industry,
+        'concepts': concepts,
+        'hot_sector': hotSector,
       };
 
   factory BandHit.fromJson(Map<String, Object?> json) => BandHit(
@@ -248,6 +269,12 @@ class BandHit {
         revenueOk: (json['revenue_ok'] as bool?) ?? false,
         lonOk: (json['lon_ok'] as bool?) ?? false,
         northOk: (json['north_ok'] as bool?) ?? false,
+        // 旧持久化数据缺板块字段，默认空/false
+        industry: (json['industry'] as String?) ?? '',
+        concepts: [
+          for (final item in (json['concepts'] as List? ?? const [])) '$item',
+        ],
+        hotSector: (json['hot_sector'] as bool?) ?? false,
       );
 }
 

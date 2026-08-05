@@ -9,10 +9,12 @@ import '../data/sync_service.dart';
 import '../logic/level_rules.dart';
 import '../state/band_scan_controller.dart';
 import '../state/home_controller.dart';
+import '../state/sector_controller.dart';
 import '../theme/app_theme.dart';
 import '../theme/hud.dart';
 import '../utils/format.dart';
 import 'band_scan_screen.dart';
+import 'sector_screen.dart';
 import 'widgets/indicator_chart.dart';
 import 'widgets/kline_chart.dart';
 import 'widgets/summary_sheet.dart';
@@ -33,6 +35,7 @@ class HomeScreen extends StatefulWidget {
 class _HomeScreenState extends State<HomeScreen> {
   int? _hoverIndex;
   BandScanController? _bandScanController;
+  SectorController? _sectorController;
 
   HomeController get controller => widget.controller;
 
@@ -47,6 +50,7 @@ class _HomeScreenState extends State<HomeScreen> {
   void dispose() {
     controller.removeListener(_onChanged);
     _bandScanController?.dispose();
+    _sectorController?.dispose();
     super.dispose();
   }
 
@@ -78,6 +82,22 @@ class _HomeScreenState extends State<HomeScreen> {
       MaterialPageRoute<void>(
         builder: (routeContext) => BandScanScreen(
           controller: band,
+          onSelect: (symbol) {
+            controller.selectSymbol(symbol);
+            Navigator.of(routeContext).pop();
+          },
+        ),
+      ),
+    );
+  }
+
+  void _openSectors() {
+    final sectors =
+        _sectorController ??= SectorController(controller.repository.sectors);
+    Navigator.of(context).push(
+      MaterialPageRoute<void>(
+        builder: (routeContext) => SectorScreen(
+          controller: sectors,
           onSelect: (symbol) {
             controller.selectSymbol(symbol);
             Navigator.of(routeContext).pop();
@@ -150,6 +170,7 @@ class _HomeScreenState extends State<HomeScreen> {
                 onWatchlist: _openWatchlist,
                 onSummary: _openSummary,
                 onBandScan: _openBandScan,
+                onSectors: _openSectors,
               ),
             ],
           ),
@@ -652,11 +673,13 @@ class _BottomActions extends StatelessWidget {
   final VoidCallback onWatchlist;
   final VoidCallback onSummary;
   final VoidCallback onBandScan;
+  final VoidCallback onSectors;
 
   const _BottomActions({
     required this.onWatchlist,
     required this.onSummary,
     required this.onBandScan,
+    required this.onSectors,
   });
 
   @override
@@ -680,6 +703,13 @@ class _BottomActions extends StatelessWidget {
                 icon: Icons.insights_outlined,
                 label: '资产信息',
                 onTap: onSummary,
+              ),
+            ),
+            Expanded(
+              child: _ActionCell(
+                icon: Icons.local_fire_department,
+                label: '热点板块',
+                onTap: onSectors,
               ),
             ),
             Expanded(

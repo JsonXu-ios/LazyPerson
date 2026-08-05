@@ -9,6 +9,7 @@ import 'package:flutter/foundation.dart';
 import '../data/fundamentals_service.dart';
 import '../data/lon_check_service.dart';
 import '../data/market_repository.dart';
+import '../data/sector_service.dart';
 import '../logic/band_scanner.dart';
 import '../models/models.dart';
 
@@ -18,8 +19,8 @@ class BandScanController extends ChangeNotifier {
   /// 总市值下限（亿元），勾选“总市值>40亿”时生效
   static const marketCapMin = 40.0;
 
-  /// v5: 命中行含 revenueOk/lonOk 标记（估市值拆分 + LON 三周期），旧结果作废
-  static const _stateKey = 'band_scan:last:v6';
+  /// v7: 命中行含 industry/concepts/hotSector（板块标记），旧结果作废
+  static const _stateKey = 'band_scan:last:v7';
 
   final MarketRepository repository;
   final DateTime Function() now;
@@ -30,10 +31,14 @@ class BandScanController extends ChangeNotifier {
   /// LON 多头标记（日/周/月三周期），测试可注入假实现
   late final LonCheckService lonCheck;
 
+  /// 板块标记（行业/概念/热点），测试可注入假实现
+  late final SectorService sectors;
+
   BandScanController(this.repository,
       {DateTime Function()? nowFn,
       FundamentalsService? fundamentals,
-      LonCheckService? lonCheck})
+      LonCheckService? lonCheck,
+      SectorService? sectors})
       : now = nowFn ?? DateTime.now {
     this.fundamentals = fundamentals ??
         FundamentalsService(
@@ -47,10 +52,12 @@ class BandScanController extends ChangeNotifier {
           tencent: repository.tencent,
           nowFn: now,
         );
+    // 默认复用 repository 上那份，缓存与资产信息浮层/热点板块页共用
+    this.sectors = sectors ?? repository.sectors;
   }
 
   BandScanStatus status = BandScanStatus.idle;
-  String stage = ''; // snapshot | kline | fundamentals | lon | ''
+  String stage = ''; // snapshot | kline | fundamentals | lon | sector | ''
   int total = 0;
   int done = 0;
   List<BandHit> hits = [];
@@ -91,6 +98,9 @@ class BandScanController extends ChangeNotifier {
   /// 展示层过滤：只看一路北上（低点在窗口前1/3、最高点在后1/3），默认关
   bool northFilter = false;
 
+  /// 展示层过滤：只看所属概念里有今日热点板块的，默认关
+  bool hotFilter = false;
+
   int activeGroup = 1;
 
   bool _disposed = false;
@@ -108,7 +118,8 @@ class BandScanController extends ChangeNotifier {
           (!profitFilter || hit.profitOk) &&
           (!revenueFilter || hit.revenueOk) &&
           (!lonFilter || hit.lonOk) &&
-          (!northFilter || hit.northOk))
+          (!northFilter || hit.northOk) &&
+          (!hotFilter || hit.hotSector))
       .toList();
 
   Map<int, int> get groupCounts {
@@ -186,6 +197,12 @@ class BandScanController extends ChangeNotifier {
   void setLonFilter(bool value) {
     if (value == lonFilter) return;
     lonFilter = value;
+    _notify();
+  }
+
+  void setHotFilter(bool value) {
+    if (value == hotFilter) return;
+    hotFilter = value;
     _notify();
   }
 
@@ -340,6 +357,35 @@ class BandScanController extends ChangeNotifier {
             .copyWith(lonOk: await lonCheck.lonOkFor(collected[i].symbol));
       } catch (_) {
         // 取数失败保持默认 false
+      }
+    }
+
+    // 板块标记（行业/概念/热点）：只查命中股，个股板块按天缓存；
+    // 热点概念榜取一次复用（榜单 5 分钟缓存），单只失败保持默认空/false
+    // （对齐 scanner.py::_default_sector_enricher）
+    stage = 'sector';
+    hits = List.of(collected);
+    _notify();
+    Set<String> hotCodes = const {};
+    try {
+      hotCodes = await sectors.hotConceptCodes();
+    } catch (_) {
+      // 热点榜取不到就只补行业/概念，hotSector 保持 false
+    }
+    for (var i = 0; i < collected.length; i++) {
+      if (runId != _runId) return;
+      try {
+        final marks =
+            await sectors.sectorsOf(collected[i].symbol, hotCodes: hotCodes);
+        collected[i] = collected[i].copyWith(
+          industry: marks.industry,
+          concepts: marks.concepts.length > sectorMaxConcepts
+              ? marks.concepts.sublist(0, sectorMaxConcepts)
+              : marks.concepts,
+          hotSector: marks.hot,
+        );
+      } catch (_) {
+        // 取数失败保持默认空/false
       }
     }
 

@@ -110,6 +110,10 @@ class BandHitCard extends StatelessWidget {
               ),
             ],
           ),
+          if (_sectorLabels.isNotEmpty) ...[
+            const SizedBox(height: 7),
+            _sectorLine(),
+          ],
           if (hit.fromTop) ...[
             const SizedBox(height: 8),
             Row(
@@ -128,6 +132,53 @@ class BandHitCard extends StatelessWidget {
         style:
             mono(size: FontSize.secondaryNumber, color: AppColors.textFaint),
       );
+
+  /// 板块小字：概念优先（最多 2 个），没有概念退回行业
+  /// （对齐 MoneyGrabPanel 的板块列 concepts.slice(0,2) || industry）
+  List<String> get _sectorLabels {
+    final concepts = hit.concepts.where((name) => name.isNotEmpty).toList();
+    if (concepts.isNotEmpty) {
+      return concepts.length > 2 ? concepts.sublist(0, 2) : concepts;
+    }
+    return hit.industry.isEmpty ? const [] : [hit.industry];
+  }
+
+  /// 行业/概念行：热点带醒目的「热」标
+  Widget _sectorLine() {
+    return Row(
+      children: [
+        if (hit.hotSector) ...[
+          Container(
+            padding: const EdgeInsets.symmetric(horizontal: 5, vertical: 1),
+            decoration: BoxDecoration(
+              color: AppColors.warn.withValues(alpha: 0.18),
+              borderRadius: BorderRadius.circular(3),
+              border: Border.all(color: AppColors.warn.withValues(alpha: 0.7)),
+            ),
+            child: Text(
+              '热',
+              style: mono(
+                size: FontSize.badge,
+                color: AppColors.warn,
+                weight: FontWeight.w700,
+              ),
+            ),
+          ),
+          const SizedBox(width: 6),
+        ],
+        Expanded(
+          child: Text(
+            _sectorLabels.join(' · '),
+            overflow: TextOverflow.ellipsis,
+            style: TextStyle(
+              fontSize: FontSize.legend,
+              color: hit.hotSector ? AppColors.warn : AppColors.textMuted,
+            ),
+          ),
+        ),
+      ],
+    );
+  }
 
   /// 波段进度条：填充 = pct/maxPct，轨上两根针 = 主线与入档线（主线+10）
   Widget _progress() {

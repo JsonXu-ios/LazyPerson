@@ -11,7 +11,9 @@ import 'local_store.dart';
 import 'provider_error.dart';
 import 'providers/eastmoney_fundamentals_provider.dart';
 import 'providers/eastmoney_provider.dart';
+import 'providers/eastmoney_sector_provider.dart';
 import 'providers/tencent_provider.dart';
+import 'sector_service.dart';
 import 'symbol_utils.dart';
 import 'sync_service.dart';
 
@@ -47,6 +49,7 @@ class MarketRepository {
   final SyncService sync;
   final TencentProvider tencent;
   final EastmoneyFundamentalsProvider fundamentalsProvider;
+  final EastmoneySectorProvider sectorProvider;
   final DateTime Function() now;
 
   MarketRepository({
@@ -54,11 +57,23 @@ class MarketRepository {
     required this.sync,
     TencentProvider? tencent,
     EastmoneyFundamentalsProvider? fundamentalsProvider,
+    EastmoneySectorProvider? sectorProvider,
     DateTime Function()? now,
   })  : tencent = tencent ?? TencentProvider(),
         fundamentalsProvider =
             fundamentalsProvider ?? EastmoneyFundamentalsProvider(),
-        now = now ?? DateTime.now;
+        sectorProvider = sectorProvider ?? EastmoneySectorProvider(),
+        now = now ?? DateTime.now {
+    sectors = SectorService(
+      store: store,
+      provider: this.sectorProvider,
+      nowFn: this.now,
+    );
+  }
+
+  /// 板块服务（热点榜/成分股/个股行业概念）。资产信息浮层、热点板块页与
+  /// 八档局共用一份，缓存也共用。
+  late final SectorService sectors;
 
   static const defaultWatchlist = [
     WatchlistItem(symbol: '002138', market: 'SZ', name: '顺络电子', groupName: aShareGroup, sortOrder: 1),

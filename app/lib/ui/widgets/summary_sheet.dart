@@ -11,6 +11,7 @@ import '../../theme/hud.dart';
 import '../../utils/format.dart';
 import 'fundamentals_section.dart';
 import 'hud_sheet.dart';
+import 'sector_tags.dart';
 
 class SummarySheet extends StatefulWidget {
   final HomeController controller;
@@ -81,6 +82,10 @@ class _SummarySheetState extends State<SummarySheet> {
           Text(
             '行情 ${qualityText(controller.quoteQuality)} · K线 ${qualityText(controller.klineQuality)}',
             style: mono(size: FontSize.legend, color: AppColors.textDim),
+          ),
+          SectorTags(
+            sectors: controller.repository.sectors,
+            symbol: controller.selected,
           ),
           const SizedBox(height: 12),
           _metricGrid([

@@ -489,3 +489,162 @@ double? _num(Object? value) {
   if (value is num) return value.toDouble();
   return double.tryParse(value.toString());
 }
+
+/// 板块排行的一行（行业或概念），对齐 backend/app/sectors.py 的板块行结构
+class SectorBoard {
+  final String code;
+  final String name;
+
+  /// industry | concept
+  final String kind;
+  final double? pctChg;
+  final double? amount;
+  final int? upCount;
+  final int? downCount;
+
+  /// 领涨股名称与代码
+  final String leader;
+  final String leaderSymbol;
+  final double? leaderPct;
+
+  const SectorBoard({
+    required this.code,
+    required this.name,
+    required this.kind,
+    this.pctChg,
+    this.amount,
+    this.upCount,
+    this.downCount,
+    this.leader = '',
+    this.leaderSymbol = '',
+    this.leaderPct,
+  });
+
+  Map<String, Object?> toJson() => {
+        'code': code,
+        'name': name,
+        'kind': kind,
+        'pct_chg': pctChg,
+        'amount': amount,
+        'up_count': upCount,
+        'down_count': downCount,
+        'leader': leader,
+        'leader_symbol': leaderSymbol,
+        'leader_pct': leaderPct,
+      };
+
+  factory SectorBoard.fromJson(Map<String, Object?> json) => SectorBoard(
+        code: (json['code'] as String?) ?? '',
+        name: (json['name'] as String?) ?? '',
+        kind: (json['kind'] as String?) ?? '',
+        pctChg: _num(json['pct_chg']),
+        amount: _num(json['amount']),
+        upCount: _num(json['up_count'])?.toInt(),
+        downCount: _num(json['down_count'])?.toInt(),
+        leader: (json['leader'] as String?) ?? '',
+        leaderSymbol: (json['leader_symbol'] as String?) ?? '',
+        leaderPct: _num(json['leader_pct']),
+      );
+}
+
+/// 板块成分股（总市值单位亿元）
+class SectorConstituent {
+  final String symbol;
+  final String name;
+  final double? price;
+  final double? pctChg;
+  final double? amount;
+  final double? marketCap;
+
+  const SectorConstituent({
+    required this.symbol,
+    required this.name,
+    this.price,
+    this.pctChg,
+    this.amount,
+    this.marketCap,
+  });
+
+  Map<String, Object?> toJson() => {
+        'symbol': symbol,
+        'name': name,
+        'price': price,
+        'pct_chg': pctChg,
+        'amount': amount,
+        'market_cap': marketCap,
+      };
+
+  factory SectorConstituent.fromJson(Map<String, Object?> json) =>
+      SectorConstituent(
+        symbol: (json['symbol'] as String?) ?? '',
+        name: (json['name'] as String?) ?? '',
+        price: _num(json['price']),
+        pctChg: _num(json['pct_chg']),
+        amount: _num(json['amount']),
+        marketCap: _num(json['market_cap']),
+      );
+}
+
+/// 个股所属板块的一条引用（slist 返回，行业/概念/地域混在一起）
+class StockBoardRef {
+  final String code;
+  final String name;
+  final double? pctChg;
+
+  const StockBoardRef({required this.code, required this.name, this.pctChg});
+}
+
+/// 个股的行业与概念（概念已按东财概念板块全集过滤，地域/指数成分等噪声不算）
+class StockSectors {
+  final String symbol;
+
+  /// 所属行业名（东财 f127），如"白酒Ⅱ"
+  final String industry;
+
+  /// 所属概念板块名（东财口径，按 slist 返回顺序）
+  final List<String> concepts;
+
+  /// 其中命中今日热点概念榜的板块名
+  final List<String> hotConcepts;
+
+  const StockSectors({
+    required this.symbol,
+    this.industry = '',
+    this.concepts = const [],
+    this.hotConcepts = const [],
+  });
+
+  bool get isEmpty => industry.isEmpty && concepts.isEmpty;
+
+  /// 所属概念里有今日热点
+  bool get hot => hotConcepts.isNotEmpty;
+
+  Map<String, Object?> toJson() => {
+        'symbol': symbol,
+        'industry': industry,
+        'concepts': concepts,
+        'hot_concepts': hotConcepts,
+      };
+
+  factory StockSectors.fromJson(Map<String, Object?> json) => StockSectors(
+        symbol: (json['symbol'] as String?) ?? '',
+        industry: (json['industry'] as String?) ?? '',
+        concepts: [
+          for (final item in (json['concepts'] as List? ?? const [])) '$item',
+        ],
+        hotConcepts: [
+          for (final item in (json['hot_concepts'] as List? ?? const []))
+            '$item',
+        ],
+      );
+}
+
+/// 今日热点板块：行业榜 + 概念榜（都按涨幅降序）
+class HotSectors {
+  final List<SectorBoard> industries;
+  final List<SectorBoard> concepts;
+
+  const HotSectors({this.industries = const [], this.concepts = const []});
+
+  bool get isEmpty => industries.isEmpty && concepts.isEmpty;
+}

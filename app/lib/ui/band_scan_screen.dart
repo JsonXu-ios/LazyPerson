@@ -285,6 +285,11 @@ class _BandScanScreenState extends State<BandScanScreen> {
             value: controller.lonFilter,
             onChanged: controller.setLonFilter,
           ),
+          _FilterChip(
+            label: '热点板块',
+            value: controller.hotFilter,
+            onChanged: controller.setHotFilter,
+          ),
         ],
       ),
     );
@@ -315,9 +320,11 @@ class _BandScanScreenState extends State<BandScanScreen> {
         ? '补基本面标记（分红/净利润/估市值）…'
         : controller.stage == 'lon'
             ? '校验 LON 多头（日/周/月K）…'
-            : controller.stage == 'snapshot' || total == 0
-                ? '正在拉取全市场行情快照…'
-                : '本地日线计算档位 ${controller.done} / $total';
+            : controller.stage == 'sector'
+                ? '补板块标记（行业/概念/热点）…'
+                    : controller.stage == 'snapshot' || total == 0
+                        ? '正在拉取全市场行情快照…'
+                        : '本地日线计算档位 ${controller.done} / $total';
     return Padding(
       padding: const EdgeInsets.fromLTRB(16, 12, 16, 0),
       child: Column(

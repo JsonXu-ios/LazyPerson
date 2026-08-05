@@ -25,6 +25,9 @@ BandHit _hit({
   String name = '某某科技股份',
   bool limitUp = false,
   bool fromTop = false,
+  String industry = '',
+  List<String> concepts = const [],
+  bool hotSector = false,
 }) {
   return BandHit(
     symbol: symbol,
@@ -40,6 +43,9 @@ BandHit _hit({
     crossDate: '2026-05-20',
     limitUp: limitUp,
     fromTop: fromTop,
+    industry: industry,
+    concepts: concepts,
+    hotSector: hotSector,
   );
 }
 
@@ -107,6 +113,37 @@ void main() {
 
         // 只应剩卡片自己的右内边距（13dp）
         expect(cardRight - pctRight, lessThan(20));
+      });
+
+      testWidgets('命中卡：板块行（热点标 + 超长概念名）', (tester) async {
+        await _pumpAt(
+          tester,
+          size,
+          Scaffold(
+            body: ListView(
+              padding: const EdgeInsets.symmetric(horizontal: 16),
+              children: [
+                BandHitCard(
+                  hit: _hit(
+                    limitUp: true,
+                    fromTop: true,
+                    industry: '半导体材料',
+                    concepts: const ['名字特别长的一个概念板块名称', '另一个同样很长的概念板块'],
+                    hotSector: true,
+                  ),
+                  index: 0,
+                  onTap: () {},
+                ),
+                // 没有概念时退回行业
+                BandHitCard(
+                  hit: _hit(symbol: '600002', industry: '专用设备'),
+                  index: 1,
+                  onTap: () {},
+                ),
+              ],
+            ),
+          ),
+        );
       });
 
       testWidgets('八档雷达（八档都有命中）', (tester) async {

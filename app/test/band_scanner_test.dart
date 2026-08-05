@@ -425,7 +425,7 @@ void main() {
       return li;
     }
 
-    test('低点在前1/3、最高点在后1/3 → true（中间回落不限）', () {
+    test('低点在前、高点在后 → true', () {
       final w = windowWith(0.1, 0.9);
       expect(isNorthBound(w, lowIndexOf(w)), isTrue);
     });
@@ -466,14 +466,14 @@ void main() {
       expect(isNorthBound(adjusted, lowIndexOf(adjusted)), isTrue);
     });
 
-    test('低点在后段（V型反转类）→ false', () {
-      final w = windowWith(0.9, 0.95);
+    test('高点在低点之前（先见高点再跌）→ false', () {
+      final w = windowWith(0.9, 0.3);
       expect(isNorthBound(w, lowIndexOf(w)), isFalse);
     });
 
-    test('高点在中段（冲高后阴跌）→ false', () {
+    test('高点在中段但仍晚于低点 → true', () {
       final w = windowWith(0.1, 0.5);
-      expect(isNorthBound(w, lowIndexOf(w)), isFalse);
+      expect(isNorthBound(w, lowIndexOf(w)), isTrue);
     });
   });
 

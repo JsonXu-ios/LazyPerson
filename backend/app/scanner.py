@@ -54,13 +54,13 @@ def group_threshold(group: int) -> float:
 
 
 def is_north_bound(window: list[dict], low_index: int, max_drawdown: float = NORTH_MAX_DRAWDOWN) -> bool:
-    """一路北上：90日整体向上——波段低点在窗口前1/3、最高点在窗口后1/3，
-    且低点之后的震荡回落（收盘口径的最大回撤）不超过 max_drawdown（默认30%）。"""
+    """一路北上：从低到高——最高点出现在波段低点之后（排除"先见高点再跌下来反弹"），
+    且低点之后的震荡回落（收盘口径最大回撤）不超过 max_drawdown（默认30%）。"""
     n = len(window)
     if n < 3:
         return False
     high_index = max(range(n), key=lambda i: float(window[i]["high"]))
-    if not (low_index <= (n - 1) / 3 and high_index >= (n - 1) * 2 / 3):
+    if high_index <= low_index:
         return False
     peak: float | None = None
     for bar in window[low_index:]:

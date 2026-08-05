@@ -45,7 +45,7 @@ bool isFallingBack(double? pct, double? maxPct) {
   return peak > current;
 }
 
-/// 一路北上：90日整体向上——波段低点在窗口前1/3、最高点在窗口后1/3，中间回落不限。
+/// 一路北上：从低到高——最高点在波段低点之后，且低点之后收盘口径最大回撤 ≤30%。
 bool isNorthBound(List<KlineBar> window, int lowIndex,
     {double maxDrawdown = northMaxDrawdown}) {
   final n = window.length;
@@ -58,7 +58,7 @@ bool isNorthBound(List<KlineBar> window, int lowIndex,
       highIndex = i;
     }
   }
-  if (lowIndex > (n - 1) / 3 || highIndex < (n - 1) * 2 / 3) return false;
+  if (highIndex <= lowIndex) return false;
   // 低点之后的震荡回落（收盘口径最大回撤）不能超过 maxDrawdown
   double? peak;
   for (final bar in window.sublist(lowIndex)) {

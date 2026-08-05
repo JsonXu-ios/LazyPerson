@@ -166,7 +166,7 @@ export function MoneyGrabPanel({ onSelect }: { onSelect: (symbol: string) => voi
           />
           LON
         </label>
-        <label className="moneygrab-filter" title="90日整体向上：低点在窗口前1/3、最高点在后1/3，且中间震荡回落不超过30%">
+        <label className="moneygrab-filter" title="从低到高：最高点出现在90日波段低点之后（排除先见高点再跌下来反弹的），且中间震荡回落不超过30%">
           <input
             type="checkbox"
             checked={northFilter}

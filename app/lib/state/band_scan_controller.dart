@@ -8,6 +8,7 @@
 /// 规则语义仍对齐 backend/app/scanner.py。
 library;
 
+import 'dart:async';
 import 'dart:convert';
 
 import 'package:flutter/foundation.dart';
@@ -22,6 +23,10 @@ enum BandScanStatus { idle, running, done, failed }
 
 /// 补齐本地日K缺失股票时的并发路数（每只一轮腾讯/东财日K往返）
 const bandBackfillConcurrency = 6;
+
+/// 数据源本身就没有 90 天日K的股票（次新股/长期停牌）。补过一次仍不足的记这里，
+/// 之后扫描直接跳过、界面不再提示——用户说过"股票本身数据缺失就不要了"。
+const noDataBlacklistKey = 'band:no_data_blacklist:v1';
 
 /// 本地日 K 分块读取的块大小：一次 `symbol IN (...)` 查询覆盖这么多只，
 /// 既省 sqlite 往返又不会把整库读进内存
@@ -44,10 +49,15 @@ class BandScanController extends ChangeNotifier {
   /// LON 多头标记（日/周/月三周期），测试可注入假实现
   late final LonCheckService lonCheck;
 
+  /// 扫描完成后是否自动在后台补数据（日K + 基本面/LON）。
+  /// 关掉可以只验证"扫描主流程不联网"这件事（测试用）。
+  final bool autoComplete;
+
   BandScanController(this.repository,
       {DateTime Function()? nowFn,
       FundamentalsService? fundamentals,
-      LonCheckService? lonCheck})
+      LonCheckService? lonCheck,
+      this.autoComplete = true})
       : now = nowFn ?? DateTime.now {
     this.fundamentals = fundamentals ??
         FundamentalsService(
@@ -153,6 +163,9 @@ class BandScanController extends ChangeNotifier {
   bool _disposed = false;
   int _runId = 0;
   bool _restored = false;
+
+  /// 数据源本身没有 90 天日K的股票（次新/长期停牌），扫描直接跳过
+  final Set<String> _noDataBlacklist = {};
 
   bool get running => status == BandScanStatus.running;
 
@@ -261,10 +274,20 @@ class BandScanController extends ChangeNotifier {
 
   String get _today => now().toIso8601String().substring(0, 10);
 
-  /// 加载同步状态（初始化标记 + 本地数据最新交易日）
+  /// 加载同步状态（初始化标记 + 本地数据最新交易日 + 无数据黑名单）
   Future<void> loadSyncStatus() async {
     initialized = await repository.sync.isInitialized();
     dataDate = await repository.sync.latestDataDate();
+    try {
+      final raw = await repository.store.getState(noDataBlacklistKey);
+      if (raw != null) {
+        _noDataBlacklist
+          ..clear()
+          ..addAll((jsonDecode(raw) as List).map((item) => '$item'));
+      }
+    } catch (_) {
+      // 黑名单损坏就当空的，大不了再补一次
+    }
     _notify();
   }
 
@@ -392,9 +415,12 @@ class BandScanController extends ChangeNotifier {
       for (final quote in chunk) {
         final bars = barsBySymbol[quote.symbol] ?? const <KlineBar>[];
         if (validScanBars(bars).length < scanMinBars) {
-          // 本地日K缺失/不足：不是规则排除，单独记录代码供「补齐」按钮用
-          missing.add(quote.symbol);
-          skippedNoData += 1;
+          // 本地日K不足。黑名单里的（次新股/长期停牌，补过也补不出来）静默跳过，
+          // 其余记下来由扫描后的自动补齐处理，界面不打扰用户。
+          if (!_noDataBlacklist.contains(quote.symbol)) {
+            missing.add(quote.symbol);
+            skippedNoData += 1;
+          }
         } else {
           final row = evaluateStock(quote.symbol, quote.name, quote.price, bars,
               today: today);
@@ -428,13 +454,28 @@ class BandScanController extends ChangeNotifier {
     status = BandScanStatus.done;
     stage = '';
     _notify();
+
+    // 扫完自动把缺的补上：先补日K（补不出来的进黑名单，以后不再打扰），
+    // 再补基本面/LON 标记。全程后台跑，用户不用点任何按钮。
+    if (autoComplete) unawaited(_autoComplete());
+  }
+
+  /// 扫描后的自动补数据：日K缺失 → 基本面/LON 标记。
+  /// 任一步失败都静默（结果照常可用），下次扫描会再试。
+  Future<void> _autoComplete() async {
+    if (skippedSymbols.isNotEmpty) {
+      await backfillMissing(silent: true);
+    }
+    if (unknownMarkCount > 0) {
+      await enrichMarks(silent: true);
+    }
   }
 
   /// 「补充数据 N 只」：只有用户显式点击才会发这批网络请求。
   /// 基本面（每只最多 2 请求）与 LON（每只最多 3 请求）分两段并发跑，
   /// 复用与扫描阶段同一套 worker 池；单只失败保持"未知"，可以再点一次。
-  Future<void> enrichMarks() async {
-    if (busy) return;
+  Future<void> enrichMarks({bool silent = false}) async {
+    if (busy && !silent) return;
     final targets = [for (final hit in hits) if (!hit.marksKnown) hit];
     if (targets.isEmpty) return;
     final runId = ++_runId; // 与扫描/补齐共用：任一方重启，其余立刻停
@@ -549,8 +590,8 @@ class BandScanController extends ChangeNotifier {
   /// 补齐本地日K缺失的股票：对 [skippedSymbols] 逐只补拉 90 天日K
   /// （bandBackfillConcurrency 路并发），成功的从清单里移除；
   /// 全部补齐后清空清单并提示可重扫。扫描进行中不允许启动。
-  Future<void> backfillMissing() async {
-    if (busy || skippedSymbols.isEmpty) return;
+  Future<void> backfillMissing({bool silent = false}) async {
+    if ((busy && !silent) || skippedSymbols.isEmpty) return;
     final runId = ++_runId; // 与扫描共用一个 runId：任一方重启，另一方立刻停
     final pending = List.of(skippedSymbols);
     backfilling = true;
@@ -601,6 +642,12 @@ class BandScanController extends ChangeNotifier {
     skippedSymbols = failed;
     skippedNoData = failed.length;
     unfixableCount = unfixable.length;
+    if (unfixable.isNotEmpty) {
+      // 数据源本身就没有 90 天数据：进黑名单，之后扫描直接跳过、不再提示
+      _noDataBlacklist.addAll(unfixable);
+      await repository.store
+          .setState(noDataBlacklistKey, jsonEncode(_noDataBlacklist.toList()));
+    }
     backfilling = false;
     final parts = <String>['已补齐 $filled 只'];
     if (unfixable.isNotEmpty) {

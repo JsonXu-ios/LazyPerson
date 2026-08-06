@@ -209,6 +209,7 @@ void main() {
       Set<String> backfillFailing = const {},
       Set<String> backfillShortData = const {},
       List<Quote>? quoteOverride,
+      bool autoComplete = false,
       Set<String> withoutBars = const {}}) async {
     store = LocalStore(await databaseFactory.openDatabase(
       inMemoryDatabasePath,
@@ -245,6 +246,7 @@ void main() {
       nowFn: () => _today,
       fundamentals: fundamentals,
       lonCheck: lonCheck,
+      autoComplete: autoComplete,
     );
   }
 
@@ -364,6 +366,45 @@ void main() {
       // 窗口最后一根就是今天 → 基准取 closes[-4]（平台价 10.6）
       expect(bySymbol['600001']!.chg3, closeTo(27.36, 0.01));
       expect(bySymbol['600001']!.chg5, closeTo(27.36, 0.01));
+    });
+  });
+
+  group('扫描后自动补数据（用户不用点按钮）', () {
+    test('扫完自动补日K与基本面/LON；补不出来的进黑名单，下次扫描不再计入缺失',
+        () async {
+      await setUpScan(
+        {
+          '600001': const FundamentalsMarks(
+              dividendRecent: true, profitOk: true, revenueOk: true),
+          '600002': const FundamentalsMarks(
+              dividendRecent: false, profitOk: true, revenueOk: false),
+        },
+        lonResults: {'600001': true, '600002': false},
+        quoteOverride: [_quote('600001', '甲股'), _quote('600002', '乙股')],
+        withoutBars: {'600002'},
+        backfillShortData: {'600002'}, // 补回来也不足 20 根 → 黑名单
+        autoComplete: true,
+      );
+
+      await controller.startScan();
+      // 自动补数据是后台任务，等它跑完
+      await Future<void>.delayed(const Duration(milliseconds: 60));
+
+      // 日K补齐已自动跑过，且 600002 进了黑名单
+      expect(sync.refreshed, contains('600002'));
+      expect(controller.unfixableCount, 1);
+      final raw = await store.getState(noDataBlacklistKey);
+      expect(jsonDecode(raw!), contains('600002'));
+
+      // 基本面/LON 也自动补了：命中股标记不再是未知
+      expect(controller.unknownMarkCount, 0);
+      expect(fundamentals.requested, contains('600001'));
+
+      // 再扫一次：黑名单里的不再计入"本地日K缺失"
+      await controller.startScan();
+      await Future<void>.delayed(const Duration(milliseconds: 60));
+      expect(controller.skippedNoData, 0);
+      expect(controller.skippedSymbols, isEmpty);
     });
   });
 

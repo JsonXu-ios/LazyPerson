@@ -180,12 +180,6 @@ class _BandScanScreenState extends State<BandScanScreen> {
                     letterSpacing: 0.8,
                   ),
                 ),
-                if (controller.skippedNoData > 0 ||
-                    controller.backfilling ||
-                    controller.backfillNote != null) ...[
-                  const SizedBox(height: 2),
-                  _backfillLine(running),
-                ],
               ],
             ),
           ),
@@ -203,145 +197,46 @@ class _BandScanScreenState extends State<BandScanScreen> {
         : ' · ${(millis / 1000).toStringAsFixed(1)}s';
   }
 
-  /// 「补充数据 N 只」：扫描只读缓存，缺的标记在这里显式补。
-  /// 这是本页唯一会发大量网络请求的动作，必须用户点了才跑。
+  /// 数据补充状态：扫描后自动在后台补日K与基本面/LON，这里只报进度，
+  /// 不需要用户点任何按钮（补不出来的股票已进黑名单，不再提示）。
   Widget _enrichLine() {
-    if (controller.status != BandScanStatus.done && !controller.enriching) {
-      return const SizedBox.shrink();
-    }
-    if (controller.enriching) {
-      final total = controller.enrichTotal;
-      final ratio = total > 0 ? controller.enrichDone / total : null;
-      return Padding(
-        padding: const EdgeInsets.fromLTRB(16, 10, 16, 0),
-        child: Column(
-          crossAxisAlignment: CrossAxisAlignment.stretch,
-          children: [
-            HudSegmentBar(ratio: ratio),
-            const SizedBox(height: 5),
-            Text(
-              '补充基本面/LON 数据 ${controller.enrichDone}/$total…',
-              style: mono(
-                size: FontSize.secondaryNumber,
-                color: AppColors.textMuted,
-              ),
-            ),
-          ],
-        ),
-      );
-    }
-    final unknown = controller.unknownMarkCount;
-    if (unknown == 0) {
-      final note = controller.enrichNote;
-      if (note == null) return const SizedBox.shrink();
+    final backfilling = controller.backfilling;
+    final enriching = controller.enriching;
+    if (!backfilling && !enriching) {
+      if (controller.status != BandScanStatus.done) {
+        return const SizedBox.shrink();
+      }
+      if (controller.unknownMarkCount > 0) return const SizedBox.shrink();
       return Padding(
         padding: const EdgeInsets.fromLTRB(16, 8, 16, 0),
-        child: Text(
-          note,
-          overflow: TextOverflow.ellipsis,
-          style: mono(size: FontSize.legend, color: AppColors.accent),
-        ),
-      );
-    }
-    return Padding(
-      padding: const EdgeInsets.fromLTRB(16, 8, 16, 0),
-      child: Row(
-        children: [
-          Expanded(
-            child: Text(
-              controller.enrichNote ?? '分红/净利润/估市值/LON 未补充（扫描不联网取数）',
-              overflow: TextOverflow.ellipsis,
-              style: mono(size: FontSize.legend, color: AppColors.warn),
-            ),
-          ),
-          const SizedBox(width: 8),
-          GestureDetector(
-            onTap: controller.busy ? null : controller.enrichMarks,
-            behavior: HitTestBehavior.opaque,
-            child: Container(
-              padding: const EdgeInsets.symmetric(horizontal: 10, vertical: 5),
-              decoration: BoxDecoration(
-                borderRadius: BorderRadius.circular(6),
-                color: AppColors.hudFillActive,
-                border: Border.all(color: AppColors.hudBorderActive),
-              ),
-              child: Text(
-                '补充数据 $unknown 只',
-                style: mono(
-                  size: FontSize.legend,
-                  color: AppColors.accent,
-                  weight: FontWeight.w700,
-                ),
-              ),
-            ),
-          ),
-        ],
-      ),
-    );
-  }
-
-  /// 本地日K缺失提示 → 可点的「补齐」按钮（补齐中显示进度，完成后给重扫提示）
-  Widget _backfillLine(bool running) {
-    if (controller.backfilling) {
-      return Text(
-        '补齐中 ${controller.backfillDone}/${controller.backfillTotal}',
-        overflow: TextOverflow.ellipsis,
-        style: mono(
-          size: FontSize.legend,
-          color: AppColors.accent,
-          letterSpacing: 0.4,
-        ),
-      );
-    }
-    if (controller.skippedNoData == 0) {
-      return Text(
-        controller.backfillNote ?? '',
-        overflow: TextOverflow.ellipsis,
-        textAlign: TextAlign.end,
-        style: mono(
-          size: FontSize.legend,
-          color: AppColors.accent,
-          letterSpacing: 0.4,
-        ),
-      );
-    }
-    final canBackfill = !running && controller.skippedSymbols.isNotEmpty;
-    return GestureDetector(
-      onTap: canBackfill ? controller.backfillMissing : null,
-      behavior: HitTestBehavior.opaque,
-      child: Row(
-        mainAxisSize: MainAxisSize.min,
-        children: [
-          Flexible(
-            child: Text(
-              '本地日K缺失 跳过${controller.skippedNoData}只',
-              overflow: TextOverflow.ellipsis,
-              style: mono(
-                size: FontSize.legend,
-                color: AppColors.warn,
-                letterSpacing: 0.4,
-              ),
-            ),
-          ),
-          if (canBackfill) ...[
-            const SizedBox(width: 6),
-            Container(
-              padding: const EdgeInsets.symmetric(horizontal: 7, vertical: 3),
-              decoration: BoxDecoration(
-                borderRadius: BorderRadius.circular(4),
-                color: AppColors.hudFillActive,
-                border: Border.all(color: AppColors.hudBorderActive),
-              ),
-              child: Text(
-                '补齐',
-                style: mono(
-                  size: FontSize.legend,
-                  color: AppColors.accent,
-                  weight: FontWeight.w700,
-                ),
-              ),
-            ),
+        child: Row(
+          children: [
+            const Icon(Icons.check_circle_outline,
+                size: 12, color: AppColors.textFaint),
+            const SizedBox(width: 5),
+            Text('数据完整',
+                style: mono(size: FontSize.legend, color: AppColors.textFaint)),
           ],
+        ),
+      );
+    }
+    final done = backfilling ? controller.backfillDone : controller.enrichDone;
+    final total =
+        backfilling ? controller.backfillTotal : controller.enrichTotal;
+    final label = backfilling ? '补本地日K' : '补分红/净利润/估市值/LON';
+    return Padding(
+      padding: const EdgeInsets.fromLTRB(16, 10, 16, 0),
+      child: Column(
+        crossAxisAlignment: CrossAxisAlignment.stretch,
+        children: [
+          HudSegmentBar(ratio: total > 0 ? done / total : null),
+          const SizedBox(height: 5),
+          Text(
+            '后台补数据 · $label $done/$total（不影响查看结果）',
+            overflow: TextOverflow.ellipsis,
+            style: mono(
+                size: FontSize.secondaryNumber, color: AppColors.textMuted),
+          ),
         ],
       ),
     );

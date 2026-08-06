@@ -215,7 +215,7 @@ def _round_or_none(value: float | None) -> float | None:
     return None if value is None else round(value, 2)
 
 
-STATE_KEY = "moneygrab:last_scan:v12"  # v12: 命中行含 turnover/chg3/chg5
+STATE_KEY = "moneygrab:last_scan:v13"  # v13: 命中行含 revenue_ratio（估市值倍数）
 
 
 def _default_fundamentals_enricher(cache: CacheStore, hits: list[dict], caps: dict) -> None:
@@ -529,6 +529,7 @@ class MoneyGrabScanner:
                 row.setdefault("dividend_recent", False)
                 row.setdefault("profit_ok", False)
                 row.setdefault("revenue_ok", False)
+                row.setdefault("revenue_ratio", None)
 
             with self._lock:
                 self._state.stage = "lon"

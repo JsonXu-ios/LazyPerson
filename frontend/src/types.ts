@@ -101,6 +101,8 @@ export type MoneyGrabHit = {
   profit_ok?: boolean;
   /** 估市值：最新报告期年化营收×10 > 总市值 */
   revenue_ok?: boolean;
+  /** 估市值倍数 = 年化营收×10 ÷ 总市值 */
+  revenue_ratio?: number | null;
   /** 日/周/月三周期 lon、lonma 整体向上且 lonma 不压在 lon 上方 */
   lon_ok?: boolean;
   /** 一路北上：90日整体向上，低点在窗口前1/3、最高点在后1/3 */

@@ -713,3 +713,31 @@ class TestRecentChange:
         assert row["turnover"] == 4.2
         assert row["chg3"] is not None
         assert row["chg5"] is not None
+
+
+class TestRevenueRatio:
+    def test_ratio_and_thresholds(self):
+        from backend.app.fundamentals import revenue_condition, revenue_ratio
+
+        # 坤彩科技实况：Q1归母净利7540.8万、净利率0.1829、市值147.01亿
+        ratio = revenue_ratio(75408111.4, 0.182915, "2026-03-31", 147.01)
+        assert ratio is not None
+        assert 1.0 < ratio < 1.2          # 擦线通过 1 倍
+        assert revenue_condition(75408111.4, 0.182915, "2026-03-31", 147.01)
+        assert ratio <= 2                  # 但达不到 2 倍
+
+        # 茅台：Q1营收539亿×4×10=2.16万亿 vs 市值1.61万亿 → 1.34 倍，同样不到 2 倍
+        maotai = revenue_ratio(28153831489.89, 0.522245, "2026-03-31", 16119.8)
+        assert maotai is not None and 1 < maotai < 2
+
+        # 低市销率股（年化营收 100 亿、市值 300 亿）→ 100×10/300 = 3.33 倍
+        cheap = revenue_ratio(2.5e8, 0.10, "2026-03-31", 300.0)
+        assert cheap is not None and cheap > 2
+
+    def test_ratio_none_on_missing_data(self):
+        from backend.app.fundamentals import revenue_ratio
+
+        assert revenue_ratio(None, 0.2, "2026-03-31", 100.0) is None
+        assert revenue_ratio(1e8, None, "2026-03-31", 100.0) is None
+        assert revenue_ratio(1e8, 0.2, None, 100.0) is None
+        assert revenue_ratio(1e8, 0.2, "2026-03-31", None) is None

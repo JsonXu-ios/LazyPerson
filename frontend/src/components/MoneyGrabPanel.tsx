@@ -37,6 +37,7 @@ export function MoneyGrabPanel({ onSelect }: { onSelect: (symbol: string) => voi
   const [dividendFilter, setDividendFilter] = useState(false);   // 近一年有分红
   const [profitFilter, setProfitFilter] = useState(false);       // 归母净利≥0
   const [revenueFilter, setRevenueFilter] = useState(false);     // 估市值：年化营收×10>总市值
+  const [revenue2xFilter, setRevenue2xFilter] = useState(false); // 估市值超2倍
   const [lonFilter, setLonFilter] = useState(false);             // 日/周/月 LON 多头
   const [northFilter, setNorthFilter] = useState(false);         // 一路北上：低点在前高点在后
   const [hotFilter, setHotFilter] = useState(false);             // 只看今日热点概念板块内的
@@ -97,6 +98,7 @@ export function MoneyGrabPanel({ onSelect }: { onSelect: (symbol: string) => voi
       (!dividendFilter || hit.dividend_recent === true) &&
       (!profitFilter || hit.profit_ok === true) &&
       (!revenueFilter || hit.revenue_ok === true) &&
+      (!revenue2xFilter || (hit.revenue_ratio ?? 0) > 2) &&
       (!lonFilter || hit.lon_ok === true) &&
       (!northFilter || hit.north_ok === true) &&
       (!hotFilter || hit.hot_sector === true) &&
@@ -166,6 +168,14 @@ export function MoneyGrabPanel({ onSelect }: { onSelect: (symbol: string) => voi
             onChange={(event) => setRevenueFilter(event.target.checked)}
           />
           估市值
+        </label>
+        <label className="moneygrab-filter" title="估市值倍数 > 2：年化营收×10 超过总市值 2 倍以上（等价于市销率 < 5）">
+          <input
+            type="checkbox"
+            checked={revenue2xFilter}
+            onChange={(event) => setRevenue2xFilter(event.target.checked)}
+          />
+          估市值2倍
         </label>
         <label className="moneygrab-filter" title="日线、周线、月线上 LON 与 LONMA 都向上，且 LONMA 不压在 LON 上方">
           <input
@@ -267,6 +277,7 @@ export function MoneyGrabPanel({ onSelect }: { onSelect: (symbol: string) => voi
                   <th>低点日</th>
                   <th>过线日</th>
                   <th>超出</th>
+                  <th>估值倍</th>
                   <th>换手</th>
                   <th>3日</th>
                   <th>5日</th>
@@ -286,6 +297,7 @@ export function MoneyGrabPanel({ onSelect }: { onSelect: (symbol: string) => voi
                     <td>{hit.low_date.slice(5)}</td>
                     <td>{hit.cross_date.slice(5)}</td>
                     <td className="moneygrab-over">+{hit.over.toFixed(1)}%</td>
+                    <td>{hit.revenue_ratio != null ? `${hit.revenue_ratio.toFixed(2)}x` : "-"}</td>
                     <td>{hit.turnover != null ? `${hit.turnover.toFixed(1)}%` : "-"}</td>
                     <td>{hit.chg3 != null ? `${hit.chg3.toFixed(1)}%` : "-"}</td>
                     <td>{hit.chg5 != null ? `${hit.chg5.toFixed(1)}%` : "-"}</td>
@@ -300,7 +312,7 @@ export function MoneyGrabPanel({ onSelect }: { onSelect: (symbol: string) => voi
                 ))}
                 {!activeHits.length && (
                   <tr>
-                    <td colSpan={14}>{running ? "本档暂无命中（扫描中…）" : "本档无命中"}</td>
+                    <td colSpan={15}>{running ? "本档暂无命中（扫描中…）" : "本档无命中"}</td>
                   </tr>
                 )}
               </tbody>

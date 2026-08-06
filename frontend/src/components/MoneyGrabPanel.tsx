@@ -6,6 +6,9 @@ import { normalizeError } from "../utils/format";
 const POLL_MS = 2000;
 const GROUP_NAMES = ["一", "二", "三", "四", "五", "六", "七", "八"];
 const MARKET_CAP_MIN = 40; // 亿元
+const TURNOVER_MIN = 3;   // 当日换手率%
+const CHG3_MIN = 7;       // 近3日涨幅%
+const CHG5_MIN = 14;      // 近5日涨幅%
 
 // 档位分界 20/40/70/100/130/160/190/220：一档[20,40)、二档[40,70)、三档[70,100)…
 const GROUP_LOWER = [20, 40, 70, 100, 130, 160, 190, 220];
@@ -37,6 +40,9 @@ export function MoneyGrabPanel({ onSelect }: { onSelect: (symbol: string) => voi
   const [lonFilter, setLonFilter] = useState(false);             // 日/周/月 LON 多头
   const [northFilter, setNorthFilter] = useState(false);         // 一路北上：低点在前高点在后
   const [hotFilter, setHotFilter] = useState(false);             // 只看今日热点概念板块内的
+  const [turnoverFilter, setTurnoverFilter] = useState(false);   // 当日换手率>3%
+  const [chg3Filter, setChg3Filter] = useState(false);           // 近3日涨幅>7%
+  const [chg5Filter, setChg5Filter] = useState(false);           // 近5日涨幅>14%
   const timerRef = useRef<number | null>(null);
 
   const loadStatus = useCallback(async () => {
@@ -93,7 +99,10 @@ export function MoneyGrabPanel({ onSelect }: { onSelect: (symbol: string) => voi
       (!revenueFilter || hit.revenue_ok === true) &&
       (!lonFilter || hit.lon_ok === true) &&
       (!northFilter || hit.north_ok === true) &&
-      (!hotFilter || hit.hot_sector === true),
+      (!hotFilter || hit.hot_sector === true) &&
+      (!turnoverFilter || (hit.turnover ?? -1) > TURNOVER_MIN) &&
+      (!chg3Filter || (hit.chg3 ?? -999) > CHG3_MIN) &&
+      (!chg5Filter || (hit.chg5 ?? -999) > CHG5_MIN),
   );
   const groupCounts = new Map<number, number>();
   const groupHits = new Map<number, MoneyGrabHit[]>();
@@ -174,6 +183,30 @@ export function MoneyGrabPanel({ onSelect }: { onSelect: (symbol: string) => voi
           />
           一路北上
         </label>
+        <label className="moneygrab-filter" title={`当日换手率 > ${TURNOVER_MIN}%`}>
+          <input
+            type="checkbox"
+            checked={turnoverFilter}
+            onChange={(event) => setTurnoverFilter(event.target.checked)}
+          />
+          换手&gt;{TURNOVER_MIN}%
+        </label>
+        <label className="moneygrab-filter" title={`近3个交易日累计涨幅 > ${CHG3_MIN}%`}>
+          <input
+            type="checkbox"
+            checked={chg3Filter}
+            onChange={(event) => setChg3Filter(event.target.checked)}
+          />
+          3日&gt;{CHG3_MIN}%
+        </label>
+        <label className="moneygrab-filter" title={`近5个交易日累计涨幅 > ${CHG5_MIN}%`}>
+          <input
+            type="checkbox"
+            checked={chg5Filter}
+            onChange={(event) => setChg5Filter(event.target.checked)}
+          />
+          5日&gt;{CHG5_MIN}%
+        </label>
         <label className="moneygrab-filter" title="所属概念板块中有今日涨幅前列的热点板块">
           <input
             type="checkbox"
@@ -234,6 +267,9 @@ export function MoneyGrabPanel({ onSelect }: { onSelect: (symbol: string) => voi
                   <th>低点日</th>
                   <th>过线日</th>
                   <th>超出</th>
+                  <th>换手</th>
+                  <th>3日</th>
+                  <th>5日</th>
                   <th>行业/概念</th>
                   <th>形态</th>
                 </tr>
@@ -250,6 +286,9 @@ export function MoneyGrabPanel({ onSelect }: { onSelect: (symbol: string) => voi
                     <td>{hit.low_date.slice(5)}</td>
                     <td>{hit.cross_date.slice(5)}</td>
                     <td className="moneygrab-over">+{hit.over.toFixed(1)}%</td>
+                    <td>{hit.turnover != null ? `${hit.turnover.toFixed(1)}%` : "-"}</td>
+                    <td>{hit.chg3 != null ? `${hit.chg3.toFixed(1)}%` : "-"}</td>
+                    <td>{hit.chg5 != null ? `${hit.chg5.toFixed(1)}%` : "-"}</td>
                     <td className="moneygrab-sector" title={[hit.industry, ...(hit.concepts || [])].filter(Boolean).join(" · ")}>
                       {hit.hot_sector && <span className="moneygrab-hot">热</span>}
                       {(hit.concepts || []).slice(0, 2).join(" ") || hit.industry || "-"}
@@ -261,7 +300,7 @@ export function MoneyGrabPanel({ onSelect }: { onSelect: (symbol: string) => voi
                 ))}
                 {!activeHits.length && (
                   <tr>
-                    <td colSpan={11}>{running ? "本档暂无命中（扫描中…）" : "本档无命中"}</td>
+                    <td colSpan={14}>{running ? "本档暂无命中（扫描中…）" : "本档无命中"}</td>
                   </tr>
                 )}
               </tbody>

@@ -111,6 +111,12 @@ export type MoneyGrabHit = {
   concepts?: string[];
   /** 所属概念中有今日涨幅前列的热点板块 */
   hot_sector?: boolean;
+  /** 当日换手率% */
+  turnover?: number | null;
+  /** 近3日涨幅% */
+  chg3?: number | null;
+  /** 近5日涨幅% */
+  chg5?: number | null;
 
 };
 

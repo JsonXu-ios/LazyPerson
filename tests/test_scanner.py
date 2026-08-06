@@ -675,3 +675,41 @@ class TestNorthBound:
         row = evaluate_stock("600001", "测试股", 13.5, bars, today=self.today)
         assert row is not None
         assert row["north_ok"] is True
+
+
+class TestRecentChange:
+    today = date(2026, 7, 24)
+
+    def test_recent_change_with_today_bar(self):
+        from backend.app.scanner import recent_change
+
+        bars = make_bars(30, 10.0, self.today)
+        window = slice_calendar_window(bars, 90)
+        # 窗口末根就是今天：近3日基准 = closes[-4]
+        closes = [float(b["close"]) for b in window]
+        expected = (13.0 / closes[-4] - 1) * 100
+        assert abs(recent_change(13.0, window, 3, self.today) - expected) < 1e-6
+
+    def test_recent_change_without_today_bar(self):
+        from backend.app.scanner import recent_change
+
+        # 窗口末根不是今天（stale 数据）：基准 = closes[-3]
+        bars = make_bars(30, 10.0, self.today - timedelta(days=5))
+        window = slice_calendar_window(bars, 90)
+        closes = [float(b["close"]) for b in window]
+        expected = (13.0 / closes[-3] - 1) * 100
+        assert abs(recent_change(13.0, window, 3, self.today) - expected) < 1e-6
+
+    def test_recent_change_insufficient_bars(self):
+        from backend.app.scanner import recent_change
+
+        window = make_bars(30, 10.0, self.today)[:2]
+        assert recent_change(13.0, window, 5, self.today) is None
+
+    def test_evaluate_carries_turnover_and_changes(self):
+        bars = make_wave_bars(self.today, 10.0, [5, 12, 32])
+        row = evaluate_stock("600001", "测试股", 13.5, bars, today=self.today, turnover=4.2)
+        assert row is not None
+        assert row["turnover"] == 4.2
+        assert row["chg3"] is not None
+        assert row["chg5"] is not None

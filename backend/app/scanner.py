@@ -120,12 +120,30 @@ def slice_calendar_window(bars: list[dict], days: int = WINDOW_DAYS) -> list[dic
     return [bar for bar in valid if _bar_date(bar) >= cutoff]
 
 
+def recent_change(price: float, window: list[dict], days: int, today: date | None = None) -> float | None:
+    """近 days 个交易日涨幅%：现价 / days 个交易日前的收盘 − 1。数据不足返回 None。
+    窗口最后一根若就是今天，基准取 closes[-(days+1)]，否则取 closes[-days]。"""
+    closes = [float(bar["close"]) for bar in window if bar.get("close") is not None]
+    if not closes:
+        return None
+    today = today or date.today()
+    last_is_today = _bar_date(window[-1]) == today
+    offset = days + 1 if last_is_today else days
+    if len(closes) < offset:
+        return None
+    base = closes[-offset]
+    if base <= 0:
+        return None
+    return (price / base - 1) * 100
+
+
 def evaluate_stock(
     symbol: str,
     name: str,
     price: float | None,
     bars: list[dict],
     today: date | None = None,
+    turnover: float | None = None,
 ) -> dict | None:
     """90日波段（低点→现在）分档：档位分界 20/40/70/100/130/160/190/220，
     一档[20,40)、二档[40,70)、三档[70,100)…八档[220,∞)。低点不区分反转/起点。
@@ -187,10 +205,17 @@ def evaluate_stock(
         "cross_date": cross_date,
         "from_top": from_top,
         "north_ok": north,
+        "turnover": turnover,
+        "chg3": _round_or_none(recent_change(float(price), window, 3, today)),
+        "chg5": _round_or_none(recent_change(float(price), window, 5, today)),
     }
 
 
-STATE_KEY = "moneygrab:last_scan:v11"  # v11: 档位分界 20/40/70/100/…，回落记忆，去强信号
+def _round_or_none(value: float | None) -> float | None:
+    return None if value is None else round(value, 2)
+
+
+STATE_KEY = "moneygrab:last_scan:v12"  # v12: 命中行含 turnover/chg3/chg5
 
 
 def _default_fundamentals_enricher(cache: CacheStore, hits: list[dict], caps: dict) -> None:
@@ -468,7 +493,11 @@ class MoneyGrabScanner:
                     try:
                         bars = fetch_bars(str(quote["symbol"]))
                         row = evaluate_stock(
-                            str(quote["symbol"]), str(quote.get("name", "")), quote.get("price"), bars
+                            str(quote["symbol"]),
+                            str(quote.get("name", "")),
+                            quote.get("price"),
+                            bars,
+                            turnover=quote.get("turnover"),
                         )
                         if row is not None:
                             row["limit_up"] = is_limit_up(quote.get("price"), quote.get("pre_close"))

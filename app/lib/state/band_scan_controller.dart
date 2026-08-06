@@ -1,5 +1,11 @@
-/// 八档局扫描状态控制器：全市场行情快照（东财，腾讯兜底）+
-/// 本地 sqlite 已同步的 90 天日 K，流程语义对齐 backend/app/scanner.py。
+/// 八档局扫描状态控制器。
+///
+/// **扫描是纯本地的**：整个流程只有一次网络请求（全市场行情快照，用来拿
+/// 现价/换手率/市值），其余全部走本地 sqlite 日 K 与已缓存的基本面/LON 标记。
+/// 缓存里没有的标记记为"未知"（第三态，不是 false），扫描结束后由界面上的
+/// 「补充数据 N 只」按钮显式触发并发拉取（[enrichMarks]）。
+///
+/// 规则语义仍对齐 backend/app/scanner.py。
 library;
 
 import 'dart:convert';
@@ -17,13 +23,17 @@ enum BandScanStatus { idle, running, done, failed }
 /// 补齐本地日K缺失股票时的并发路数（每只一轮腾讯/东财日K往返）
 const bandBackfillConcurrency = 6;
 
+/// 本地日 K 分块读取的块大小：一次 `symbol IN (...)` 查询覆盖这么多只，
+/// 既省 sqlite 往返又不会把整库读进内存
+const bandBarsChunkSize = 200;
+
 class BandScanController extends ChangeNotifier {
   /// 总市值下限（亿元），勾选“总市值>40亿”时生效
   static const marketCapMin = 40.0;
 
-  /// v9: 档位分界改 20/40/70/100/…、回落判定重写、去强信号与板块字段，
+  /// v10: 扫描改纯本地、标记变三态、命中行新增 turnover/chg3/chg5/market_cap，
   /// 旧结果作废
-  static const _stateKey = 'band_scan:last:v9';
+  static const _stateKey = 'band_scan:last:v10';
 
   final MarketRepository repository;
   final DateTime Function() now;
@@ -54,13 +64,16 @@ class BandScanController extends ChangeNotifier {
   }
 
   BandScanStatus status = BandScanStatus.idle;
-  String stage = ''; // snapshot | kline | fundamentals | lon | ''
+  String stage = ''; // snapshot | kline | ''
   int total = 0;
   int done = 0;
   List<BandHit> hits = [];
   String? tradeDate;
   double? minMarketCap;
   String? error;
+
+  /// 扫描耗时（毫秒），扫完后显示在页面上；null = 还没扫过
+  int? scanMillis;
 
   /// 本地日K缺失/不足20根而未参与判定的股票数（数据完整性提示，非规则排除）
   int skippedNoData = 0;
@@ -78,6 +91,16 @@ class BandScanController extends ChangeNotifier {
   /// 补齐结果提示（成功若干只 / 失败原因），点开始扫描后清空
   String? backfillNote;
 
+  /// 「补充数据」进行中（基本面 + LON 标记的并发拉取）
+  bool enriching = false;
+
+  /// 补充数据进度：已处理 / 总数（基本面与 LON 两段合并计数）
+  int enrichDone = 0;
+  int enrichTotal = 0;
+
+  /// 补充数据结果提示，重新扫描时清空
+  String? enrichNote;
+
   /// 同步状态：本地全市场日K的最新交易日（null = 尚无数据/未加载）
   String? dataDate;
 
@@ -94,7 +117,8 @@ class BandScanController extends ChangeNotifier {
   /// 勾选后并入列表（无需重扫）
   bool showFromTop = false;
 
-  /// 展示层过滤：只看近一年有分红（含已公告的今年分红），默认关，无需重扫
+  /// 展示层过滤：只看近一年有分红（含已公告的今年分红），默认关，无需重扫。
+  /// 标记未知的**不显示**（宁可漏也不误报）。
   bool dividendFilter = false;
 
   /// 展示层过滤：只看净利润达标（最新报告期归母净利≥0），默认关
@@ -109,6 +133,15 @@ class BandScanController extends ChangeNotifier {
   /// 展示层过滤：只看一路北上（低点在窗口前1/3、最高点在后1/3），默认关
   bool northFilter = false;
 
+  /// 展示层过滤：当日换手率 > 3%，默认关（null = 快照没给换手率 → 过滤掉）
+  bool turnoverFilter = false;
+
+  /// 展示层过滤：近 3 日涨幅 > 7%，默认关
+  bool chg3Filter = false;
+
+  /// 展示层过滤：近 5 日涨幅 > 14%，默认关
+  bool chg5Filter = false;
+
   int activeGroup = 1;
 
   bool _disposed = false;
@@ -117,17 +150,36 @@ class BandScanController extends ChangeNotifier {
 
   bool get running => status == BandScanStatus.running;
 
-  /// 展示层过滤后的命中（对齐 MoneyGrabPanel.tsx 的 visibleHits）
+  /// 忙碌中（扫描/补齐/补充数据任一进行中）：三者互斥
+  bool get busy => running || backfilling || enriching;
+
+  /// 展示层过滤后的命中（对齐 MoneyGrabPanel.tsx 的 visibleHits）。
+  /// 三态标记的语义：勾选后只显示**确定**达标的，未知（null）一律不显示。
   List<BandHit> get visibleHits => hits
       .where((hit) =>
           (!limitUpFilter || hit.limitUp) &&
           (showFromTop || !hit.fromTop) &&
-          (!dividendFilter || hit.dividendRecent) &&
-          (!profitFilter || hit.profitOk) &&
-          (!revenueFilter || hit.revenueOk) &&
-          (!lonFilter || hit.lonOk) &&
-          (!northFilter || hit.northOk))
+          (!dividendFilter || hit.dividendRecent == true) &&
+          (!profitFilter || hit.profitOk == true) &&
+          (!revenueFilter || hit.revenueOk == true) &&
+          (!lonFilter || hit.lonOk == true) &&
+          (!northFilter || hit.northOk) &&
+          (!turnoverFilter ||
+              (hit.turnover != null && hit.turnover! > turnoverFilterMin)) &&
+          (!chg3Filter || (hit.chg3 != null && hit.chg3! > chg3FilterMin)) &&
+          (!chg5Filter || (hit.chg5 != null && hit.chg5! > chg5FilterMin)))
       .toList();
+
+  /// 基本面/LON 标记还没补充的命中代码（「补充数据 N 只」按钮用）
+  List<String> get unknownMarkSymbols =>
+      [for (final hit in hits) if (!hit.marksKnown) hit.symbol];
+
+  /// 同上的数量，0 = 全部标记都已确定
+  int get unknownMarkCount => unknownMarkSymbols.length;
+
+  /// 当前是否有依赖标记的筛选开关被打开（决定要不要提示“有 N 只数据未补充”）
+  bool get markFilterActive =>
+      dividendFilter || profitFilter || revenueFilter || lonFilter;
 
   Map<int, int> get groupCounts {
     final counts = <int, int>{};
@@ -159,51 +211,40 @@ class BandScanController extends ChangeNotifier {
     _notify();
   }
 
-  void setCapFilter(bool value) {
-    if (value == capFilter) return;
-    capFilter = value;
-    _notify();
-  }
+  void setCapFilter(bool value) => _setFlag(value, capFilter, (v) => capFilter = v);
 
-  void setLimitUpFilter(bool value) {
-    if (value == limitUpFilter) return;
-    limitUpFilter = value;
-    _notify();
-  }
+  void setLimitUpFilter(bool value) =>
+      _setFlag(value, limitUpFilter, (v) => limitUpFilter = v);
 
-  void setShowFromTop(bool value) {
-    if (value == showFromTop) return;
-    showFromTop = value;
-    _notify();
-  }
+  void setShowFromTop(bool value) =>
+      _setFlag(value, showFromTop, (v) => showFromTop = v);
 
-  void setDividendFilter(bool value) {
-    if (value == dividendFilter) return;
-    dividendFilter = value;
-    _notify();
-  }
+  void setDividendFilter(bool value) =>
+      _setFlag(value, dividendFilter, (v) => dividendFilter = v);
 
-  void setProfitFilter(bool value) {
-    if (value == profitFilter) return;
-    profitFilter = value;
-    _notify();
-  }
+  void setProfitFilter(bool value) =>
+      _setFlag(value, profitFilter, (v) => profitFilter = v);
 
-  void setNorthFilter(bool value) {
-    if (value == northFilter) return;
-    northFilter = value;
-    _notify();
-  }
+  void setNorthFilter(bool value) =>
+      _setFlag(value, northFilter, (v) => northFilter = v);
 
-  void setRevenueFilter(bool value) {
-    if (value == revenueFilter) return;
-    revenueFilter = value;
-    _notify();
-  }
+  void setRevenueFilter(bool value) =>
+      _setFlag(value, revenueFilter, (v) => revenueFilter = v);
 
-  void setLonFilter(bool value) {
-    if (value == lonFilter) return;
-    lonFilter = value;
+  void setLonFilter(bool value) => _setFlag(value, lonFilter, (v) => lonFilter = v);
+
+  void setTurnoverFilter(bool value) =>
+      _setFlag(value, turnoverFilter, (v) => turnoverFilter = v);
+
+  void setChg3Filter(bool value) =>
+      _setFlag(value, chg3Filter, (v) => chg3Filter = v);
+
+  void setChg5Filter(bool value) =>
+      _setFlag(value, chg5Filter, (v) => chg5Filter = v);
+
+  void _setFlag(bool value, bool current, void Function(bool) assign) {
+    if (value == current) return;
+    assign(value);
     _notify();
   }
 
@@ -240,6 +281,7 @@ class BandScanController extends ChangeNotifier {
       done = total;
       tradeDate = data['trade_date'] as String?;
       minMarketCap = (data['min_market_cap'] as num?)?.toDouble();
+      scanMillis = (data['scan_ms'] as num?)?.toInt();
       capFilter = minMarketCap != null;
       status = BandScanStatus.done;
       _notify();
@@ -249,12 +291,12 @@ class BandScanController extends ChangeNotifier {
   }
 
   Future<void> startScan() async {
-    if (running || backfilling) return;
+    if (busy) return;
     // 全市场日K未同步完成时本地数据残缺，扫描结果会漏股票（如刚安装的设备），直接拒绝
     if (!await repository.sync.isInitialized()) {
       status = BandScanStatus.failed;
       stage = '';
-      error = '全市场日K尚未同步完成：请回到首页等待初始化同步结束后再扫描';
+      error = '全市场日K尚未同步完成：请回自选页等待初始化同步结束后再扫描';
       _notify();
       return;
     }
@@ -270,11 +312,18 @@ class BandScanController extends ChangeNotifier {
     skippedNoData = 0;
     skippedSymbols = [];
     backfillNote = null;
+    enrichNote = null;
+    scanMillis = null;
     tradeDate = _today;
     minMarketCap = capLimit;
     _notify();
+    final startedAt = DateTime.now();
     try {
       await _run(runId, capLimit);
+      if (runId != _runId) return;
+      scanMillis = DateTime.now().difference(startedAt).inMilliseconds;
+      _notify();
+      await _persist();
     } catch (exc) {
       if (runId != _runId) return;
       status = BandScanStatus.failed;
@@ -284,6 +333,7 @@ class BandScanController extends ChangeNotifier {
     }
   }
 
+  /// 扫描主流程：1 次快照请求 + 本地日 K + 已缓存标记，全程不再逐只打网络。
   Future<void> _run(int runId, double? capLimit) async {
     final quotes = await _fetchAllAQuotes();
     if (runId != _runId) return;
@@ -308,83 +358,55 @@ class BandScanController extends ChangeNotifier {
     stage = 'kline';
     _notify();
 
+    // 已缓存的基本面/LON 标记：各一次前缀查询，扫描期间不发任何请求
+    final symbols = [for (final quote in candidates) quote.symbol];
+    final fundCache = await fundamentals.cachedMarksForMany(symbols);
+    final lonCache = await lonCheck.cachedOkForMany(symbols);
+    if (runId != _runId) return;
+
     final today = now();
     final collected = <BandHit>[];
     final missing = <String>[];
-    for (final quote in candidates) {
+
+    for (var offset = 0; offset < candidates.length; offset += bandBarsChunkSize) {
       if (runId != _runId) return;
-      final bars = await repository.store.getDailyBars(quote.symbol);
-      if (validScanBars(bars).length < scanMinBars) {
-        // 本地日K缺失/不足：不是规则排除，单独记录代码供「补齐」按钮用
-        missing.add(quote.symbol);
-        skippedNoData += 1;
-      } else {
-        final row = evaluateStock(quote.symbol, quote.name, quote.price, bars,
-            today: today);
-        if (row != null) {
-          collected.add(
-              row.copyWith(limitUp: isLimitUp(quote.price, quote.preClose)));
+      final end = offset + bandBarsChunkSize > candidates.length
+          ? candidates.length
+          : offset + bandBarsChunkSize;
+      final chunk = candidates.sublist(offset, end);
+      final barsBySymbol = await repository.store
+          .dailyBarsFor([for (final quote in chunk) quote.symbol]);
+      if (runId != _runId) return;
+      for (final quote in chunk) {
+        final bars = barsBySymbol[quote.symbol] ?? const <KlineBar>[];
+        if (validScanBars(bars).length < scanMinBars) {
+          // 本地日K缺失/不足：不是规则排除，单独记录代码供「补齐」按钮用
+          missing.add(quote.symbol);
+          skippedNoData += 1;
+        } else {
+          final row = evaluateStock(quote.symbol, quote.name, quote.price, bars,
+              today: today);
+          if (row != null) {
+            final marks = fundCache[quote.symbol];
+            collected.add(row.copyWith(
+              limitUp: isLimitUp(quote.price, quote.preClose),
+              turnover: quote.turnover,
+              marketCap: quote.marketCap,
+              // 缓存没有的保持 null = 未知，由「补充数据」按钮补
+              dividendRecent: marks?.dividendRecent,
+              profitOk: marks?.profitOk,
+              revenueOk: marks?.revenueOk,
+              lonOk: lonCache[quote.symbol],
+            ));
+          }
         }
+        done += 1;
       }
-      done += 1;
-      if (done % 50 == 0) {
-        hits = List.of(collected);
-        _notify();
-      }
+      hits = List.of(collected);
+      _notify();
     }
 
     skippedSymbols = missing;
-
-    // 命中股在这里按 symbol → 下标索引，供两个并发阶段回填
-    final indexBySymbol = {
-      for (var i = 0; i < collected.length; i++) collected[i].symbol: i,
-    };
-
-    // 基本面标记（分红/净利润/估市值）：只查命中股，缓存3天；
-    // 单只取数失败不影响扫描结果，标记保持默认 false（对齐 scanner.py fundamentals 阶段）。
-    // 规则放宽后命中数到 700+，逐只串行要几分钟，这里按
-    // fundamentalsFetchConcurrency 路并发（同 sector/同步阶段的 worker 池写法）。
-    stage = 'fundamentals';
-    hits = List.of(collected);
-    _notify();
-    final caps = {
-      for (final quote in candidates) quote.symbol: quote.marketCap,
-    };
-    await fundamentals.marksForMany(
-      [for (final hit in collected) hit.symbol],
-      marketCapOf: (symbol) => caps[symbol],
-      shouldStop: () => runId != _runId,
-      onEach: (symbol, marks) {
-        if (runId != _runId || marks == null) return;
-        final index = indexBySymbol[symbol];
-        if (index == null) return;
-        collected[index] = collected[index].copyWith(
-          dividendRecent: marks.dividendRecent,
-          profitOk: marks.profitOk,
-          revenueOk: marks.revenueOk,
-        );
-      },
-    );
-    if (runId != _runId) return;
-
-    // LON 多头标记（日/周/月三周期）：只对命中股计算，周/月K走缓存→腾讯；
-    // 单只失败保持默认 false（对齐 scanner.py lon 阶段）。
-    // 每只最多三轮网络往返，并发路数比其他阶段保守（lonFetchConcurrency=6）。
-    stage = 'lon';
-    hits = List.of(collected);
-    _notify();
-    await lonCheck.lonOkForMany(
-      [for (final hit in collected) hit.symbol],
-      shouldStop: () => runId != _runId,
-      onEach: (symbol, ok) {
-        if (runId != _runId || !ok) return;
-        final index = indexBySymbol[symbol];
-        if (index == null) return;
-        collected[index] = collected[index].copyWith(lonOk: true);
-      },
-    );
-    if (runId != _runId) return;
-
     collected.sort((a, b) {
       final byGroup = a.group.compareTo(b.group);
       if (byGroup != 0) return byGroup;
@@ -394,7 +416,105 @@ class BandScanController extends ChangeNotifier {
     status = BandScanStatus.done;
     stage = '';
     _notify();
-    await _persist();
+  }
+
+  /// 「补充数据 N 只」：只有用户显式点击才会发这批网络请求。
+  /// 基本面（每只最多 2 请求）与 LON（每只最多 3 请求）分两段并发跑，
+  /// 复用与扫描阶段同一套 worker 池；单只失败保持"未知"，可以再点一次。
+  Future<void> enrichMarks() async {
+    if (busy) return;
+    final targets = [for (final hit in hits) if (!hit.marksKnown) hit];
+    if (targets.isEmpty) return;
+    final runId = ++_runId; // 与扫描/补齐共用：任一方重启，其余立刻停
+    final updated = List.of(hits);
+    final indexBySymbol = {
+      for (var i = 0; i < updated.length; i++) updated[i].symbol: i,
+    };
+    final fundTargets = [
+      for (final hit in targets)
+        if (!hit.fundamentalsKnown) hit.symbol,
+    ];
+    final lonTargets = [
+      for (final hit in targets)
+        if (!hit.lonKnown) hit.symbol,
+    ];
+    final caps = {
+      for (final hit in hits) hit.symbol: hit.marketCap,
+    };
+
+    enriching = true;
+    enrichDone = 0;
+    enrichTotal = fundTargets.length + lonTargets.length;
+    enrichNote = null;
+    _notify();
+
+    var failed = 0;
+    void tick() {
+      enrichDone += 1;
+      if (enrichDone % 10 == 0 || enrichDone == enrichTotal) {
+        hits = List.of(updated);
+        _notify();
+      }
+    }
+
+    try {
+      await fundamentals.marksForMany(
+        fundTargets,
+        marketCapOf: (symbol) => caps[symbol],
+        shouldStop: () => runId != _runId,
+        onEach: (symbol, marks) {
+          if (runId != _runId) return;
+          if (marks == null) {
+            failed += 1; // 取数失败：保持未知，可再点一次
+          } else {
+            final index = indexBySymbol[symbol];
+            if (index != null) {
+              updated[index] = updated[index].copyWith(
+                dividendRecent: marks.dividendRecent,
+                profitOk: marks.profitOk,
+                revenueOk: marks.revenueOk,
+              );
+            }
+          }
+          tick();
+        },
+      );
+      if (runId != _runId) return;
+
+      await lonCheck.lonOkForMany(
+        lonTargets,
+        shouldStop: () => runId != _runId,
+        onEach: (symbol, ok) {
+          if (runId != _runId) return;
+          if (ok == null) {
+            failed += 1;
+          } else {
+            final index = indexBySymbol[symbol];
+            if (index != null) {
+              updated[index] = updated[index].copyWith(lonOk: ok);
+            }
+          }
+          tick();
+        },
+      );
+    } catch (exc) {
+      if (runId != _runId) return;
+      hits = updated;
+      enriching = false;
+      enrichNote = '补充数据失败：$exc';
+      _notify();
+      return;
+    }
+    if (runId != _runId) return;
+
+    hits = updated;
+    enriching = false;
+    final remaining = unknownMarkCount;
+    enrichNote = failed == 0
+        ? '已补充 ${enrichTotal - failed} 项数据'
+        : '补充 ${enrichTotal - failed}/$enrichTotal 项，$remaining 只仍未知，可再点一次';
+    _notify();
+    if (status == BandScanStatus.done) await _persist();
   }
 
   Future<void> _persist() async {
@@ -404,6 +524,7 @@ class BandScanController extends ChangeNotifier {
         'trade_date': tradeDate,
         'min_market_cap': minMarketCap,
         'total': total,
+        'scan_ms': scanMillis,
         'skipped_no_data': skippedNoData,
         'skipped_symbols': skippedSymbols,
         'finished_at': now().toIso8601String(),
@@ -416,7 +537,7 @@ class BandScanController extends ChangeNotifier {
   /// （bandBackfillConcurrency 路并发），成功的从清单里移除；
   /// 全部补齐后清空清单并提示可重扫。扫描进行中不允许启动。
   Future<void> backfillMissing() async {
-    if (backfilling || running || skippedSymbols.isEmpty) return;
+    if (busy || skippedSymbols.isEmpty) return;
     final runId = ++_runId; // 与扫描共用一个 runId：任一方重启，另一方立刻停
     final pending = List.of(skippedSymbols);
     backfilling = true;
@@ -470,6 +591,7 @@ class BandScanController extends ChangeNotifier {
 
   /// 全市场A股快照：东财 clist（内置主备域名）优先，失败或残缺时
   /// 用本地清单分批走腾讯行情兜底（对齐 scanner.py::_fetch_all_a_quotes）。
+  /// 这是整个扫描流程里唯一的网络请求。
   Future<List<Quote>> _fetchAllAQuotes() async {
     final errors = <String>[];
     try {

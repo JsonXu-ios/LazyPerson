@@ -108,6 +108,21 @@ class LocalStore {
         conflictAlgorithm: ConflictAlgorithm.replace);
   }
 
+  /// 按 key 前缀批量取（返回的 key 已去掉前缀）。
+  /// 八档局纯本地扫描要读几百上千只股票的缓存标记，逐只 getState 就是上千次
+  /// sqlite 往返；这里一次查询拿走整个前缀。
+  Future<Map<String, String>> getStatesWithPrefix(String prefix) async {
+    final rows = await db.query(
+      'app_state',
+      where: 'key LIKE ?',
+      whereArgs: ['$prefix%'],
+    );
+    return {
+      for (final row in rows)
+        (row['key'] as String).substring(prefix.length): row['value'] as String,
+    };
+  }
+
   // ---------- symbols ----------
 
   Future<void> upsertSymbols(List<SymbolItem> items) async {
@@ -224,41 +239,90 @@ class LocalStore {
       if (bar.time.isEmpty) continue;
       batch.insert(
         'daily_bars',
-        {
-          'symbol': symbol,
-          'date': bar.time,
-          'open': bar.open,
-          'high': bar.high,
-          'low': bar.low,
-          'close': bar.close,
-          'volume': bar.volume,
-          'amount': bar.amount,
-          'pct_chg': bar.pctChg,
-          'turnover': bar.turnover,
-        },
+        _barRow(symbol, bar),
         conflictAlgorithm: ConflictAlgorithm.replace,
       );
     }
     await batch.commit(noResult: true);
   }
 
+  static Map<String, Object?> _barRow(String symbol, KlineBar bar) => {
+        'symbol': symbol,
+        'date': bar.time,
+        'open': bar.open,
+        'high': bar.high,
+        'low': bar.low,
+        'close': bar.close,
+        'volume': bar.volume,
+        'amount': bar.amount,
+        'pct_chg': bar.pctChg,
+        'turnover': bar.turnover,
+      };
+
+  /// 多只股票的日 K 一次性批量 upsert（快照吸收用）。
+  /// 逐只调 [upsertDailyBars] 会对全市场 5000 只各提交一次 batch，
+  /// 在扫描里就是几秒的纯开销；这里合成一个 batch 一次提交。
+  Future<void> upsertDailyBarsBatch(Map<String, List<KlineBar>> barsBySymbol) async {
+    if (barsBySymbol.isEmpty) return;
+    final batch = db.batch();
+    var queued = 0;
+    for (final entry in barsBySymbol.entries) {
+      for (final bar in entry.value) {
+        if (bar.time.isEmpty) continue;
+        batch.insert(
+          'daily_bars',
+          _barRow(entry.key, bar),
+          conflictAlgorithm: ConflictAlgorithm.replace,
+        );
+        queued += 1;
+      }
+    }
+    if (queued == 0) return;
+    await batch.commit(noResult: true);
+  }
+
   Future<List<KlineBar>> getDailyBars(String symbol) async {
     final rows = await db.query('daily_bars',
         where: 'symbol = ?', whereArgs: [symbol], orderBy: 'date');
-    return rows
-        .map((row) => KlineBar(
-              time: row['date'] as String,
-              open: row['open'] as double?,
-              high: row['high'] as double?,
-              low: row['low'] as double?,
-              close: row['close'] as double?,
-              volume: row['volume'] as double?,
-              amount: row['amount'] as double?,
-              pctChg: row['pct_chg'] as double?,
-              turnover: row['turnover'] as double?,
-            ))
-        .toList();
+    return rows.map(_barFromRow).toList();
   }
+
+  /// 一批股票的日 K（symbol → 按日期升序的 bar）。
+  /// 八档局扫描要遍历几千只，逐只 getDailyBars 是几千次 sqlite 往返；
+  /// 调用方按 200 只左右分块调用，既省往返又不会把整库读进内存。
+  Future<Map<String, List<KlineBar>>> dailyBarsFor(List<String> symbols) async {
+    if (symbols.isEmpty) return {};
+    final placeholders = List.filled(symbols.length, '?').join(',');
+    final rows = await db.query(
+      'daily_bars',
+      where: 'symbol IN ($placeholders)',
+      whereArgs: symbols,
+      orderBy: 'symbol, date',
+    );
+    final result = <String, List<KlineBar>>{};
+    for (final row in rows) {
+      (result[row['symbol'] as String] ??= <KlineBar>[]).add(_barFromRow(row));
+    }
+    return result;
+  }
+
+  /// 本地已有日 K 的股票代码集合（补齐数据时用来找“一根都没有”的股票）
+  Future<Set<String>> symbolsWithBars() async {
+    final rows = await db.rawQuery('SELECT DISTINCT symbol FROM daily_bars');
+    return {for (final row in rows) row['symbol'] as String};
+  }
+
+  static KlineBar _barFromRow(Map<String, Object?> row) => KlineBar(
+        time: row['date'] as String,
+        open: row['open'] as double?,
+        high: row['high'] as double?,
+        low: row['low'] as double?,
+        close: row['close'] as double?,
+        volume: row['volume'] as double?,
+        amount: row['amount'] as double?,
+        pctChg: row['pct_chg'] as double?,
+        turnover: row['turnover'] as double?,
+      );
 
   Future<String?> latestDailyDate(String symbol) async {
     final rows = await db.rawQuery(
@@ -295,6 +359,22 @@ class LocalStore {
       for (final row in rows)
         row['symbol'] as String: row['last_synced_date'] as String,
     };
+  }
+
+  /// 指定同步状态的股票代码（'error' = 初始同步失败，补齐数据入口用）
+  Future<List<String>> symbolsWithSyncStatus(String status) async {
+    final rows = await db.query('sync_state',
+        columns: ['symbol'], where: 'status = ?', whereArgs: [status]);
+    return [for (final row in rows) row['symbol'] as String];
+  }
+
+  /// 清空逐只同步状态（强制全量刷新：让 runInitialSync 重新拉每一只）
+  Future<void> clearSyncState() async => db.delete('sync_state');
+
+  /// 本地清单里的全部代码（补齐数据时用来找缺日 K 的股票）
+  Future<List<String>> allSymbols() async {
+    final rows = await db.query('symbols', columns: ['symbol']);
+    return [for (final row in rows) row['symbol'] as String];
   }
 
   // ---------- frames（短期 JSON 缓存） ----------

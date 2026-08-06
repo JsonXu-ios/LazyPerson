@@ -132,7 +132,27 @@ class FundamentalsService {
     return marks;
   }
 
-  /// 批量补标记（八档局 fundamentals 阶段用）：按 [concurrency] 路并发跑
+  /// 只读缓存（八档局纯本地扫描用）：缓存未命中/已过期返回 null = “未知”，
+  /// 由调用方标成第三态而不是 false。绝不发网络请求。
+  Future<FundamentalsMarks?> cachedMarks(String symbol) => _readCache(symbol);
+
+  /// 批量只读缓存：一次前缀查询拿走整张表再按 [symbols] 过滤，
+  /// 比逐只 getState 少几百上千次 sqlite 往返。绝不发网络请求。
+  Future<Map<String, FundamentalsMarks>> cachedMarksForMany(
+      List<String> symbols) async {
+    if (symbols.isEmpty) return {};
+    final wanted = symbols.toSet();
+    final raw = await store.getStatesWithPrefix(fundStatePrefix);
+    final result = <String, FundamentalsMarks>{};
+    for (final entry in raw.entries) {
+      if (!wanted.contains(entry.key)) continue;
+      final marks = _decodeCache(entry.value);
+      if (marks != null) result[entry.key] = marks;
+    }
+    return result;
+  }
+
+  /// 批量补标记（八档局“补充数据”按钮用）：按 [concurrency] 路并发跑
   /// [marksFor]，命中 3 天缓存的股票不发请求。单只失败不进结果集，
   /// 由调用方保持默认 false。返回 symbol → 标记（缺失即取数失败）。
   ///
@@ -194,7 +214,11 @@ class FundamentalsService {
 
   Future<FundamentalsMarks?> _readCache(String symbol) async {
     final raw = await store.getState('$fundStatePrefix$symbol');
-    if (raw == null) return null;
+    return raw == null ? null : _decodeCache(raw);
+  }
+
+  /// 解析一条缓存；过期/损坏都返回 null（= 未知）
+  FundamentalsMarks? _decodeCache(String raw) {
     try {
       final data = (jsonDecode(raw) as Map).cast<String, Object?>();
       final checked = DateTime.parse(data['checked_at'] as String);

@@ -68,14 +68,9 @@ class _SectorScreenState extends State<SectorScreen> {
 
   Widget _appBar() {
     return Padding(
-      padding: const EdgeInsets.fromLTRB(6, 6, 10, 0),
+      padding: const EdgeInsets.fromLTRB(16, 10, 10, 0),
       child: Row(
         children: [
-          IconButton(
-            iconSize: 22,
-            onPressed: () => Navigator.of(context).maybePop(),
-            icon: const Icon(Icons.arrow_back, color: AppColors.textMuted),
-          ),
           Expanded(
             child: Column(
               crossAxisAlignment: CrossAxisAlignment.start,

@@ -212,28 +212,30 @@ class SyncService {
     // 当天 bar：交易日快照的 OHLCV upsert 进 daily_bars
     final tradeDate = _snapshotTradeDate(snapshot);
     if (tradeDate == null) return;
+    // 每 500 只合成一个 batch 提交：逐只 upsert 会对全市场 5000 只各提交
+    // 一次事务，八档局扫描里那是好几秒的纯开销
     for (var offset = 0; offset < snapshot.length; offset += 500) {
       final chunk = snapshot.sublist(
           offset,
           offset + 500 > snapshot.length ? snapshot.length : offset + 500);
-      final batchable = <String, KlineBar>{};
+      final batchable = <String, List<KlineBar>>{};
       for (final quote in chunk) {
         if (quote.price == null || quote.open == null) continue;
-        batchable[quote.symbol] = KlineBar(
-          time: tradeDate,
-          open: quote.open,
-          high: quote.high,
-          low: quote.low,
-          close: quote.price,
-          volume: quote.volume,
-          amount: quote.amount,
-          pctChg: quote.pctChg,
-          turnover: quote.turnover,
-        );
+        batchable[quote.symbol] = [
+          KlineBar(
+            time: tradeDate,
+            open: quote.open,
+            high: quote.high,
+            low: quote.low,
+            close: quote.price,
+            volume: quote.volume,
+            amount: quote.amount,
+            pctChg: quote.pctChg,
+            turnover: quote.turnover,
+          ),
+        ];
       }
-      for (final entry in batchable.entries) {
-        await store.upsertDailyBars(entry.key, [entry.value]);
-      }
+      await store.upsertDailyBarsBatch(batchable);
     }
   }
 
@@ -266,5 +268,58 @@ class SyncService {
   Future<void> refreshSymbol(String symbol) async {
     await _syncDailyKline(symbol);
     await store.setSyncState(symbol, _today, 'done');
+  }
+
+  // ---------- 补齐 / 强制全量刷新 ----------
+
+  /// 需要补齐的股票：初始同步标记为 error 的 + 清单里一根本地日 K 都没有的。
+  /// 「补齐数据」入口用它统一处理两类残缺（对齐八档局 backfillMissing 的语义）。
+  Future<List<String>> pendingRepairSymbols() async {
+    final failed = await store.symbolsWithSyncStatus('error');
+    final withBars = await store.symbolsWithBars();
+    final all = await store.allSymbols();
+    final pending = <String>{...failed};
+    for (final symbol in all) {
+      if (!withBars.contains(symbol)) pending.add(symbol);
+    }
+    return pending.toList()..sort();
+  }
+
+  /// 逐只补拉 90 天日 K（[concurrency] 路并发），返回仍然失败的代码。
+  /// 与八档局的 backfillMissing 共用一套语义：失败的留着可以再点一次。
+  Future<List<String>> repairSymbols(
+    List<String> symbols, {
+    void Function(int done, int total)? onProgress,
+    bool Function()? shouldStop,
+  }) async {
+    final failed = <String>[];
+    if (symbols.isEmpty) return failed;
+    final total = symbols.length;
+    var done = 0;
+    final queue = symbols.iterator;
+    Future<void> worker() async {
+      // Iterator 在单 isolate 事件循环内串行推进，无并发竞争
+      while (queue.moveNext()) {
+        if (shouldStop?.call() ?? false) return;
+        final symbol = queue.current;
+        try {
+          await refreshSymbol(symbol);
+        } catch (_) {
+          failed.add(symbol);
+        }
+        done += 1;
+        onProgress?.call(done, total);
+      }
+    }
+
+    await Future.wait([for (var i = 0; i < concurrency; i++) worker()]);
+    return failed;
+  }
+
+  /// 强制全量刷新的前置：清掉初始化标记与逐只同步状态，
+  /// 下一次 [runInitialSync] 就会重新拉全市场清单 + 每只 90 天日 K 覆盖本地。
+  Future<void> resetForFullRefresh() async {
+    await store.setState(_initializedKey, '0');
+    await store.clearSyncState();
   }
 }

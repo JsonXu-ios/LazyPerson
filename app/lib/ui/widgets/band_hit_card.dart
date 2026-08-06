@@ -110,14 +110,33 @@ class BandHitCard extends StatelessWidget {
               ),
             ],
           ),
-          if (hit.fromTop) ...[
+          const SizedBox(height: 6),
+          Wrap(
+            spacing: 14,
+            runSpacing: 5,
+            children: [
+              _meta('换手 ${_pct(hit.turnover)}'),
+              _meta('3日 ${_signedPct(hit.chg3)}'),
+              _meta('5日 ${_signedPct(hit.chg5)}'),
+            ],
+          ),
+          if (hit.fromTop || !hit.marksKnown) ...[
             const SizedBox(height: 8),
-            Row(
+            Wrap(
+              spacing: 5,
+              runSpacing: 5,
               children: [
-                Tooltip(
-                  message: '曾进过更高档、现已回落（重新站上该档下沿即恢复）',
-                  child: _shapeTag('回落'),
-                ),
+                if (hit.fromTop)
+                  Tooltip(
+                    message: '曾进过更高档、现已回落（重新站上该档下沿即恢复）',
+                    child: _shapeTag('回落'),
+                  ),
+                if (!hit.marksKnown)
+                  Tooltip(
+                    message: '基本面/LON 标记未补充：扫描不联网取数，'
+                        '点页面上的「补充数据」按钮才会拉',
+                    child: _shapeTag('数据未补充'),
+                  ),
               ],
             ),
           ],
@@ -211,4 +230,12 @@ class BandHitCard extends StatelessWidget {
       );
 
   String _shortDate(String date) => date.length >= 10 ? date.substring(5) : date;
+
+  /// 数据缺失（快照没给换手率 / 日K不够算 N 日涨幅）显示 '-'
+  String _pct(double? value) =>
+      value == null ? '-' : '${value.toStringAsFixed(1)}%';
+
+  String _signedPct(double? value) => value == null
+      ? '-'
+      : '${value >= 0 ? '+' : ''}${value.toStringAsFixed(1)}%';
 }

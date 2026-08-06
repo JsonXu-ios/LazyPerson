@@ -299,7 +299,7 @@ void main() {
   });
 
   group('BandHit 序列化', () {
-    test('旧持久化数据缺 dividend_recent/profit_ok 字段默认 false', () {
+    test('旧持久化数据缺 dividend_recent/profit_ok 字段 = 未知（null）', () {
       final hit = BandHit.fromJson(const {
         'symbol': '600519',
         'name': '贵州茅台',
@@ -313,9 +313,12 @@ void main() {
         'low_date': '2026-05-06',
         'cross_date': '2026-07-01',
       });
-      expect(hit.dividendRecent, isFalse);
-      expect(hit.profitOk, isFalse);
-      expect(hit.lonOk, isFalse);
+      // 三态：缺字段 = 未补充，不能当成"不达标"
+      expect(hit.dividendRecent, isNull);
+      expect(hit.profitOk, isNull);
+      expect(hit.lonOk, isNull);
+      expect(hit.marksKnown, isFalse);
+      // northOk 是本地日K算出来的，没有三态问题
       expect(hit.northOk, isFalse);
     });
 
@@ -511,6 +514,78 @@ void main() {
       final row = evaluateStock('600001', '上行波段', 13.5, bars, today: today);
       expect(row, isNotNull);
       expect(row!.fromTop, isFalse);
+    });
+  });
+
+  group('changeOverDays（近 N 日涨幅，任务 B）', () {
+    /// 收盘 10,11,12,13,14，最后一根的日期由 [lastDay] 指定
+    List<KlineBar> series(String lastDay) {
+      const closes = [10.0, 11.0, 12.0, 13.0, 14.0];
+      final end = DateTime.parse('${lastDay}T00:00:00');
+      return [
+        for (var i = 0; i < closes.length; i++)
+          KlineBar(
+            time: end
+                .subtract(Duration(days: closes.length - 1 - i))
+                .toIso8601String()
+                .substring(0, 10),
+            open: closes[i],
+            high: closes[i],
+            low: closes[i],
+            close: closes[i],
+          ),
+      ];
+    }
+
+    final today = DateTime(2026, 7, 24);
+
+    test('最后一根就是今天 → 基准取 closes[-(N+1)]（跳过今天那根）', () {
+      // closes[-4] = 11 → 3 日涨幅 = 15/11-1
+      expect(changeOverDays(series('2026-07-24'), 15.0, 3, today: today),
+          closeTo(36.36, 0.01));
+      // closes[-6] 不存在 → 数据不足
+      expect(changeOverDays(series('2026-07-24'), 15.0, 5, today: today), isNull);
+    });
+
+    test('最后一根不是今天（盘前/休市）→ 基准取 closes[-N]', () {
+      // closes[-3] = 12 → 15/12-1 = 25%
+      expect(changeOverDays(series('2026-07-23'), 15.0, 3, today: today),
+          closeTo(25.0, 0.001));
+      // closes[-5] = 10 → 50%
+      expect(changeOverDays(series('2026-07-23'), 15.0, 5, today: today),
+          closeTo(50.0, 0.001));
+    });
+
+    test('数据不足 / 现价缺失 / 基准非正 → null', () {
+      expect(changeOverDays(series('2026-07-23'), 15.0, 9, today: today), isNull);
+      expect(changeOverDays(series('2026-07-23'), null, 3, today: today), isNull);
+      expect(changeOverDays(const [], 15.0, 3, today: today), isNull);
+      final zeroBase = [
+        for (var i = 0; i < 4; i++)
+          KlineBar(time: '2026-07-2${i + 1}', close: 0),
+      ];
+      expect(changeOverDays(zeroBase, 15.0, 3, today: today), isNull);
+    });
+
+    test('收盘缺失的 bar 不进序列（不会把基准挪错位）', () {
+      final bars = [
+        const KlineBar(time: '2026-07-17', close: 9),
+        const KlineBar(time: '2026-07-20'), // 停牌，无收盘
+        const KlineBar(time: '2026-07-21', close: 10),
+        const KlineBar(time: '2026-07-22', close: 11),
+        const KlineBar(time: '2026-07-23', close: 12),
+      ];
+      // 最后一根不是今天 → closes[-3] = 10
+      expect(changeOverDays(bars, 15.0, 3, today: today), closeTo(50.0, 0.001));
+    });
+
+    test('evaluateStock 把 chg3/chg5 一起算进命中行', () {
+      final bars = _seal(_makeWaveBars(today, closesPct: [5, 12, 32]));
+      final row = evaluateStock('600001', '上行波段', 13.5, bars, today: today);
+      expect(row, isNotNull);
+      // 窗口最后一根是今天 → 3/5 日基准都落在 10.6 的平台上
+      expect(row!.chg3, closeTo(27.36, 0.01));
+      expect(row.chg5, closeTo(27.36, 0.01));
     });
   });
 }

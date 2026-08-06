@@ -2,7 +2,7 @@
 /// 而 flutter analyze 抓不到 —— 只有真正 pump 一遍才知道。
 /// 两个宽度都跑：411dp（设计稿基准）和 360dp（常见的窄屏 Android）。
 ///
-/// 只覆盖纯展示 widget：整屏（HomeScreen / BandScanScreen）的 pumpWidget 会卡在
+/// 只覆盖纯展示 widget：整屏（RootScreen / BandScanScreen）的 pumpWidget 会卡在
 /// controller.bootstrap() 的异步上，fake_async 永远 settle 不了。整屏的横向溢出
 /// 改为在 widget 里结构性堵住（顶栏、页头的长文本一律 Flexible + ellipsis）。
 library;
@@ -10,7 +10,10 @@ library;
 import 'package:flutter/material.dart';
 import 'package:flutter_test/flutter_test.dart';
 import 'package:lazyperson/logic/band_scanner.dart';
+import 'package:lazyperson/models/models.dart';
 import 'package:lazyperson/theme/app_theme.dart';
+import 'package:lazyperson/ui/root_screen.dart';
+import 'package:lazyperson/ui/watchlist_screen.dart';
 import 'package:lazyperson/ui/widgets/band_hit_card.dart';
 import 'package:lazyperson/ui/widgets/band_radar.dart';
 
@@ -135,6 +138,74 @@ void main() {
         expect(find.bySemanticsLabel(RegExp('七档 190~220% 命中 2')), findsOneWidget);
         expect(find.bySemanticsLabel(RegExp(r'八档 220%\+ 命中 1')), findsOneWidget);
         semantics.dispose();
+      });
+
+      testWidgets('自选行（长名称 + 热点 tag + 资产信息按钮）', (tester) async {
+        await _pumpAt(
+          tester,
+          size,
+          Scaffold(
+            body: ListView(
+              padding: const EdgeInsets.symmetric(horizontal: 16),
+              children: [
+                WatchlistRow(
+                  item: const WatchlistItem(
+                    symbol: '600519',
+                    market: 'SH',
+                    name: '名字特别长的一家上市公司股份有限公司',
+                  ),
+                  quote: const Quote(
+                    symbol: '600519',
+                    name: '名字特别长的一家上市公司股份有限公司',
+                    price: 1361.76,
+                    pctChg: 9.98,
+                    amount: 12345678901,
+                  ),
+                  closes: const [10, 11, 10.5, 12, 13],
+                  sectors: const StockSectors(
+                    symbol: '600519',
+                    industry: '白酒Ⅱ',
+                    concepts: ['白酒概念', '消费电子'],
+                    hotConcepts: ['一个名字很长的热点概念板块'],
+                  ),
+                  selected: true,
+                  onTap: () {},
+                  onSummary: () {},
+                  onRemove: () {},
+                ),
+                WatchlistRow(
+                  item: const WatchlistItem(symbol: '000001', name: '平安银行'),
+                  quote: null, // 行情还没到
+                  closes: const [],
+                  sectors: null,
+                  selected: false,
+                  onTap: () {},
+                  onSummary: () {},
+                  onRemove: () {},
+                ),
+              ],
+            ),
+          ),
+        );
+
+        expect(find.byType(HotTag), findsOneWidget);
+        expect(find.byIcon(Icons.insights_outlined), findsNWidgets(2));
+      });
+
+      testWidgets('底部导航（三格，中间突出）', (tester) async {
+        await _pumpAt(
+          tester,
+          size,
+          Scaffold(
+            bottomNavigationBar: HudBottomNav(index: 1, onSelect: (_) {}),
+            body: const SizedBox.expand(),
+          ),
+        );
+
+        expect(find.text('自选资产'), findsOneWidget);
+        expect(find.text('八档局'), findsOneWidget);
+        expect(find.text('热点板块'), findsOneWidget);
+        expect(find.byIcon(Icons.radar), findsOneWidget);
       });
     });
   });

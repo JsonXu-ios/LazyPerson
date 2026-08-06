@@ -4,6 +4,7 @@ library;
 
 import 'package:flutter/material.dart';
 
+import '../logic/band_scanner.dart';
 import '../state/band_scan_controller.dart';
 import '../theme/app_theme.dart';
 import '../theme/hud.dart';
@@ -62,6 +63,7 @@ class _BandScanScreenState extends State<BandScanScreen> {
               _appBar(),
               _actions(running),
               _syncStatus(),
+              _enrichLine(),
               _filters(running),
               if (controller.status == BandScanStatus.failed) _failure(),
               if (running) _progress(),
@@ -97,14 +99,9 @@ class _BandScanScreenState extends State<BandScanScreen> {
 
   Widget _appBar() {
     return Padding(
-      padding: const EdgeInsets.fromLTRB(6, 6, 16, 0),
+      padding: const EdgeInsets.fromLTRB(16, 10, 16, 0),
       child: Row(
         children: [
-          IconButton(
-            iconSize: 22,
-            onPressed: () => Navigator.of(context).maybePop(),
-            icon: const Icon(Icons.arrow_back, color: AppColors.textMuted),
-          ),
           Expanded(
             child: Column(
               crossAxisAlignment: CrossAxisAlignment.start,
@@ -143,12 +140,14 @@ class _BandScanScreenState extends State<BandScanScreen> {
       child: Row(
         children: [
           _ScanButton(
-            // 补齐期间也锁住（补齐会占满网络，且 startScan 此时直接返回）
-            running: running || controller.backfilling,
+            // 补齐/补充数据期间也锁住（都会占满网络，且 startScan 此时直接返回）
+            running: controller.busy,
             label: running
                 ? '扫描中…'
                 : controller.backfilling
                 ? '补齐中…'
+                : controller.enriching
+                ? '补数据中…'
                 : controller.status == BandScanStatus.done
                 ? '重新扫描'
                 : '开始扫描',
@@ -170,10 +169,11 @@ class _BandScanScreenState extends State<BandScanScreen> {
                 const SizedBox(height: 2),
                 Text(
                   controller.status == BandScanStatus.done
-                      ? 'SCAN ${controller.total}'
+                      ? 'SCAN ${controller.total}$_scanCost'
                       : controller.minMarketCap != null
                       ? 'CAP>${controller.minMarketCap!.toInt()}亿'
                       : 'CAP ALL',
+                  overflow: TextOverflow.ellipsis,
                   style: mono(
                     size: FontSize.legend,
                     color: AppColors.textDim,
@@ -187,6 +187,92 @@ class _BandScanScreenState extends State<BandScanScreen> {
                   _backfillLine(running),
                 ],
               ],
+            ),
+          ),
+        ],
+      ),
+    );
+  }
+
+  /// 扫描耗时（纯本地扫描后是秒级，值得显示出来）
+  String get _scanCost {
+    final millis = controller.scanMillis;
+    if (millis == null) return '';
+    return millis < 1000
+        ? ' · ${millis}ms'
+        : ' · ${(millis / 1000).toStringAsFixed(1)}s';
+  }
+
+  /// 「补充数据 N 只」：扫描只读缓存，缺的标记在这里显式补。
+  /// 这是本页唯一会发大量网络请求的动作，必须用户点了才跑。
+  Widget _enrichLine() {
+    if (controller.status != BandScanStatus.done && !controller.enriching) {
+      return const SizedBox.shrink();
+    }
+    if (controller.enriching) {
+      final total = controller.enrichTotal;
+      final ratio = total > 0 ? controller.enrichDone / total : null;
+      return Padding(
+        padding: const EdgeInsets.fromLTRB(16, 10, 16, 0),
+        child: Column(
+          crossAxisAlignment: CrossAxisAlignment.stretch,
+          children: [
+            HudSegmentBar(ratio: ratio),
+            const SizedBox(height: 5),
+            Text(
+              '补充基本面/LON 数据 ${controller.enrichDone}/$total…',
+              style: mono(
+                size: FontSize.secondaryNumber,
+                color: AppColors.textMuted,
+              ),
+            ),
+          ],
+        ),
+      );
+    }
+    final unknown = controller.unknownMarkCount;
+    if (unknown == 0) {
+      final note = controller.enrichNote;
+      if (note == null) return const SizedBox.shrink();
+      return Padding(
+        padding: const EdgeInsets.fromLTRB(16, 8, 16, 0),
+        child: Text(
+          note,
+          overflow: TextOverflow.ellipsis,
+          style: mono(size: FontSize.legend, color: AppColors.accent),
+        ),
+      );
+    }
+    return Padding(
+      padding: const EdgeInsets.fromLTRB(16, 8, 16, 0),
+      child: Row(
+        children: [
+          Expanded(
+            child: Text(
+              controller.enrichNote ?? '分红/净利润/估市值/LON 未补充（扫描不联网取数）',
+              overflow: TextOverflow.ellipsis,
+              style: mono(size: FontSize.legend, color: AppColors.warn),
+            ),
+          ),
+          const SizedBox(width: 8),
+          GestureDetector(
+            onTap: controller.busy ? null : controller.enrichMarks,
+            behavior: HitTestBehavior.opaque,
+            child: Container(
+              padding: const EdgeInsets.symmetric(horizontal: 10, vertical: 5),
+              decoration: BoxDecoration(
+                borderRadius: BorderRadius.circular(6),
+                color: AppColors.hudFillActive,
+                border: Border.all(color: AppColors.hudBorderActive),
+              ),
+              child: Text(
+                '补充数据 $unknown 只',
+                style: mono(
+                  size: FontSize.legend,
+                  color: AppColors.accent,
+                  weight: FontWeight.w700,
+                ),
+              ),
             ),
           ),
         ],
@@ -305,13 +391,34 @@ class _BandScanScreenState extends State<BandScanScreen> {
   /// 筛选做成可点的开关 chip：整块可点、有明确的选中态，
   /// 比原来 12dp 的小勾选框好按得多。分红/净利润/估市值/LON 是
   /// 展示层过滤（命中行已带标记，切换无需重扫），默认不勾选。
+  /// 标记是三态的：勾选后只显示**确定**达标的，未知的不显示，
+  /// 因此这里额外提示还有多少只没补数据。
   Widget _filters(bool running) {
+    final unknown = controller.unknownMarkCount;
     return Padding(
       padding: const EdgeInsets.fromLTRB(16, 10, 16, 0),
-      child: Wrap(
-        spacing: 8,
-        runSpacing: 8,
+      child: Column(
+        crossAxisAlignment: CrossAxisAlignment.start,
         children: [
+          Wrap(
+            spacing: 8,
+            runSpacing: 8,
+            children: _filterChips(running),
+          ),
+          if (controller.markFilterActive && unknown > 0) ...[
+            const SizedBox(height: 6),
+            Text(
+              '有 $unknown 只数据未补充（未知的不计入筛选结果）',
+              overflow: TextOverflow.ellipsis,
+              style: mono(size: FontSize.legend, color: AppColors.warn),
+            ),
+          ],
+        ],
+      ),
+    );
+  }
+
+  List<Widget> _filterChips(bool running) => [
           _FilterChip(
             label: '市值 > ${BandScanController.marketCapMin.toInt()} 亿',
             value: controller.capFilter,
@@ -353,10 +460,23 @@ class _BandScanScreenState extends State<BandScanScreen> {
             value: controller.lonFilter,
             onChanged: controller.setLonFilter,
           ),
-        ],
-      ),
-    );
-  }
+          // 换手/3日/5日：来自快照与本地日K，不需要补数据就能过滤
+          _FilterChip(
+            label: '换手>${turnoverFilterMin.toInt()}%',
+            value: controller.turnoverFilter,
+            onChanged: controller.setTurnoverFilter,
+          ),
+          _FilterChip(
+            label: '3日>${chg3FilterMin.toInt()}%',
+            value: controller.chg3Filter,
+            onChanged: controller.setChg3Filter,
+          ),
+          _FilterChip(
+            label: '5日>${chg5FilterMin.toInt()}%',
+            value: controller.chg5Filter,
+            onChanged: controller.setChg5Filter,
+          ),
+        ];
 
   Widget _failure() {
     return Padding(
@@ -379,12 +499,8 @@ class _BandScanScreenState extends State<BandScanScreen> {
   Widget _progress() {
     final total = controller.total;
     final ratio = total > 0 ? controller.done / total : null;
-    final text = controller.stage == 'fundamentals'
-        ? '补基本面标记（分红/净利润/估市值）…'
-        : controller.stage == 'lon'
-        ? '校验 LON 多头（日/周/月K）…'
-        : controller.stage == 'snapshot' || total == 0
-        ? '正在拉取全市场行情快照…'
+    final text = controller.stage == 'snapshot' || total == 0
+        ? '正在拉取全市场行情快照（本次扫描唯一的网络请求）…'
         : '本地日线计算档位 ${controller.done} / $total';
     return Padding(
       padding: const EdgeInsets.fromLTRB(16, 12, 16, 0),

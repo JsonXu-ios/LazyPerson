@@ -30,6 +30,13 @@ const lonFetchDays = {'day': 420, 'week': 1100, 'month': 4200};
 /// 往返），6 路已经把网络吃满，再高只会互相排队/触发限流
 const lonFetchConcurrency = 6;
 
+/// LON 结论缓存 key 前缀（app_state）。八档局改成纯本地扫描后，扫描阶段
+/// 只读这份结论，不再解 400 根周/月 K 重算——一次前缀查询就能拿到全部。
+const lonResultPrefix = 'lon:v1:';
+
+/// 结论缓存有效天数：日线换一根结论就可能变，只当天有效
+const lonResultCacheDays = 1;
+
 class LonCheckService {
   final LocalStore store;
   final TencentProvider tencent;
@@ -42,29 +49,51 @@ class LonCheckService {
   })  : tencent = tencent ?? TencentProvider(),
         now = nowFn ?? DateTime.now;
 
-  /// 单只判定：日/周/月全满足才 true；任一周期数据不足或取数失败 → false
-  /// （对齐 backend LonChecker._check_symbol：异常即 False）。
+  /// 单只判定：日/周/月全满足才 true；任一周期数据不足 → false，结论写缓存。
+  /// 取数失败向上抛（由 [lonOkForMany] 兜成 null = 未知，下次可重试）。
   Future<bool> lonOkFor(String symbol) async {
-    try {
-      for (final period in const ['day', 'week', 'month']) {
-        if (!_trendOk(await _cachedBars(symbol, period))) return false;
+    for (final period in const ['day', 'week', 'month']) {
+      if (!_trendOk(await _cachedBars(symbol, period))) {
+        await _writeResult(symbol, false);
+        return false;
       }
-      return true;
-    } catch (_) {
-      return false;
     }
+    await _writeResult(symbol, true);
+    return true;
   }
 
-  /// 批量校验（八档局 lon 阶段用）：按 [concurrency] 路并发跑 [lonOkFor]，
-  /// 命中周期缓存的股票不发请求。单只失败/抛错记 false，不影响其他。
-  /// 返回 symbol → 是否 LON 多头。
+  /// 只读结论缓存（八档局纯本地扫描用）：无缓存/过期返回 null = “未知”。
+  /// 绝不发网络请求。
+  Future<bool?> cachedOk(String symbol) async {
+    final raw = await store.getState('$lonResultPrefix$symbol');
+    return raw == null ? null : _decodeResult(raw);
+  }
+
+  /// 批量只读结论缓存：一次前缀查询，绝不发网络请求
+  Future<Map<String, bool>> cachedOkForMany(List<String> symbols) async {
+    if (symbols.isEmpty) return {};
+    final wanted = symbols.toSet();
+    final raw = await store.getStatesWithPrefix(lonResultPrefix);
+    final result = <String, bool>{};
+    for (final entry in raw.entries) {
+      if (!wanted.contains(entry.key)) continue;
+      final ok = _decodeResult(entry.value);
+      if (ok != null) result[entry.key] = ok;
+    }
+    return result;
+  }
+
+  /// 批量校验（八档局“补充数据”按钮用）：按 [concurrency] 路并发跑
+  /// [lonOkFor]，命中周期缓存的股票不发请求。单只取数失败 onEach 收到 null
+  /// （未知，可再点一次补），不影响其他。返回 symbol → 是否 LON 多头
+  /// （取数失败的不进结果集）。
   ///
   /// 串行版在命中 700 只时是 700×最多 3 轮腾讯往返，实测 6~12 分钟；
   /// 6 路并发后 ≈ 117 轮，1~2 分钟（缓存命中的更快）。
   Future<Map<String, bool>> lonOkForMany(
     List<String> symbols, {
     int concurrency = lonFetchConcurrency,
-    void Function(String symbol, bool ok)? onEach,
+    void Function(String symbol, bool? ok)? onEach,
     bool Function()? shouldStop,
   }) async {
     final result = <String, bool>{};
@@ -75,13 +104,13 @@ class LonCheckService {
       while (queue.moveNext()) {
         if (shouldStop?.call() ?? false) return; // 扫描被取消/重启，别再打网络
         final symbol = queue.current;
-        var ok = false;
+        bool? ok;
         try {
           ok = await lonOkFor(symbol);
+          result[symbol] = ok;
         } catch (_) {
-          ok = false; // 取数失败保持默认 false
+          ok = null; // 取数失败：不写结果，调用方保持“未知”
         }
-        result[symbol] = ok;
         onEach?.call(symbol, ok);
       }
     }
@@ -89,6 +118,31 @@ class LonCheckService {
     final lanes = concurrency < 1 ? 1 : concurrency;
     await Future.wait([for (var i = 0; i < lanes; i++) worker()]);
     return result;
+  }
+
+  Future<void> _writeResult(String symbol, bool ok) => store.setState(
+        '$lonResultPrefix$symbol',
+        jsonEncode({
+          'checked_at': now().toIso8601String().substring(0, 10),
+          'lon_ok': ok,
+        }),
+      );
+
+  bool? _decodeResult(String raw) {
+    try {
+      final data = (jsonDecode(raw) as Map).cast<String, Object?>();
+      final checked = DateTime.parse(data['checked_at'] as String);
+      final today = now();
+      if (DateTime(today.year, today.month, today.day)
+              .difference(checked)
+              .inDays >
+          lonResultCacheDays) {
+        return null;
+      }
+      return data['lon_ok'] as bool?;
+    } catch (_) {
+      return null; // 缓存损坏按无缓存处理
+    }
   }
 
   bool _trendOk(List<KlineBar> bars) {

@@ -119,6 +119,45 @@ List<KlineBar> sliceScanWindow(List<KlineBar> bars, {int days = scanWindowDays})
   return valid.where((bar) => !_barDate(bar)!.isBefore(cutoff)).toList();
 }
 
+/// 换手率筛选阈值（%），开关“换手>3%”
+const turnoverFilterMin = 3.0;
+
+/// 近 3 日涨幅筛选阈值（%），开关“3日>7%”
+const chg3FilterMin = 7.0;
+
+/// 近 5 日涨幅筛选阈值（%），开关“5日>14%”
+const chg5FilterMin = 14.0;
+
+/// 近 [days] 日涨幅%（对齐 backend/app/scanner.py 的 chg3/chg5）：
+/// 基准取本地日 K 窗口的收盘序列——窗口最后一根就是今天则取
+/// closes[-(days+1)]（今天那根是“现在”，不能当基准），否则取 closes[-days]；
+/// 涨幅 = (现价/基准 − 1)×100。数据不足/基准非正返回 null（= 未知）。
+double? changeOverDays(
+  List<KlineBar> bars,
+  double? price,
+  int days, {
+  required DateTime today,
+}) {
+  if (price == null || price <= 0 || days < 1) return null;
+  final closes = <double>[];
+  var lastTime = '';
+  for (final bar in bars) {
+    final close = bar.close;
+    if (close == null) continue;
+    closes.add(close);
+    lastTime = bar.time;
+  }
+  if (closes.isEmpty) return null;
+  final lastDay = lastTime.length >= 10 ? lastTime.substring(0, 10) : lastTime;
+  final todayText = today.toIso8601String().substring(0, 10);
+  final back = lastDay == todayText ? days + 1 : days;
+  final index = closes.length - back;
+  if (index < 0) return null;
+  final base = closes[index];
+  if (base <= 0) return null;
+  return (price / base - 1) * 100;
+}
+
 class BandHit {
   final String symbol;
   final String name;
@@ -140,17 +179,31 @@ class BandHit {
   /// 一路北上：90日整体向上，低点在窗口前1/3、最高点在后1/3
   final bool northOk;
 
-  /// 近一年有分红（含已公告未除息的今年分红），基本面阶段补标
-  final bool dividendRecent;
+  /// 当日换手率%（来自扫描快照 Quote.turnover），行情源没给则 null
+  final double? turnover;
 
-  /// 最新报告期归母净利润≥0，基本面阶段补标
-  final bool profitOk;
+  /// 近 3 日涨幅%（本地日 K 算），数据不足则 null
+  final double? chg3;
 
-  /// 估市值：最新报告期营收年化×10 > 总市值，基本面阶段补标
-  final bool revenueOk;
+  /// 近 5 日涨幅%（本地日 K 算），数据不足则 null
+  final double? chg5;
 
-  /// 日/周/月三周期 LON 与 LONMA 都向上且 LON≥LONMA，lon 阶段补标
-  final bool lonOk;
+  /// 总市值（亿元，来自扫描快照）。补充数据时估市值判定要用它，
+  /// 所以随命中一起持久化。
+  final double? marketCap;
+
+  /// 近一年有分红（含已公告未除息的今年分红）。
+  /// **三态**：true/false = 已确定，null = 缓存里没有、尚未补充。
+  final bool? dividendRecent;
+
+  /// 最新报告期归母净利润≥0。三态，null = 未补充
+  final bool? profitOk;
+
+  /// 估市值：最新报告期营收年化×10 > 总市值。三态，null = 未补充
+  final bool? revenueOk;
+
+  /// 日/周/月三周期 LON 与 LONMA 都向上且 LON≥LONMA。三态，null = 未补充
+  final bool? lonOk;
 
   const BandHit({
     required this.symbol,
@@ -166,15 +219,29 @@ class BandHit {
     required this.crossDate,
     this.limitUp = false,
     this.fromTop = false,
-    this.dividendRecent = false,
-    this.profitOk = false,
-    this.revenueOk = false,
-    this.lonOk = false,
+    this.turnover,
+    this.chg3,
+    this.chg5,
+    this.marketCap,
+    this.dividendRecent,
+    this.profitOk,
+    this.revenueOk,
+    this.lonOk,
     this.northOk = false,
   });
 
+  /// 基本面三个标记来自同一条缓存，要么都有要么都没有
+  bool get fundamentalsKnown => dividendRecent != null;
+
+  bool get lonKnown => lonOk != null;
+
+  /// 基本面与 LON 标记都已确定（false 时“补充数据”按钮会带上它）
+  bool get marksKnown => fundamentalsKnown && lonKnown;
+
   BandHit copyWith({
     bool? limitUp,
+    double? turnover,
+    double? marketCap,
     bool? dividendRecent,
     bool? profitOk,
     bool? revenueOk,
@@ -194,6 +261,10 @@ class BandHit {
         crossDate: crossDate,
         limitUp: limitUp ?? this.limitUp,
         fromTop: fromTop,
+        turnover: turnover ?? this.turnover,
+        chg3: chg3,
+        chg5: chg5,
+        marketCap: marketCap ?? this.marketCap,
         dividendRecent: dividendRecent ?? this.dividendRecent,
         profitOk: profitOk ?? this.profitOk,
         revenueOk: revenueOk ?? this.revenueOk,
@@ -215,6 +286,10 @@ class BandHit {
         'cross_date': crossDate,
         'limit_up': limitUp,
         'from_top': fromTop,
+        'turnover': turnover,
+        'chg3': chg3,
+        'chg5': chg5,
+        'market_cap': marketCap,
         'dividend_recent': dividendRecent,
         'profit_ok': profitOk,
         'revenue_ok': revenueOk,
@@ -236,11 +311,15 @@ class BandHit {
         crossDate: (json['cross_date'] as String?) ?? '',
         limitUp: (json['limit_up'] as bool?) ?? false,
         fromTop: (json['from_top'] as bool?) ?? false,
-        // 旧持久化数据缺基本面/技术面标记字段，默认 false
-        dividendRecent: (json['dividend_recent'] as bool?) ?? false,
-        profitOk: (json['profit_ok'] as bool?) ?? false,
-        revenueOk: (json['revenue_ok'] as bool?) ?? false,
-        lonOk: (json['lon_ok'] as bool?) ?? false,
+        turnover: (json['turnover'] as num?)?.toDouble(),
+        chg3: (json['chg3'] as num?)?.toDouble(),
+        chg5: (json['chg5'] as num?)?.toDouble(),
+        marketCap: (json['market_cap'] as num?)?.toDouble(),
+        // 标记缺字段 = 未知（不是 false）：等用户点「补充数据」再确定
+        dividendRecent: json['dividend_recent'] as bool?,
+        profitOk: json['profit_ok'] as bool?,
+        revenueOk: json['revenue_ok'] as bool?,
+        lonOk: json['lon_ok'] as bool?,
         northOk: (json['north_ok'] as bool?) ?? false,
       );
 }
@@ -312,10 +391,15 @@ BandHit? evaluateStock(
   crossDate ??= window.last.time
       .substring(0, math.min(10, window.last.time.length)); // 只有今日盘中价过线
 
+  final chg3 = changeOverDays(window, price, 3, today: now);
+  final chg5 = changeOverDays(window, price, 5, today: now);
+
   return BandHit(
     symbol: symbol,
     name: name,
     price: price,
+    chg3: chg3 == null ? null : _roundTo(chg3, 2),
+    chg5: chg5 == null ? null : _roundTo(chg5, 2),
     low90: _roundTo(low90, 3),
     pct: _roundTo(pct, 2),
     group: group,

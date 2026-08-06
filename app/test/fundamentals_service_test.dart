@@ -448,4 +448,72 @@ void main() {
           lessThanOrEqualTo(10 + fundamentalsFetchConcurrency));
     });
   });
+
+  /// 八档局纯本地扫描只读这份缓存：一次前缀查询，绝不联网
+  group('cachedMarks / cachedMarksForMany（纯本地扫描用）', () {
+    late LocalStore store;
+    final today = DateTime(2026, 7, 24);
+
+    setUp(() async {
+      store = LocalStore(await databaseFactory.openDatabase(
+        inMemoryDatabasePath,
+        options: OpenDatabaseOptions(
+          version: 1,
+          onCreate: (db, version) => LocalStore.createSchema(db),
+        ),
+      ));
+    });
+
+    tearDown(() => store.close());
+
+    Future<void> seed(String symbol, String checkedAt,
+            {bool dividend = true}) =>
+        store.setState(
+          '$fundStatePrefix$symbol',
+          jsonEncode({
+            'checked_at': checkedAt,
+            'dividend_recent': dividend,
+            'profit_ok': true,
+            'revenue_ok': false,
+          }),
+        );
+
+    test('无缓存 → null（未知），不发请求', () async {
+      final service = FundamentalsService(store: store, nowFn: () => today);
+      expect(await service.cachedMarks('600001'), isNull);
+      expect(await service.cachedMarksForMany(['600001']), isEmpty);
+      expect(await service.cachedMarksForMany(const []), isEmpty);
+    });
+
+    test('3 天内的缓存命中，更早的按未知处理', () async {
+      final service = FundamentalsService(store: store, nowFn: () => today);
+      await seed('600001', '2026-07-24');
+      await seed('600002', '2026-07-21'); // 3 天，仍有效
+      await seed('600003', '2026-07-01'); // 过期
+
+      expect((await service.cachedMarks('600001'))!.dividendRecent, isTrue);
+      expect((await service.cachedMarks('600002'))!.profitOk, isTrue);
+      expect(await service.cachedMarks('600003'), isNull);
+
+      final many = await service
+          .cachedMarksForMany(['600001', '600002', '600003', '600004']);
+      expect(many.keys.toSet(), {'600001', '600002'});
+      expect(many['600001']!.revenueOk, isFalse);
+    });
+
+    test('只返回请求的股票（前缀里其他股票不混进来）', () async {
+      final service = FundamentalsService(store: store, nowFn: () => today);
+      await seed('600001', '2026-07-24');
+      await seed('600002', '2026-07-24');
+
+      expect((await service.cachedMarksForMany(['600002'])).keys, ['600002']);
+    });
+
+    test('缓存损坏按未知处理', () async {
+      final service = FundamentalsService(store: store, nowFn: () => today);
+      await store.setState('${fundStatePrefix}600001', 'broken');
+      expect(await service.cachedMarks('600001'), isNull);
+      expect(await service.cachedMarksForMany(['600001']), isEmpty);
+    });
+  });
 }

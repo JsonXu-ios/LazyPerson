@@ -7,7 +7,7 @@ import 'data/market_repository.dart';
 import 'data/sync_service.dart';
 import 'state/home_controller.dart';
 import 'theme/app_theme.dart';
-import 'ui/home_screen.dart';
+import 'ui/root_screen.dart';
 
 void main() {
   WidgetsFlutterBinding.ensureInitialized();
@@ -78,6 +78,6 @@ class _AppRootState extends State<_AppRoot> {
         body: Center(child: CircularProgressIndicator(color: AppColors.warn)),
       );
     }
-    return HomeScreen(controller: controller);
+    return RootScreen(controller: controller);
   }
 }

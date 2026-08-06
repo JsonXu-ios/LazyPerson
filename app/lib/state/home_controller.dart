@@ -66,6 +66,9 @@ class HomeController extends ChangeNotifier {
 
   List<WatchlistItem> watchlist = [];
   List<Quote> quotes = [];
+
+  /// 当前行情是否来自本地缓存（无网络降级），界面据此提示
+  bool offlineQuotesInUse = false;
   String selected = aShareConfig.fallback;
   String period = 'day';
   KlinePayload? kline;
@@ -92,6 +95,16 @@ class HomeController extends ChangeNotifier {
 
   /// 待补齐的股票数（初始同步失败的 + 一根日K都没有的），ready 后统计
   int pendingRepairCount = 0;
+
+  /// 数据新鲜度：本地日K已更新到最新交易日的股票数
+  int freshCount = 0;
+
+  /// 全市场清单总数（新鲜度的分母）
+  int totalSymbolCount = 0;
+
+  /// 尚未更新到最新交易日的股票数
+  int get staleCount =>
+      totalSymbolCount > freshCount ? totalSymbolCount - freshCount : 0;
 
   /// 补齐进度
   int repairDone = 0;
@@ -270,13 +283,22 @@ class HomeController extends ChangeNotifier {
     _notify();
   }
 
-  /// 统计"补齐数据"入口要处理多少只（初始同步失败的 + 缺日K的）
+  /// 统计"补齐数据"入口要处理多少只（初始同步失败的 + 缺日K的），
+  /// 同时刷新数据新鲜度（已最新 X / 待更新 Y）
   Future<void> refreshRepairCount() async {
     try {
       pendingRepairCount =
           (await repository.sync.pendingRepairSymbols()).length;
     } catch (_) {
       pendingRepairCount = 0;
+    }
+    try {
+      final counts = await repository.sync.freshness();
+      freshCount = counts.fresh;
+      totalSymbolCount = counts.total;
+    } catch (_) {
+      freshCount = 0;
+      totalSymbolCount = 0;
     }
     _notify();
   }
@@ -471,6 +493,7 @@ class HomeController extends ChangeNotifier {
       final result = await repository.realtimeQuotes(targets, refresh: refresh);
       if (requestId != _quotesRequestId) return;
       quotes = result.quotes;
+      offlineQuotesInUse = false;
       quoteQuality = result.quality;
       unawaited(repository.rememberQuoteNames(result.quotes));
       if (result.quality.fallback || result.quality.stale) {
@@ -481,6 +504,19 @@ class HomeController extends ChangeNotifier {
       _notify();
     } catch (exc) {
       if (requestId != _quotesRequestId) return;
+      // 无网络/接口失败：退回本地日 K 的最新一根，列表仍有价格可看
+      try {
+        final offline = await repository.offlineQuotes(targets);
+        if (requestId != _quotesRequestId) return;
+        if (offline.isNotEmpty) {
+          quotes = offline;
+          offlineQuotesInUse = true;
+          _setNotice('行情不可用，显示本地缓存价（${offline.first.tradeTime ?? ''}）');
+          return;
+        }
+      } catch (_) {
+        // 本地也没有就照常报错
+      }
       _setNotice(normalizeError(exc));
     }
   }

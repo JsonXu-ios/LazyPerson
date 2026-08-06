@@ -615,11 +615,29 @@ class SyncStatusStrip extends StatelessWidget {
                     size: 12, color: color),
               const SizedBox(width: 6),
               Expanded(
-                child: Text(
-                  controller.syncText,
-                  maxLines: 2,
-                  overflow: TextOverflow.ellipsis,
-                  style: mono(size: FontSize.legend, color: color),
+                child: Column(
+                  crossAxisAlignment: CrossAxisAlignment.start,
+                  children: [
+                    Text(
+                      controller.syncText,
+                      maxLines: 2,
+                      overflow: TextOverflow.ellipsis,
+                      style: mono(size: FontSize.legend, color: color),
+                    ),
+                    // 数据新鲜度：已更新到最新交易日的 / 还没更新的
+                    if (controller.totalSymbolCount > 0)
+                      Text(
+                        '已最新 ${controller.freshCount} 只 · 待更新 ${controller.staleCount} 只',
+                        maxLines: 1,
+                        overflow: TextOverflow.ellipsis,
+                        style: mono(
+                          size: FontSize.legend,
+                          color: controller.staleCount > 0
+                              ? AppColors.warn
+                              : AppColors.textFaint,
+                        ),
+                      ),
+                  ],
                 ),
               ),
               if (failed) ...[

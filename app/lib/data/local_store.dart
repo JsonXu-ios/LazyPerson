@@ -307,6 +307,19 @@ class LocalStore {
   }
 
   /// 本地已有日 K 的股票代码集合（补齐数据时用来找“一根都没有”的股票）
+  /// 数据新鲜度统计：本地日 K 已到 [tradeDate] 的股票数、清单总数。
+  /// 自选页顶部显示"已最新 X / 待更新 Y"用。
+  Future<({int fresh, int total})> freshnessCounts(String tradeDate) async {
+    final freshRow = await db.rawQuery(
+        'SELECT COUNT(DISTINCT symbol) AS c FROM daily_bars WHERE date = ?',
+        [tradeDate]);
+    final totalRow = await db.rawQuery('SELECT COUNT(*) AS c FROM symbols');
+    return (
+      fresh: (freshRow.first['c'] as int?) ?? 0,
+      total: (totalRow.first['c'] as int?) ?? 0,
+    );
+  }
+
   Future<Set<String>> symbolsWithBars() async {
     final rows = await db.rawQuery('SELECT DISTINCT symbol FROM daily_bars');
     return {for (final row in rows) row['symbol'] as String};

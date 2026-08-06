@@ -158,14 +158,32 @@ void main() {
         isNot(contains('SPY')));
   });
 
-  test('repository 种子数据只写一次', () async {
+  test('新装设备自选为空（不再预置默认股票）', () async {
     final sync = SyncService(store: store);
     final repo = MarketRepository(store: store, sync: sync);
     await repo.ensureSeeded();
     await repo.ensureSeeded();
-    final rows = await store.listWatchlist();
-    expect(rows.length, MarketRepository.defaultWatchlist.length);
-    // 只做 A 股，种子全部落在 a_share 分组
-    expect(rows.map((row) => row.groupName).toSet(), {'a_share'});
+    expect(await store.listWatchlist(), isEmpty);
+  });
+
+  test('老设备一次性清掉历史预置的 4 只，用户自己加的保留', () async {
+    // 模拟老设备：已种过默认自选，用户另外加了一只
+    for (final symbol in MarketRepository.legacySeedSymbols) {
+      await store.addWatchlist(symbol, 'a_share');
+    }
+    await store.addWatchlist('601398', 'a_share');
+    await store.setState('watchlist_seeded', '1');
+
+    final repo = MarketRepository(store: store, sync: SyncService(store: store));
+    await repo.ensureSeeded();
+
+    final left = (await store.listWatchlist()).map((item) => item.symbol).toList();
+    expect(left, ['601398']);
+
+    // 再次调用不会误删用户后来加回来的种子股
+    await store.addWatchlist('600519', 'a_share');
+    await repo.ensureSeeded();
+    expect((await store.listWatchlist()).map((item) => item.symbol),
+        containsAll(['601398', '600519']));
   });
 }

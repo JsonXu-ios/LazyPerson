@@ -91,6 +91,9 @@ class BandScanController extends ChangeNotifier {
   /// 补齐结果提示（成功若干只 / 失败原因），点开始扫描后清空
   String? backfillNote;
 
+  /// 补齐后仍不足 90 天的只数（次新股/长期停牌，补也补不出来）
+  int unfixableCount = 0;
+
   /// 「补充数据」进行中（基本面 + LON 标记的并发拉取）
   bool enriching = false;
 
@@ -319,6 +322,7 @@ class BandScanController extends ChangeNotifier {
     error = null;
     skippedNoData = 0;
     skippedSymbols = [];
+    unfixableCount = 0;
     backfillNote = null;
     enrichNote = null;
     scanMillis = null;
@@ -555,7 +559,8 @@ class BandScanController extends ChangeNotifier {
     backfillNote = null;
     _notify();
 
-    final failed = <String>[];
+    final failed = <String>[];      // 取数失败，可再点一次
+    final unfixable = <String>[];   // 取回来了但数据源本身就不足 90 天（次新/长期停牌）
     final queue = pending.iterator;
     Future<void> worker() async {
       // Iterator 在单 isolate 事件循环内串行推进，无并发竞争
@@ -564,8 +569,14 @@ class BandScanController extends ChangeNotifier {
         final symbol = queue.current;
         try {
           await repository.sync.refreshSymbol(symbol);
+          // 关键：补完要校验真的够用了。次新股/长期停牌股即使拉取成功也不够
+          // 20 根，之前会被反复算进"待补齐"，看起来就是"点了还是失败"。
+          final bars = await repository.store.getDailyBars(symbol);
+          if (validScanBars(bars).length < scanMinBars) {
+            unfixable.add(symbol);
+          }
         } catch (_) {
-          failed.add(symbol); // 个别失败留在清单里，可再点一次
+          failed.add(symbol);
         }
         backfillDone += 1;
         if (backfillDone % 5 == 0 || backfillDone == backfillTotal) _notify();
@@ -585,13 +596,22 @@ class BandScanController extends ChangeNotifier {
     }
     if (runId != _runId) return;
 
-    final filled = backfillTotal - failed.length;
+    final filled = backfillTotal - failed.length - unfixable.length;
+    // 只有"取数失败"的留在待补清单里；数据源本身不足的不再反复提示
     skippedSymbols = failed;
     skippedNoData = failed.length;
+    unfixableCount = unfixable.length;
     backfilling = false;
-    backfillNote = failed.isEmpty
+    final parts = <String>['已补齐 $filled 只'];
+    if (unfixable.isNotEmpty) {
+      parts.add('${unfixable.length} 只上市不足90天/长期停牌，无法补齐');
+    }
+    if (failed.isNotEmpty) {
+      parts.add('${failed.length} 只取数失败可再点一次');
+    }
+    backfillNote = failed.isEmpty && unfixable.isEmpty
         ? '已补齐 $filled 只，点「重新扫描」纳入判定'
-        : '补齐 $filled/$backfillTotal 只，${failed.length} 只取数失败，可再点一次';
+        : parts.join('，');
     dataDate = await repository.sync.latestDataDate();
     if (runId != _runId) return;
     _notify();

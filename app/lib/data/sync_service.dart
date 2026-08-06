@@ -79,6 +79,13 @@ class SyncService {
   /// 本地全市场日 K 的最新交易日（同步状态展示用）；null = 尚无数据
   Future<String?> latestDataDate() => store.latestDailyDateGlobal();
 
+  /// 数据新鲜度：以本地最新交易日为准，已更新到该日的股票数 / 清单总数
+  Future<({int fresh, int total})> freshness() async {
+    final latest = await store.latestDailyDateGlobal();
+    if (latest == null) return (fresh: 0, total: await store.symbolCount());
+    return store.freshnessCounts(latest);
+  }
+
   String get _today => now().toIso8601String().substring(0, 10);
 
   String get _rangeStart => now()

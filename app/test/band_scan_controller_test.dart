@@ -101,6 +101,8 @@ class _FakeLonCheck extends LonCheckService {
 /// [failing] 里的股票抛错（模拟单只补齐失败）
 class _FakeSync extends SyncService {
   final Set<String> failing;
+  /// 这些股票 refresh 成功，但数据源本身只有几根（次新股/长期停牌）
+  final Set<String> shortData;
   final Duration delay;
   final List<String> refreshed = [];
   int inFlight = 0;
@@ -110,6 +112,7 @@ class _FakeSync extends SyncService {
     required super.store,
     required EastmoneyProvider eastmoney,
     this.failing = const {},
+    this.shortData = const {},
     this.delay = Duration.zero,
   }) : super(eastmoney: eastmoney);
 
@@ -123,7 +126,10 @@ class _FakeSync extends SyncService {
       if (failing.contains(symbol)) {
         throw StateError('refresh failed: $symbol');
       }
-      await store.upsertDailyBars(symbol, _waveBars());
+      await store.upsertDailyBars(
+        symbol,
+        shortData.contains(symbol) ? _waveBars().take(5).toList() : _waveBars(),
+      );
     } finally {
       inFlight -= 1;
     }
@@ -201,6 +207,7 @@ void main() {
       Duration lonDelay = Duration.zero,
       Duration backfillDelay = Duration.zero,
       Set<String> backfillFailing = const {},
+      Set<String> backfillShortData = const {},
       List<Quote>? quoteOverride,
       Set<String> withoutBars = const {}}) async {
     store = LocalStore(await databaseFactory.openDatabase(
@@ -221,6 +228,7 @@ void main() {
       store: store,
       eastmoney: eastmoney,
       failing: backfillFailing,
+      shortData: backfillShortData,
       delay: backfillDelay,
     );
     repository = MarketRepository(store: store, sync: sync);
@@ -684,6 +692,29 @@ void main() {
       expect(
           controller.hits.map((hit) => hit.symbol).toSet(), {'600001', '600002'});
       expect(controller.skippedNoData, 0);
+    });
+
+    test('补完仍不足20根的（次新/长期停牌）不再计入待补，提示写明无法补齐', () async {
+      await setUpScan(
+        const {},
+        quoteOverride: [
+          _quote('600001', '甲股'),
+          _quote('600002', '次新股'),
+          _quote('600003', '停牌股'),
+        ],
+        withoutBars: {'600002', '600003'},
+        backfillShortData: {'600003'}, // 补回来也只有 5 根
+      );
+      await controller.startScan();
+      expect(controller.skippedSymbols, ['600002', '600003']);
+
+      await controller.backfillMissing();
+
+      // 600002 补齐成功；600003 数据源本身不足 → 不再留在待补清单
+      expect(controller.skippedSymbols, isEmpty);
+      expect(controller.skippedNoData, 0);
+      expect(controller.unfixableCount, 1);
+      expect(controller.backfillNote, contains('无法补齐'));
     });
 
     test('单只补齐失败留在清单里，可以再点一次', () async {

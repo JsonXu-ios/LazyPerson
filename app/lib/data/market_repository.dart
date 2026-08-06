@@ -5,7 +5,6 @@ library;
 import 'dart:convert';
 
 import '../logic/indicators.dart';
-import '../logic/market_panels.dart';
 import '../models/models.dart';
 import 'local_store.dart';
 import 'provider_error.dart';
@@ -75,23 +74,65 @@ class MarketRepository {
   /// 八档局共用一份，缓存也共用。
   late final SectorService sectors;
 
-  static const defaultWatchlist = [
-    WatchlistItem(symbol: '002138', market: 'SZ', name: '顺络电子', groupName: aShareGroup, sortOrder: 1),
-    WatchlistItem(symbol: '600519', market: 'SH', name: '贵州茅台', groupName: aShareGroup, sortOrder: 2),
-    WatchlistItem(symbol: '000001', market: 'SZ', name: '平安银行', groupName: aShareGroup, sortOrder: 3),
-    WatchlistItem(symbol: '300750', market: 'SZ', name: '宁德时代', groupName: aShareGroup, sortOrder: 4),
-  ];
+  /// 曾经种过的默认自选（已废弃）：新装不再预置，老设备一次性清掉这几只。
+  /// 自选完全由用户自己添加。
+  static const legacySeedSymbols = ['002138', '600519', '000001', '300750'];
+
+  static const _seedPurgedKey = 'legacy_seed_purged_v1';
 
   Future<void> ensureSeeded() async {
     if (await store.getState(_aShareOnlyKey) != '1') {
       await store.purgeNonAShare();
       await store.setState(_aShareOnlyKey, '1');
     }
-    if (await store.getState(_seededKey) == '1') return;
-    for (final item in defaultWatchlist) {
-      await store.addWatchlist(item.symbol, item.groupName, note: item.note);
+    // 老设备清掉历史预置的 4 只（只做一次；用户后来自己加回来的不受影响）
+    if (await store.getState(_seedPurgedKey) != '1') {
+      if (await store.getState(_seededKey) == '1') {
+        for (final symbol in legacySeedSymbols) {
+          await store.removeWatchlist(symbol);
+        }
+      }
+      await store.setState(_seedPurgedKey, '1');
+      await store.setState(_seededKey, '1');
     }
-    await store.setState(_seededKey, '1');
+  }
+
+  /// 离线报价：网络不可用时用本地日 K 的最新一根构造行情，
+  /// 让自选列表在无网络下仍有价格/涨跌幅可看（而不是一片空白）。
+  Future<List<Quote>> offlineQuotes(List<String> symbols) async {
+    if (symbols.isEmpty) return const [];
+    final barsBySymbol = await store.dailyBarsFor(symbols);
+    final names = {
+      for (final item in await store.listWatchlist()) item.symbol: item.name,
+    };
+    final quotes = <Quote>[];
+    for (final symbol in symbols) {
+      final bars = barsBySymbol[symbol] ?? const <KlineBar>[];
+      if (bars.isEmpty) continue;
+      final last = bars.last;
+      final prev = bars.length > 1 ? bars[bars.length - 2] : null;
+      final close = last.close;
+      final preClose = prev?.close;
+      quotes.add(Quote(
+        symbol: symbol,
+        market: symbol.startsWith('6') ? 'SH' : 'SZ',
+        name: names[symbol] ?? (await store.getSymbol(symbol))?.name ?? '',
+        tradeTime: last.time,
+        price: close,
+        open: last.open,
+        high: last.high,
+        low: last.low,
+        preClose: preClose,
+        pctChg: last.pctChg ??
+            (close != null && preClose != null && preClose > 0
+                ? (close - preClose) / preClose * 100
+                : null),
+        volume: last.volume,
+        amount: last.amount,
+        turnover: last.turnover,
+      ));
+    }
+    return quotes;
   }
 
   // ---------- 搜索 / 自选 ----------

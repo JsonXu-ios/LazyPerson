@@ -202,6 +202,9 @@ class BandHit {
   /// 估市值：最新报告期营收年化×10 > 总市值。三态，null = 未补充
   final bool? revenueOk;
 
+  /// 估市值倍数（年化营收×10 ÷ 总市值）；null = 未补充/数据缺失
+  final double? revenueRatio;
+
   /// 日/周/月三周期 LON 与 LONMA 都向上且 LON≥LONMA。三态，null = 未补充
   final bool? lonOk;
 
@@ -226,6 +229,7 @@ class BandHit {
     this.dividendRecent,
     this.profitOk,
     this.revenueOk,
+    this.revenueRatio,
     this.lonOk,
     this.northOk = false,
   });
@@ -245,6 +249,7 @@ class BandHit {
     bool? dividendRecent,
     bool? profitOk,
     bool? revenueOk,
+    double? revenueRatio,
     bool? lonOk,
   }) =>
       BandHit(
@@ -268,6 +273,7 @@ class BandHit {
         dividendRecent: dividendRecent ?? this.dividendRecent,
         profitOk: profitOk ?? this.profitOk,
         revenueOk: revenueOk ?? this.revenueOk,
+        revenueRatio: revenueRatio ?? this.revenueRatio,
         lonOk: lonOk ?? this.lonOk,
         northOk: northOk,
       );
@@ -293,6 +299,7 @@ class BandHit {
         'dividend_recent': dividendRecent,
         'profit_ok': profitOk,
         'revenue_ok': revenueOk,
+        'revenue_ratio': revenueRatio,
         'lon_ok': lonOk,
         'north_ok': northOk,
       };
@@ -319,6 +326,7 @@ class BandHit {
         dividendRecent: json['dividend_recent'] as bool?,
         profitOk: json['profit_ok'] as bool?,
         revenueOk: json['revenue_ok'] as bool?,
+        revenueRatio: (json['revenue_ratio'] as num?)?.toDouble(),
         lonOk: json['lon_ok'] as bool?,
         northOk: (json['north_ok'] as bool?) ?? false,
       );

@@ -21,7 +21,7 @@ const fundCacheDays = 3;
 
 /// 缓存 key 前缀（对齐 backend STATE_PREFIX；
 /// v2: 估市值/净利润拆分为独立条件，按最新报告期年化，多存 revenue_ok）
-const fundStatePrefix = 'fundamentals:v2:';
+const fundStatePrefix = 'fundamentals:v3:';
 
 /// 批量补基本面标记时的并发路数（每只两轮东财往返：分红 + 业绩报表；
 /// 与 sectorFetchConcurrency 同量级，再高东财会限流）
@@ -38,6 +38,16 @@ double? annualizeFactor(String? statDate) {
 /// 估市值：最新报告期累计营收年化后 ×10 > 总市值。
 /// 营收/市值任一缺失或非正、报告期无法识别 → 不通过；
 /// 市值单位亿元，×1e8 转元比较（对齐 backend revenue_condition）。
+/// 估市值倍数 = 年化营收×10 ÷ 总市值。>1 达标、>2 为"超2倍"。缺数据返回 null。
+/// 对齐 backend/app/fundamentals.py::revenue_ratio
+double? revenueRatio(double? revenue, String? statDate, double? marketCapYi) {
+  final factor = annualizeFactor(statDate);
+  if (factor == null) return null;
+  if (revenue == null) return null;
+  if (marketCapYi == null || marketCapYi <= 0) return null;
+  return revenue * factor * 10 / (marketCapYi * 1e8);
+}
+
 bool revenueCondition(double? revenue, String? statDate, double? marketCapYi) {
   final factor = annualizeFactor(statDate);
   if (factor == null) return false;
@@ -88,10 +98,14 @@ class FundamentalsMarks {
   final bool profitOk;
   final bool revenueOk;
 
+  /// 估市值倍数（年化营收×10 ÷ 总市值）；null = 数据缺失
+  final double? revenueRatioValue;
+
   const FundamentalsMarks({
     required this.dividendRecent,
     required this.profitOk,
     required this.revenueOk,
+    this.revenueRatioValue,
   });
 }
 
@@ -127,6 +141,8 @@ class FundamentalsService {
       profitOk: profitCondition(report?.parentNetprofit),
       revenueOk:
           revenueCondition(report?.revenue, report?.reportDate, marketCapYi),
+      revenueRatioValue:
+          revenueRatio(report?.revenue, report?.reportDate, marketCapYi),
     );
     await _writeCache(symbol, marks);
     return marks;
@@ -227,6 +243,7 @@ class FundamentalsService {
         dividendRecent: (data['dividend_recent'] as bool?) ?? false,
         profitOk: (data['profit_ok'] as bool?) ?? false,
         revenueOk: (data['revenue_ok'] as bool?) ?? false,
+        revenueRatioValue: (data['revenue_ratio'] as num?)?.toDouble(),
       );
     } catch (_) {
       return null; // 缓存损坏按无缓存处理
@@ -241,6 +258,7 @@ class FundamentalsService {
           'dividend_recent': marks.dividendRecent,
           'profit_ok': marks.profitOk,
           'revenue_ok': marks.revenueOk,
+          'revenue_ratio': marks.revenueRatioValue,
         }),
       );
 }

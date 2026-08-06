@@ -413,7 +413,7 @@ void main() {
       expect(controller.unknownMarkCount, 0);
       expect(controller.enrichNote, contains('已补充'));
 
-      final raw = await store.getState('band_scan:last:v10');
+      final raw = await store.getState('band_scan:last:v11');
       final persisted = (jsonDecode(raw!) as Map).cast<String, Object?>();
       final row = (persisted['hits'] as List).cast<Map>().single;
       expect(row['dividend_recent'], isTrue);
@@ -594,7 +594,7 @@ void main() {
     });
   });
 
-  test('结果持久化（key v10），当日 restore 恢复；v9 旧结果作废', () async {
+  test('结果持久化（key v11），当日 restore 恢复；v10 旧结果作废', () async {
     await setUpScan(const {});
     await store.setState(
       'band_scan:last:v9',
@@ -617,7 +617,7 @@ void main() {
     );
     await controller.startScan();
 
-    final raw = await store.getState('band_scan:last:v10');
+    final raw = await store.getState('band_scan:last:v11');
     expect(raw, isNotNull);
     final persisted = (jsonDecode(raw!) as Map).cast<String, Object?>();
     final rows = (persisted['hits'] as List).cast<Map>();
@@ -643,7 +643,7 @@ void main() {
       expect(controller.skippedNoData, 2);
       expect(controller.skippedSymbols, ['600002', '600003']);
 
-      final raw = await store.getState('band_scan:last:v10');
+      final raw = await store.getState('band_scan:last:v11');
       final persisted = (jsonDecode(raw!) as Map).cast<String, Object?>();
       expect(persisted['skipped_symbols'], ['600002', '600003']);
 
@@ -674,7 +674,7 @@ void main() {
       expect(controller.skippedNoData, 0);
       expect(controller.backfillNote, contains('已补齐 1 只'));
       // 补齐结果落盘，重进页面不会又冒出老提示
-      final raw = await store.getState('band_scan:last:v10');
+      final raw = await store.getState('band_scan:last:v11');
       final persisted = (jsonDecode(raw!) as Map).cast<String, Object?>();
       expect(persisted['skipped_symbols'], isEmpty);
       expect(persisted['skipped_no_data'], 0);

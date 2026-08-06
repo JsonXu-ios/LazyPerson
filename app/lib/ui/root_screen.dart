@@ -96,16 +96,23 @@ class _RootScreenState extends State<RootScreen> {
   Widget build(BuildContext context) {
     return Scaffold(
       backgroundColor: AppColors.background,
+      extendBody: true,  // 让凸起的圆钮压在内容之上
       body: IndexedStack(
         index: _index,
         children: [for (var i = 0; i < 3; i++) _page(i)],
+      ),
+      floatingActionButtonLocation: FloatingActionButtonLocation.centerDocked,
+      floatingActionButton: BandScanFab(
+        active: _index == bandScanTab,
+        onTap: () => _select(bandScanTab),
       ),
       bottomNavigationBar: HudBottomNav(index: _index, onSelect: _select),
     );
   }
 }
 
-/// HUD 风格的标准底部导航：三格，中间的八档局用 accent 实心胶囊 + 发光突出。
+/// HUD 风格底部导航：带圆形缺口的 BottomAppBar，八档局是嵌在缺口里的凸起圆钮
+/// （半圆露在导航栏上方），左右各一格普通 tab。
 class HudBottomNav extends StatelessWidget {
   final int index;
   final ValueChanged<int> onSelect;
@@ -114,37 +121,39 @@ class HudBottomNav extends StatelessWidget {
 
   @override
   Widget build(BuildContext context) {
-    return Container(
-      decoration: BoxDecoration(
-        color: AppColors.panel.withValues(alpha: 0.96),
-        border: Border(top: BorderSide(color: AppColors.hudBorder)),
-      ),
-      child: SafeArea(
-        top: false,
-        child: BottomNavigationBar(
-          currentIndex: index,
-          onTap: onSelect,
-          type: BottomNavigationBarType.fixed,
-          backgroundColor: Colors.transparent,
-          elevation: 0,
-          selectedItemColor: AppColors.accent,
-          unselectedItemColor: AppColors.textFaint,
-          selectedFontSize: FontSize.legend,
-          unselectedFontSize: FontSize.legend,
-          items: [
-            const BottomNavigationBarItem(
-              icon: Icon(Icons.dashboard_customize_outlined),
-              activeIcon: Icon(Icons.dashboard_customize),
-              label: '自选资产',
+    return BottomAppBar(
+      color: AppColors.panel.withValues(alpha: 0.98),
+      elevation: 0,
+      // 缺口比圆钮直径大 8dp，圆钮四周留一圈均匀的呼吸位
+      shape: const CircularNotchedRectangle(),
+      notchMargin: 8,
+      padding: EdgeInsets.zero,
+      child: Container(
+        height: 58,
+        decoration: BoxDecoration(
+          border: Border(top: BorderSide(color: AppColors.hudBorder)),
+        ),
+        child: Row(
+          children: [
+            Expanded(
+              child: _NavTab(
+                icon: Icons.dashboard_customize_outlined,
+                activeIcon: Icons.dashboard_customize,
+                label: '自选资产',
+                active: index == watchlistTab,
+                onTap: () => onSelect(watchlistTab),
+              ),
             ),
-            BottomNavigationBarItem(
-              icon: _BandScanIcon(active: index == bandScanTab),
-              label: '八档局',
-            ),
-            const BottomNavigationBarItem(
-              icon: Icon(Icons.local_fire_department_outlined),
-              activeIcon: Icon(Icons.local_fire_department),
-              label: '热点板块',
+            // 缺口宽度：圆钮直径 + 两侧 notchMargin
+            const SizedBox(width: 84),
+            Expanded(
+              child: _NavTab(
+                icon: Icons.local_fire_department_outlined,
+                activeIcon: Icons.local_fire_department,
+                label: '热点板块',
+                active: index == sectorTab,
+                onTap: () => onSelect(sectorTab),
+              ),
             ),
           ],
         ),
@@ -153,37 +162,93 @@ class HudBottomNav extends StatelessWidget {
   }
 }
 
-/// 中间那格的突出图标：实心胶囊 + 外发光，选中时更亮
-class _BandScanIcon extends StatelessWidget {
+/// 左右两格的普通 tab（图标 + 文字，选中变 accent）
+class _NavTab extends StatelessWidget {
+  final IconData icon;
+  final IconData activeIcon;
+  final String label;
   final bool active;
+  final VoidCallback onTap;
 
-  const _BandScanIcon({required this.active});
+  const _NavTab({
+    required this.icon,
+    required this.activeIcon,
+    required this.label,
+    required this.active,
+    required this.onTap,
+  });
 
   @override
   Widget build(BuildContext context) {
-    return Container(
-      width: 52,
-      height: 26,
-      alignment: Alignment.center,
-      decoration: BoxDecoration(
-        borderRadius: BorderRadius.circular(13),
-        color: AppColors.accent.withValues(alpha: active ? 0.95 : 0.20),
-        border: Border.all(
-          color: AppColors.accent.withValues(alpha: active ? 1 : 0.55),
-        ),
-        boxShadow: [
-          BoxShadow(
-            color: AppColors.accent.withValues(alpha: active ? 0.45 : 0.18),
-            blurRadius: active ? 18 : 10,
-            spreadRadius: -2,
+    final color = active ? AppColors.accent : AppColors.textFaint;
+    return InkWell(
+      onTap: onTap,
+      child: Column(
+        mainAxisAlignment: MainAxisAlignment.center,
+        children: [
+          Icon(active ? activeIcon : icon, size: 21, color: color),
+          const SizedBox(height: 3),
+          Text(
+            label,
+            style: TextStyle(
+              fontSize: FontSize.legend,
+              color: color,
+              fontWeight: active ? FontWeight.w600 : FontWeight.w400,
+            ),
           ),
         ],
-      ),
-      child: Icon(
-        Icons.radar,
-        size: 18,
-        color: active ? const Color(0xFF050914) : AppColors.accent,
       ),
     );
   }
 }
+
+/// 八档局：嵌在导航缺口里的凸起圆钮，半圆露在导航栏上方
+class BandScanFab extends StatelessWidget {
+  final bool active;
+  final VoidCallback onTap;
+
+  const BandScanFab({super.key, required this.active, required this.onTap});
+
+  @override
+  Widget build(BuildContext context) {
+    return SizedBox(
+      width: 64,
+      height: 64,
+      child: FloatingActionButton(
+        onPressed: onTap,
+        elevation: 0,
+        highlightElevation: 0,
+        backgroundColor: active
+            ? AppColors.accent
+            : AppColors.panel,
+        shape: CircleBorder(
+          side: BorderSide(
+            color: AppColors.accent.withValues(alpha: active ? 1 : 0.6),
+            width: 2,
+          ),
+        ),
+        child: Column(
+          mainAxisAlignment: MainAxisAlignment.center,
+          children: [
+            Icon(
+              Icons.radar,
+              size: 22,
+              color: active ? const Color(0xFF050914) : AppColors.accent,
+            ),
+            const SizedBox(height: 1),
+            Text(
+              '八档局',
+              style: TextStyle(
+                fontSize: 9,
+                height: 1.1,
+                fontWeight: FontWeight.w700,
+                color: active ? const Color(0xFF050914) : AppColors.accent,
+              ),
+            ),
+          ],
+        ),
+      ),
+    );
+  }
+}
+

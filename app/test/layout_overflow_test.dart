@@ -192,20 +192,28 @@ void main() {
         expect(find.byIcon(Icons.insights_outlined), findsNWidgets(2));
       });
 
-      testWidgets('底部导航（三格，中间突出）', (tester) async {
+      testWidgets('底部导航（缺口栏 + 中间凸起圆钮）', (tester) async {
+        // 与 RootScreen 同构：带缺口的 BottomAppBar + centerDocked 的凸起圆钮
         await _pumpAt(
           tester,
           size,
           Scaffold(
+            extendBody: true,
             bottomNavigationBar: HudBottomNav(index: 1, onSelect: (_) {}),
+            floatingActionButtonLocation:
+                FloatingActionButtonLocation.centerDocked,
+            floatingActionButton:
+                BandScanFab(active: true, onTap: () {}),
             body: const SizedBox.expand(),
           ),
         );
 
         expect(find.text('自选资产'), findsOneWidget);
-        expect(find.text('八档局'), findsOneWidget);
         expect(find.text('热点板块'), findsOneWidget);
+        // 八档局在凸起圆钮里
+        expect(find.text('八档局'), findsOneWidget);
         expect(find.byIcon(Icons.radar), findsOneWidget);
+        expect(find.byType(FloatingActionButton), findsOneWidget);
       });
     });
   });

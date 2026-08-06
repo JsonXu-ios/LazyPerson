@@ -33,7 +33,7 @@ class BandScanController extends ChangeNotifier {
 
   /// v10: 扫描改纯本地、标记变三态、命中行新增 turnover/chg3/chg5/market_cap，
   /// 旧结果作废
-  static const _stateKey = 'band_scan:last:v10';
+  static const _stateKey = 'band_scan:last:v11';
 
   final MarketRepository repository;
   final DateTime Function() now;
@@ -127,6 +127,9 @@ class BandScanController extends ChangeNotifier {
   /// 展示层过滤：只看估市值达标（最新报告期营收年化×10>总市值），默认关
   bool revenueFilter = false;
 
+  /// 展示层过滤：只看估市值超2倍（倍数>2，等价市销率<5），默认关
+  bool revenue2xFilter = false;
+
   /// 展示层过滤：只看 LON 多头（日/周/月三周期），默认关
   bool lonFilter = false;
 
@@ -162,6 +165,8 @@ class BandScanController extends ChangeNotifier {
           (!dividendFilter || hit.dividendRecent == true) &&
           (!profitFilter || hit.profitOk == true) &&
           (!revenueFilter || hit.revenueOk == true) &&
+          (!revenue2xFilter ||
+              (hit.revenueRatio != null && hit.revenueRatio! > 2)) &&
           (!lonFilter || hit.lonOk == true) &&
           (!northFilter || hit.northOk) &&
           (!turnoverFilter ||
@@ -179,7 +184,7 @@ class BandScanController extends ChangeNotifier {
 
   /// 当前是否有依赖标记的筛选开关被打开（决定要不要提示“有 N 只数据未补充”）
   bool get markFilterActive =>
-      dividendFilter || profitFilter || revenueFilter || lonFilter;
+      dividendFilter || profitFilter || revenueFilter || revenue2xFilter || lonFilter;
 
   Map<int, int> get groupCounts {
     final counts = <int, int>{};
@@ -230,6 +235,9 @@ class BandScanController extends ChangeNotifier {
 
   void setRevenueFilter(bool value) =>
       _setFlag(value, revenueFilter, (v) => revenueFilter = v);
+
+  void setRevenue2xFilter(bool value) =>
+      _setFlag(value, revenue2xFilter, (v) => revenue2xFilter = v);
 
   void setLonFilter(bool value) => _setFlag(value, lonFilter, (v) => lonFilter = v);
 
@@ -473,6 +481,7 @@ class BandScanController extends ChangeNotifier {
                 dividendRecent: marks.dividendRecent,
                 profitOk: marks.profitOk,
                 revenueOk: marks.revenueOk,
+                revenueRatio: marks.revenueRatioValue,
               );
             }
           }

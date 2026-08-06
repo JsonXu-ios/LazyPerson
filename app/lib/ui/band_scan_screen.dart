@@ -456,6 +456,11 @@ class _BandScanScreenState extends State<BandScanScreen> {
             onChanged: controller.setRevenueFilter,
           ),
           _FilterChip(
+            label: '估市值2倍',
+            value: controller.revenue2xFilter,
+            onChanged: controller.setRevenue2xFilter,
+          ),
+          _FilterChip(
             label: 'LON',
             value: controller.lonFilter,
             onChanged: controller.setLonFilter,

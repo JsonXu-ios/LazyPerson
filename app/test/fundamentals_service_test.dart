@@ -260,7 +260,7 @@ void main() {
       expect(licoUrls[0], contains('2026-06-30'));
       expect(licoUrls[1], contains('2026-03-31'));
 
-      final raw = await store.getState('fundamentals:v2:600519');
+      final raw = await store.getState('fundamentals:v3:600519');
       expect(raw, isNotNull);
       final cached = (jsonDecode(raw!) as Map).cast<String, Object?>();
       expect(cached['checked_at'], '2026-08-03');
@@ -305,7 +305,7 @@ void main() {
 
     test('缓存超过 3 天失效重新取数', () async {
       await store.setState(
-        'fundamentals:v2:600519',
+        'fundamentals:v3:600519',
         jsonEncode({
           'checked_at': '2026-07-30', // 4 天前
           'dividend_recent': false,
@@ -398,7 +398,7 @@ void main() {
 
       await expectLater(
           service.marksFor('600519', 16119.8), throwsA(anything));
-      expect(await store.getState('fundamentals:v2:600519'), isNull);
+      expect(await store.getState('fundamentals:v3:600519'), isNull);
     });
   });
 

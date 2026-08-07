@@ -6,19 +6,25 @@ library;
 
 import 'package:flutter/material.dart';
 
+import '../data/popularity_service.dart';
 import '../state/band_scan_controller.dart';
 import '../state/home_controller.dart';
 import '../state/sector_controller.dart';
 import '../theme/app_theme.dart';
 import 'band_scan_screen.dart';
 import 'sector_screen.dart';
+import 'breakout_screen.dart';
+import 'popular_screen.dart';
 import 'stock_detail_screen.dart';
 import 'watchlist_screen.dart';
 
-/// tab 下标：与 [_navItems] 一一对应
+/// tab 下标：自选资产 | 破势 | 八档局(凸起) | 热点板块 | 人气股
 const watchlistTab = 0;
-const bandScanTab = 1;
-const sectorTab = 2;
+const breakoutTab = 1;
+const bandScanTab = 2;
+const sectorTab = 3;
+const popularTab = 4;
+const tabCount = 5;
 
 class RootScreen extends StatefulWidget {
   final HomeController controller;
@@ -37,6 +43,7 @@ class _RootScreenState extends State<RootScreen> {
 
   BandScanController? _bandScan;
   SectorController? _sectors;
+  PopularityService? _popularity;
 
   HomeController get controller => widget.controller;
 
@@ -83,6 +90,16 @@ class _RootScreenState extends State<RootScreen> {
       case bandScanTab:
         final band = _bandScan ??= BandScanController(controller.repository);
         return BandScanScreen(controller: band, onSelect: _openDetail);
+      case breakoutTab:
+        final band = _bandScan ??= BandScanController(controller.repository);
+        return BreakoutScreen(controller: band, onSelect: _openDetail);
+      case popularTab:
+        final service = _popularity ??= PopularityService(
+          store: controller.repository.store,
+          sectors: controller.repository.sectors,
+          tencent: controller.repository.tencent,
+        );
+        return PopularScreen(service: service, onSelect: _openDetail);
       case sectorTab:
         final sectors =
             _sectors ??= SectorController(controller.repository.sectors);
@@ -99,7 +116,7 @@ class _RootScreenState extends State<RootScreen> {
       extendBody: true,  // 让凸起的圆钮压在内容之上
       body: IndexedStack(
         index: _index,
-        children: [for (var i = 0; i < 3; i++) _page(i)],
+        children: [for (var i = 0; i < tabCount; i++) _page(i)],
       ),
       floatingActionButtonLocation: FloatingActionButtonLocation.centerDocked,
       floatingActionButton: BandScanFab(
@@ -144,8 +161,17 @@ class HudBottomNav extends StatelessWidget {
                 onTap: () => onSelect(watchlistTab),
               ),
             ),
-            // 缺口宽度：圆钮直径 + 两侧 notchMargin
-            const SizedBox(width: 84),
+            Expanded(
+              child: _NavTab(
+                icon: Icons.trending_up_outlined,
+                activeIcon: Icons.trending_up,
+                label: '破势',
+                active: index == breakoutTab,
+                onTap: () => onSelect(breakoutTab),
+              ),
+            ),
+            // 缺口宽度：圆钮直径 + 两侧 notchMargin（中间留给八档局凸起钮）
+            const SizedBox(width: 80),
             Expanded(
               child: _NavTab(
                 icon: Icons.local_fire_department_outlined,
@@ -153,6 +179,15 @@ class HudBottomNav extends StatelessWidget {
                 label: '热点板块',
                 active: index == sectorTab,
                 onTap: () => onSelect(sectorTab),
+              ),
+            ),
+            Expanded(
+              child: _NavTab(
+                icon: Icons.people_alt_outlined,
+                activeIcon: Icons.people_alt,
+                label: '人气股',
+                active: index == popularTab,
+                onTap: () => onSelect(popularTab),
               ),
             ),
           ],

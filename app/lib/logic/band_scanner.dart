@@ -11,6 +11,10 @@ import '../models/models.dart';
 /// 一档 20 除外（对齐 scanner.py::GROUP_LOWER）
 const groupLower = <double>[20, 40, 70, 100, 130, 160, 190, 220];
 
+/// 破势用的 K线主线（与档位分界是两套口径：档位=主线−10）。
+/// 对齐 backend/app/breakout.py::MAIN_LINES
+const breakoutMainLines = <double>[20, 50, 80, 110, 140, 170, 200, 230];
+
 const maxGroups = 8;
 const scanWindowDays = 90;
 const scanMinBars = 20;
@@ -46,6 +50,26 @@ bool isFallingBack(double? pct, double? maxPct) {
 }
 
 /// 一路北上：从低到高——最高点在波段低点之后，且低点之后收盘口径最大回撤 ≤30%。
+/// 破势分组：已突破的最高主线序号（1=站上20、2=站上50、3=站上80…），
+/// 未过 20 返回 null。每只股只归最高一组，不重复计入前面几组。
+/// 对齐 backend/app/breakout.py::breakout_stage
+int? breakoutStage(double? pct) {
+  if (pct == null || pct < breakoutMainLines[0]) return null;
+  var stage = 1;
+  for (var index = 0; index < breakoutMainLines.length; index++) {
+    if (pct >= breakoutMainLines[index]) stage = index + 1;
+  }
+  return stage;
+}
+
+/// 分组标签：2 → "20→50"、3 → "50→80"…
+String breakoutStageLabel(int stage) {
+  if (stage <= 1) return '0→${breakoutMainLines[0].toInt()}';
+  final capped = stage.clamp(1, breakoutMainLines.length);
+  return '${breakoutMainLines[capped - 2].toInt()}→'
+      '${breakoutMainLines[capped - 1].toInt()}';
+}
+
 bool isNorthBound(List<KlineBar> window, int lowIndex,
     {double maxDrawdown = northMaxDrawdown}) {
   final n = window.length;
@@ -205,6 +229,9 @@ class BandHit {
   /// 估市值倍数（年化营收×10 ÷ 总市值）；null = 未补充/数据缺失
   final double? revenueRatio;
 
+  /// 破势分组：已突破的最高主线序号（2=「20→50」组、3=「50→80」…）
+  final int? breakStage;
+
   /// 日/周/月三周期 LON 与 LONMA 都向上且 LON≥LONMA。三态，null = 未补充
   final bool? lonOk;
 
@@ -230,6 +257,7 @@ class BandHit {
     this.profitOk,
     this.revenueOk,
     this.revenueRatio,
+    this.breakStage,
     this.lonOk,
     this.northOk = false,
   });
@@ -274,6 +302,7 @@ class BandHit {
         profitOk: profitOk ?? this.profitOk,
         revenueOk: revenueOk ?? this.revenueOk,
         revenueRatio: revenueRatio ?? this.revenueRatio,
+        breakStage: breakStage,
         lonOk: lonOk ?? this.lonOk,
         northOk: northOk,
       );
@@ -300,6 +329,7 @@ class BandHit {
         'profit_ok': profitOk,
         'revenue_ok': revenueOk,
         'revenue_ratio': revenueRatio,
+        'break_stage': breakStage,
         'lon_ok': lonOk,
         'north_ok': northOk,
       };
@@ -327,6 +357,7 @@ class BandHit {
         profitOk: json['profit_ok'] as bool?,
         revenueOk: json['revenue_ok'] as bool?,
         revenueRatio: (json['revenue_ratio'] as num?)?.toDouble(),
+        breakStage: (json['break_stage'] as num?)?.toInt(),
         lonOk: json['lon_ok'] as bool?,
         northOk: (json['north_ok'] as bool?) ?? false,
       );
@@ -420,5 +451,6 @@ BandHit? evaluateStock(
     crossDate: crossDate,
     fromTop: fromTop,
     northOk: northOk,
+    breakStage: breakoutStage(pct),
   );
 }

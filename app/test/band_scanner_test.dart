@@ -588,4 +588,36 @@ void main() {
       expect(row.chg5, closeTo(27.36, 0.01));
     });
   });
+  group('breakoutStage（破势分组）', () {
+    test('按已突破的最高主线分组，每只股只归最高一组', () {
+      // 未过20 → 不入
+      expect(breakoutStage(19.9), isNull);
+      expect(breakoutStage(null), isNull);
+      // 站上20没到50 → stage 1（破势页只展示 stage≥2）
+      expect(breakoutStage(35.0), 1);
+      // 站上50 → 「20→50」组
+      expect(breakoutStage(50.0), 2);
+      expect(breakoutStage(55.0), 2);
+      expect(breakoutStage(79.9), 2);
+      expect(breakoutStageLabel(2), '20→50');
+      // 站上80 → 「50→80」组；115% 只算「80→110」，不重复计入前面
+      expect(breakoutStage(80.0), 3);
+      expect(breakoutStageLabel(3), '50→80');
+      expect(breakoutStage(115.0), 4);
+      expect(breakoutStageLabel(4), '80→110');
+      expect(breakoutStage(250.0), 8);
+      expect(breakoutStageLabel(8), '200→230');
+    });
+
+    test('evaluateStock 带上 breakStage（与档位口径互不影响）', () {
+      final bars = _seal(_makeWaveBars(_defaultToday, closesPct: [20, 42, 52]));
+      final row =
+          evaluateStock('600001', '测试股', 15.5, bars, today: _defaultToday);
+      expect(row, isNotNull);
+      expect(row!.pct, greaterThan(50));
+      expect(row.breakStage, 2); // 站上50主线 → 「20→50」
+      expect(row.group, 2); // 档位口径下同样是二档（分界40）
+    });
+  });
+
 }

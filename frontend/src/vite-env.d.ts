@@ -14,4 +14,6 @@ declare module "lucide-react" {
   export const Plus: ComponentType<IconProps>;
   export const Zap: ComponentType<IconProps>;
   export const Flame: ComponentType<IconProps>;
+  export const Users: ComponentType<IconProps>;
+  export const TrendingUp: ComponentType<IconProps>;
 }

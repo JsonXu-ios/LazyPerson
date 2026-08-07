@@ -1,11 +1,13 @@
 import { useCallback, useEffect, useMemo, useRef, useState } from "react";
-import { Flame, Search, Star, Zap } from "lucide-react";
+import { Flame, Search, Star, TrendingUp, Users, Zap } from "lucide-react";
 import { api } from "./api";
 import { IndicatorTabs } from "./components/IndicatorTabs";
 import { KlineChart } from "./components/KlineChart";
 import { StatusBar } from "./components/StatusBar";
 import { MoneyGrabPanel } from "./components/MoneyGrabPanel";
 import { HotSectorPanel } from "./components/HotSectorPanel";
+import { BreakoutPanel } from "./components/BreakoutPanel";
+import { PopularPanel } from "./components/PopularPanel";
 import { StockSummary } from "./components/StockSummary";
 import { WatchlistPanel } from "./components/WatchlistPanel";
 import type { DataQuality, KlinePayload, Quote, SymbolItem, WatchlistItem } from "./types";
@@ -45,7 +47,7 @@ export function App() {
   const [backendStatus, setBackendStatus] = useState("连接中");
   const [notice, setNotice] = useState("");
   const [loading, setLoading] = useState(false);
-  const [drawer, setDrawer] = useState<"watchlist" | "summary" | "moneygrab" | "sectors" | null>(null);
+  const [drawer, setDrawer] = useState<"watchlist" | "summary" | "moneygrab" | "sectors" | "breakout" | "popular" | null>(null);
   const quotesRequestRef = useRef(0);
   const detailRequestRef = useRef(0);
 
@@ -256,9 +258,17 @@ export function App() {
                 <Zap size={15} />
                 八档局
               </button>
+              <button className="terminal-button" onClick={() => setDrawer("breakout")}>
+                <TrendingUp size={15} />
+                破势
+              </button>
               <button className="terminal-button" onClick={() => setDrawer("sectors")}>
                 <Flame size={15} />
                 热点板块
+              </button>
+              <button className="terminal-button" onClick={() => setDrawer("popular")}>
+                <Users size={15} />
+                人气股
               </button>
               <div className="period-switch">
                 {periods.map((item) => (
@@ -302,6 +312,22 @@ export function App() {
                 onSortChange={setSortKey}
                 onAdd={addSymbol}
                 onRemove={removeSymbol}
+                onSelect={(symbol) => {
+                  setSelected(symbol);
+                  setPeriod("day");
+                  setDrawer(null);
+                }}
+              />
+            ) : drawer === "breakout" ? (
+              <BreakoutPanel
+                onSelect={(symbol) => {
+                  setSelected(symbol);
+                  setPeriod("day");
+                  setDrawer(null);
+                }}
+              />
+            ) : drawer === "popular" ? (
+              <PopularPanel
                 onSelect={(symbol) => {
                   setSelected(symbol);
                   setPeriod("day");

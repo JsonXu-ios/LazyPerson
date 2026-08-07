@@ -119,6 +119,8 @@ export type MoneyGrabHit = {
   chg3?: number | null;
   /** 近5日涨幅% */
   chg5?: number | null;
+  /** 破势分组：已突破的最高主线序号（2=站上50即「20→50」组，3=「50→80」…） */
+  break_stage?: number | null;
 
 };
 
@@ -222,6 +224,19 @@ export type SectorConstituent = {
 
 export type StockIndustry = {
   symbol: string;
+  industry: string;
+  concepts: string[];
+};
+
+export type PopularStock = {
+  symbol: string;
+  name: string;
+  rank: number;
+  rank_change: number | null;
+  price: number | null;
+  pct_chg: number | null;
+  turnover: number | null;
+  market_cap: number | null;
   industry: string;
   concepts: string[];
 };

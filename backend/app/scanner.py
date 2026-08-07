@@ -205,6 +205,7 @@ def evaluate_stock(
         "cross_date": cross_date,
         "from_top": from_top,
         "north_ok": north,
+        "break_stage": _breakout_stage(pct),
         "turnover": turnover,
         "chg3": _round_or_none(recent_change(float(price), window, 3, today)),
         "chg5": _round_or_none(recent_change(float(price), window, 5, today)),
@@ -215,7 +216,14 @@ def _round_or_none(value: float | None) -> float | None:
     return None if value is None else round(value, 2)
 
 
-STATE_KEY = "moneygrab:last_scan:v13"  # v13: 命中行含 revenue_ratio（估市值倍数）
+def _breakout_stage(pct: float) -> int | None:
+    """破势分组：已突破的最高主线序号（与八档局档位是两套口径）。"""
+    from backend.app.breakout import breakout_stage
+
+    return breakout_stage(pct)
+
+
+STATE_KEY = "moneygrab:last_scan:v14"  # v14: 命中行含 break_stage（破势分组）
 
 
 def _default_fundamentals_enricher(cache: CacheStore, hits: list[dict], caps: dict) -> None:

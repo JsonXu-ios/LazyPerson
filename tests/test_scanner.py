@@ -741,3 +741,35 @@ class TestRevenueRatio:
         assert revenue_ratio(1e8, None, "2026-03-31", 100.0) is None
         assert revenue_ratio(1e8, 0.2, None, 100.0) is None
         assert revenue_ratio(1e8, 0.2, "2026-03-31", None) is None
+
+
+class TestBreakoutStage:
+    def test_stage_by_highest_main_line(self):
+        from backend.app.breakout import breakout_stage, stage_label
+
+        # 未过20 → 不入
+        assert breakout_stage(19.9) is None
+        assert breakout_stage(None) is None
+        # 站上20没到50 → stage 1
+        assert breakout_stage(35.0) == 1
+        # 站上50 → stage 2 = 「20→50」
+        assert breakout_stage(50.0) == 2
+        assert breakout_stage(55.0) == 2
+        assert breakout_stage(79.9) == 2
+        assert stage_label(2) == "20→50"
+        # 站上80 → stage 3 = 「50→80」；115% 只算这组的上一级
+        assert breakout_stage(80.0) == 3
+        assert stage_label(3) == "50→80"
+        assert breakout_stage(115.0) == 4
+        assert stage_label(4) == "80→110"
+        # 每只股只归最高一组，不重复计入前面的组（由 stage 唯一决定）
+        assert breakout_stage(250.0) == 8
+        assert stage_label(8) == "200→230"
+
+    def test_evaluate_carries_break_stage(self):
+        today = date(2026, 7, 24)
+        bars = make_wave_bars(today, 10.0, [20, 42, 52])
+        row = evaluate_stock("600001", "测试股", 15.5, bars, today=today)
+        assert row is not None
+        assert row["pct"] > 50
+        assert row["break_stage"] == 2  # 站上50主线 → 「20→50」组

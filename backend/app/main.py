@@ -151,6 +151,17 @@ def create_app() -> FastAPI:
         service.remove_watchlist(symbol, group_name)
         return ApiResponse(data={"ok": True})
 
+    @app.get("/api/popularity", response_model=ApiResponse)
+    def popularity(
+        limit: int = Query(default=100, ge=1, le=100),
+        refresh: bool = False,
+        cache: CacheStore = Depends(get_cache),
+    ) -> ApiResponse:
+        from backend.app.popularity import PopularityService
+
+        rows, warnings = PopularityService(cache).hot_stocks(limit=limit, refresh=refresh)
+        return ApiResponse(data=rows, quality=DataQuality(source="eastmoney", warnings=warnings))
+
     @app.get("/api/sectors/hot", response_model=ApiResponse)
     def hot_sectors(
         limit: int = Query(default=20, ge=1, le=60),

@@ -1,6 +1,7 @@
 import type {
   ApiResponse,
   HotSectors,
+  PopularStock,
   SectorConstituent,
   StockIndustry,
   Fundamentals,
@@ -62,6 +63,8 @@ export const api = {
       { method: "POST" },
     ),
   getMoneyGrabScanStatus: () => request<MoneyGrabStatus>("/api/moneygrab/scan/status"),
+  popularStocks: (limit = 100, refresh = false) =>
+    request<PopularStock[]>(`/api/popularity?limit=${limit}&refresh=${refresh}`),
   hotSectors: (limit = 20, refresh = false) =>
     request<HotSectors>(`/api/sectors/hot?limit=${limit}&refresh=${refresh}`),
   sectorConstituents: (code: string, limit = 60) =>

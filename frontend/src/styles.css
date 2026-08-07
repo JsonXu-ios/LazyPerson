@@ -1589,3 +1589,179 @@ button:disabled {
   color: var(--amber);
   font-size: 10px;
 }
+
+/* 破势 / 人气股面板（复用八档局的视觉语言） */
+.breakout-panel,
+.popular-panel {
+  display: flex;
+  flex-direction: column;
+  gap: 10px;
+  height: 100%;
+  overflow: hidden;
+  background: linear-gradient(180deg, var(--panel-strong), var(--panel));
+  border: 1px solid var(--line);
+  border-radius: 6px;
+  padding: 14px 16px 12px;
+}
+
+.breakout-panel h3,
+.popular-panel h3 {
+  margin: 0;
+  padding-right: 40px;
+  font-size: 15px;
+}
+
+.breakout-actions,
+.popular-actions {
+  display: flex;
+  align-items: center;
+  gap: 10px;
+  flex-wrap: wrap;
+}
+
+.breakout-meta,
+.popular-meta {
+  font-size: 12px;
+  color: var(--muted);
+}
+
+.breakout-error,
+.popular-error {
+  margin: 0;
+  color: var(--red);
+  font-size: 12px;
+}
+
+.breakout-tabs {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 4px;
+}
+
+.breakout-tabs button {
+  border: 1px solid var(--line);
+  border-radius: 4px;
+  background: var(--panel-soft);
+  color: var(--muted);
+  font-size: 11px;
+  padding: 4px 8px;
+  cursor: pointer;
+  display: inline-flex;
+  align-items: center;
+  gap: 5px;
+}
+
+.breakout-tabs button em {
+  font-style: normal;
+  font-size: 10px;
+  padding: 0 5px;
+  border-radius: 8px;
+  background: rgba(56, 189, 248, 0.14);
+  color: var(--blue);
+}
+
+.breakout-tabs button.active {
+  color: #061016;
+  background: var(--blue);
+  border-color: var(--blue);
+}
+
+.breakout-tabs button.active em {
+  background: rgba(6, 16, 22, 0.25);
+  color: #061016;
+}
+
+.breakout-table-wrap,
+.popular-table-wrap {
+  flex: 1;
+  overflow: auto;
+  border: 1px solid var(--line-soft);
+  border-radius: 4px;
+}
+
+.breakout-table,
+.popular-table {
+  width: 100%;
+  border-collapse: collapse;
+  font-size: 12px;
+  font-variant-numeric: tabular-nums;
+}
+
+.breakout-table thead th,
+.popular-table thead th {
+  position: sticky;
+  top: 0;
+  z-index: 1;
+  background: var(--panel-strong);
+  color: var(--muted);
+  font-weight: 500;
+  border-bottom: 1px solid var(--line);
+}
+
+.breakout-table th,
+.breakout-table td,
+.popular-table th,
+.popular-table td {
+  padding: 7px 10px;
+  text-align: right;
+  border-bottom: 1px solid var(--line-soft);
+  white-space: nowrap;
+}
+
+.breakout-table th:nth-child(-n + 2),
+.breakout-table td:nth-child(-n + 2),
+.popular-table th:nth-child(-n + 3),
+.popular-table td:nth-child(-n + 3) {
+  text-align: left;
+}
+
+.breakout-table tbody tr,
+.popular-table tbody tr {
+  cursor: pointer;
+}
+
+.breakout-table tbody tr:hover,
+.popular-table tbody tr:hover {
+  background: rgba(56, 189, 248, 0.08);
+}
+
+.breakout-pct {
+  color: var(--red);
+}
+
+.breakout-sector,
+.popular-industry,
+.popular-concepts {
+  max-width: 150px;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  text-align: left;
+  color: var(--muted);
+}
+
+.popular-rank {
+  text-align: left;
+  color: var(--text);
+}
+
+.popular-rank em {
+  font-style: normal;
+  margin-left: 4px;
+  font-size: 10px;
+}
+
+.popular-rank em.up {
+  color: var(--red);
+}
+
+.popular-rank em.down {
+  color: var(--green);
+}
+
+.popular-up {
+  color: var(--red);
+}
+
+.popular-down {
+  color: var(--green);
+}

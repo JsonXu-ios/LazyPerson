@@ -99,9 +99,11 @@ class _BreakoutScreenState extends State<BreakoutScreen> {
                             ),
                           ),
                         )
-                      : ListView.builder(
+                      : ListView.separated(
+                          // 与八档局同款间距：卡片自身无 margin，靠 separated 分隔
                           padding: const EdgeInsets.fromLTRB(16, 4, 16, 90),
                           itemCount: rows.length,
+                          separatorBuilder: (_, _) => const SizedBox(height: 9),
                           itemBuilder: (context, index) => BandHitCard(
                             hit: rows[index],
                             index: index,

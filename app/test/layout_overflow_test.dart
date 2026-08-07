@@ -12,6 +12,8 @@ import 'package:flutter_test/flutter_test.dart';
 import 'package:lazyperson/logic/band_scanner.dart';
 import 'package:lazyperson/models/models.dart';
 import 'package:lazyperson/theme/app_theme.dart';
+import 'package:lazyperson/data/popularity_service.dart';
+import 'package:lazyperson/ui/popular_screen.dart';
 import 'package:lazyperson/ui/root_screen.dart';
 import 'package:lazyperson/ui/watchlist_screen.dart';
 import 'package:lazyperson/ui/widgets/band_hit_card.dart';
@@ -214,6 +216,35 @@ void main() {
         expect(find.text('八档局'), findsOneWidget);
         expect(find.byIcon(Icons.radar), findsOneWidget);
         expect(find.byType(FloatingActionButton), findsOneWidget);
+      });
+
+      testWidgets('人气股行（三位数排名 + 长名称 + 长板块串）', (tester) async {
+        await _pumpAt(
+          tester,
+          size,
+          Scaffold(
+            body: ListView(
+              children: [
+                PopularRow(
+                  row: const PopularStock(
+                    symbol: '600519',
+                    rank: 100,
+                    name: '某某某某科技股份',
+                    rankChange: -12,
+                    price: 1289.50,
+                    pctChg: -3.68,
+                    industry: 'C39计算机通信和其他电子设备制造业',
+                    concepts: ['高带宽内存', '先进封装', '存储芯片'],
+                  ),
+                  onTap: () {},
+                ),
+              ],
+            ),
+          ),
+        );
+
+        expect(find.text('100'), findsOneWidget);
+        expect(find.textContaining('某某某某科技'), findsOneWidget);
       });
     });
   });

@@ -90,7 +90,7 @@ class _PopularScreenState extends State<PopularScreen> {
                         child: ListView.builder(
                           padding: const EdgeInsets.fromLTRB(16, 4, 16, 90),
                           itemCount: _rows.length,
-                          itemBuilder: (context, index) => _PopularRow(
+                          itemBuilder: (context, index) => PopularRow(
                             row: _rows[index],
                             onTap: () => widget.onSelect(_rows[index].symbol),
                           ),
@@ -142,11 +142,12 @@ class _PopularScreenState extends State<PopularScreen> {
   }
 }
 
-class _PopularRow extends StatelessWidget {
+/// 人气榜一行（对外暴露便于布局回归测试）
+class PopularRow extends StatelessWidget {
   final PopularStock row;
   final VoidCallback onTap;
 
-  const _PopularRow({required this.row, required this.onTap});
+  const PopularRow({super.key, required this.row, required this.onTap});
 
   @override
   Widget build(BuildContext context) {
@@ -165,9 +166,9 @@ class _PopularRow extends StatelessWidget {
         ),
         child: Row(
           children: [
-            // 排名 + 升降
+            // 排名 + 升降（窄列：三位数排名也放得下，又不至于离名称太远）
             SizedBox(
-              width: 40,
+              width: 26,
               child: Column(
                 crossAxisAlignment: CrossAxisAlignment.start,
                 children: [
@@ -190,7 +191,7 @@ class _PopularRow extends StatelessWidget {
                 ],
               ),
             ),
-            const SizedBox(width: 8),
+            const SizedBox(width: 6),
             // 名称 + 板块
             Expanded(
               child: Column(

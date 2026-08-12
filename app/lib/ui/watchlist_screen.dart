@@ -181,74 +181,13 @@ class _WatchlistScreenState extends State<WatchlistScreen> {
     );
   }
 
-  Widget _head(int up, int down, int total) {
-    return Padding(
-      padding: const EdgeInsets.fromLTRB(16, 10, 16, 6),
-      child: Row(
-        crossAxisAlignment: CrossAxisAlignment.baseline,
-        textBaseline: TextBaseline.alphabetic,
-        children: [
-          const Text(
-            '自选资产',
-            style: TextStyle(
-              fontSize: FontSize.screenTitle,
-              fontWeight: FontWeight.w700,
-              color: AppColors.text,
-            ),
-          ),
-          const SizedBox(width: 8),
-          Flexible(
-            child: Text(
-              'A SHARE · $total',
-              overflow: TextOverflow.clip,
-              softWrap: false,
-              style: mono(
-                size: FontSize.capsLabel,
-                color: AppColors.accent,
-                letterSpacing: 1.2,
-              ),
-            ),
-          ),
-          const Spacer(),
-          Text('涨 $up',
-              style: mono(size: FontSize.tableNumber, color: AppColors.rise)),
-          Text(' · ',
-              style: mono(size: FontSize.tableNumber, color: AppColors.textDim)),
-          Text('跌 $down',
-              style: mono(size: FontSize.tableNumber, color: AppColors.fall)),
-          const SizedBox(width: 6),
-          _refreshButton(),
-        ],
-      ),
-    );
-  }
-
-  /// 手动刷新：重拉自选行情/板块，数据落后时再踢一次每日增量
-  Widget _refreshButton() {
-    final busy = controller.manualRefreshing;
-    return GestureDetector(
-      onTap: busy ? null : controller.refreshNow,
-      behavior: HitTestBehavior.opaque,
-      child: Container(
-        width: 30,
-        height: 26,
-        alignment: Alignment.center,
-        decoration: BoxDecoration(
-          color: AppColors.hudPanel,
-          borderRadius: BorderRadius.circular(7),
-          border: Border.all(color: AppColors.hudBorder),
-        ),
-        child: busy
-            ? const SizedBox(
-                width: 13,
-                height: 13,
-                child: CircularProgressIndicator(
-                    strokeWidth: 1.5, color: AppColors.accent),
-              )
-            : const Icon(Icons.refresh, size: 16, color: AppColors.accent),
-      ),
-    );
-  }
+  Widget _head(int up, int down, int total) => WatchlistHead(
+        total: total,
+        up: up,
+        down: down,
+        refreshing: controller.manualRefreshing,
+        onRefresh: controller.refreshNow,
+      );
 
   Widget _search() {
     return Padding(
@@ -741,6 +680,102 @@ class _MaintenanceButton extends StatelessWidget {
             ),
           ],
         ),
+      ),
+    );
+  }
+}
+
+/// 自选页页头（对外暴露便于布局回归测试）：标题 + 涨跌统计 + 手动刷新。
+class WatchlistHead extends StatelessWidget {
+  final int total;
+  final int up;
+  final int down;
+  final bool refreshing;
+  final VoidCallback onRefresh;
+
+  const WatchlistHead({
+    super.key,
+    required this.total,
+    required this.up,
+    required this.down,
+    required this.refreshing,
+    required this.onRefresh,
+  });
+
+  @override
+  Widget build(BuildContext context) {
+    return Padding(
+      padding: const EdgeInsets.fromLTRB(16, 10, 16, 6),
+      child: Row(
+        crossAxisAlignment: CrossAxisAlignment.baseline,
+        textBaseline: TextBaseline.alphabetic,
+        children: [
+          const Text(
+            '自选资产',
+            style: TextStyle(
+              fontSize: FontSize.screenTitle,
+              fontWeight: FontWeight.w700,
+              color: AppColors.text,
+            ),
+          ),
+          const SizedBox(width: 8),
+          // 这里必须是 Expanded 而不是 Flexible + Spacer：两者都是 flex 1 时
+          // 自由空间被五五分，标签用不完的那半留在了行尾，右侧那组顶不到边。
+          Expanded(
+            child: Text(
+              'A SHARE · $total',
+              overflow: TextOverflow.clip,
+              softWrap: false,
+              style: mono(
+                size: FontSize.capsLabel,
+                color: AppColors.accent,
+                letterSpacing: 1.2,
+              ),
+            ),
+          ),
+          Text('涨 $up',
+              style: mono(size: FontSize.tableNumber, color: AppColors.rise)),
+          Text(' · ',
+              style: mono(size: FontSize.tableNumber, color: AppColors.textDim)),
+          Text('跌 $down',
+              style: mono(size: FontSize.tableNumber, color: AppColors.fall)),
+          const SizedBox(width: 8),
+          _RefreshButton(busy: refreshing, onTap: onRefresh),
+        ],
+      ),
+    );
+  }
+}
+
+/// 手动刷新：重拉自选行情/板块，数据落后时再踢一次每日增量
+class _RefreshButton extends StatelessWidget {
+  final bool busy;
+  final VoidCallback onTap;
+
+  const _RefreshButton({required this.busy, required this.onTap});
+
+  @override
+  Widget build(BuildContext context) {
+    return GestureDetector(
+      onTap: busy ? null : onTap,
+      behavior: HitTestBehavior.opaque,
+      child: Container(
+        width: 30,
+        height: 26,
+        alignment: Alignment.center,
+        decoration: BoxDecoration(
+          color: AppColors.hudPanel,
+          borderRadius: BorderRadius.circular(7),
+          border: Border.all(color: AppColors.hudBorder),
+        ),
+        child: busy
+            ? const SizedBox(
+                width: 13,
+                height: 13,
+                child: CircularProgressIndicator(
+                    strokeWidth: 1.5, color: AppColors.accent),
+              )
+            : const Icon(Icons.refresh, size: 16, color: AppColors.accent),
       ),
     );
   }

@@ -140,6 +140,28 @@ void main() {
         expect(cardRight - pctRight, lessThan(20));
       });
 
+      testWidgets('自选页头：刷新按钮顶到右边（Flexible+Spacer 会留半截空档）',
+          (tester) async {
+        await _pumpAt(
+          tester,
+          size,
+          Scaffold(
+            body: WatchlistHead(
+              total: 12,
+              up: 7,
+              down: 5,
+              refreshing: false,
+              onRefresh: () {},
+            ),
+          ),
+        );
+
+        final headRight = tester.getBottomRight(find.byType(WatchlistHead)).dx;
+        final iconRight = tester.getBottomRight(find.byIcon(Icons.refresh)).dx;
+        // 只应剩页头自己的右内边距（16dp）+ 按钮内 icon 到边框的留白
+        expect(headRight - iconRight, lessThan(26));
+      });
+
       testWidgets('八档雷达（八档都有命中）', (tester) async {
         final semantics = tester.ensureSemantics();
         await _pumpAt(

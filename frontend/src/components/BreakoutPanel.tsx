@@ -7,14 +7,14 @@ const POLL_MS = 2000;
 // K线主线：破势按"已突破的最高主线"分组，与八档局的档位分界(20/40/70/100)是两套口径
 const MAIN_LINES = [20, 50, 80, 110, 140, 170, 200, 230];
 
-// 蓄势待发：还没站上、但离下一条主线只差 ≤5 个点（对齐 breakout.py::buildup_gap）
-const BUILDUP_MAX_GAP = 5;
+// 蓄势待发：刚站上某条主线、还没走远（对齐 breakout.py::buildup_over）
+const BUILDUP_MAX_OVER = 5;
 
-function buildupTarget(pct: number): number | null {
+function buildupLine(pct: number): number | null {
   if (pct < MAIN_LINES[0]) return null;
-  const line = MAIN_LINES.find((value) => pct < value);
-  if (line === undefined) return null; // 已过最高主线
-  return line - pct <= BUILDUP_MAX_GAP ? line : null;
+  const crossed = MAIN_LINES.filter((value) => pct >= value).pop();
+  if (crossed === undefined) return null;
+  return pct - crossed <= BUILDUP_MAX_OVER ? crossed : null;
 }
 
 function stageLabel(stage: number) {
@@ -29,7 +29,7 @@ export function BreakoutPanel({ onSelect }: { onSelect: (symbol: string) => void
   const [error, setError] = useState("");
   const [activeStage, setActiveStage] = useState(2);
   const [view, setView] = useState<"broken" | "buildup">("broken");
-  const [activeTarget, setActiveTarget] = useState(50);
+  const [activeLine, setActiveLine] = useState(50);
   const timerRef = useRef<number | null>(null);
 
   const loadStatus = useCallback(async () => {
@@ -69,18 +69,19 @@ export function BreakoutPanel({ onSelect }: { onSelect: (symbol: string) => void
     list.push(hit);
     byStage.set(stage, list);
   });
-  // 蓄势待发：按"贴着哪条主线"分组
-  const byTarget = new Map<number, MoneyGrabHit[]>();
+  // 蓄势待发：按"刚站上哪条主线"分组
+  const byLine = new Map<number, MoneyGrabHit[]>();
   (status?.hits || []).forEach((hit) => {
-    const target = buildupTarget(hit.pct);
-    if (target === null) return;
-    const list = byTarget.get(target) || [];
+    const line = buildupLine(hit.pct);
+    if (line === null) return;
+    const list = byLine.get(line) || [];
     list.push(hit);
-    byTarget.set(target, list);
+    byLine.set(line, list);
   });
-  const rows = (view === "broken" ? byStage.get(activeStage) : byTarget.get(activeTarget) || [])
-    ?.slice()
-    .sort((a, b) => b.pct - a.pct) || [];
+  const rows =
+    view === "broken"
+      ? (byStage.get(activeStage) || []).slice().sort((a, b) => b.pct - a.pct)
+      : (byLine.get(activeLine) || []).slice().sort((a, b) => a.pct - b.pct);
 
   return (
     <div className="breakout-panel">
@@ -97,7 +98,7 @@ export function BreakoutPanel({ onSelect }: { onSelect: (symbol: string) => void
         <span className="breakout-meta">
           {view === "broken"
             ? "与八档局共用同一次扫描结果；按已突破的最高主线分组，每只股只出现在最高那组。"
-            : `与八档局共用同一次扫描结果；离下一条主线 ≤${BUILDUP_MAX_GAP}% 但还没站上的，按贴哪条线分组。`}
+            : `与八档局共用同一次扫描结果；刚站上主线、超出 ≤${BUILDUP_MAX_OVER}% 的，按刚站上哪条线分组。`}
           {status?.status === "done" && ` · ${status.trade_date} 命中 ${status.hits.length}`}
         </span>
       </div>
@@ -125,12 +126,12 @@ export function BreakoutPanel({ onSelect }: { onSelect: (symbol: string) => void
           : MAIN_LINES.map((line) => (
               <button
                 key={line}
-                className={activeTarget === line ? "active" : ""}
-                onClick={() => setActiveTarget(line)}
-                title={`离 ${line}% 主线还差 ${BUILDUP_MAX_GAP}% 以内，尚未站上`}
+                className={activeLine === line ? "active" : ""}
+                onClick={() => setActiveLine(line)}
+                title={`刚站上 ${line}% 主线，超出不到 ${BUILDUP_MAX_OVER}%`}
               >
-                贴 {line}%
-                <em>{(byTarget.get(line) || []).length}</em>
+                刚过 {line}%
+                <em>{(byLine.get(line) || []).length}</em>
               </button>
             ))}
       </div>
@@ -142,7 +143,7 @@ export function BreakoutPanel({ onSelect }: { onSelect: (symbol: string) => void
               <th>名称</th>
               <th>现价</th>
               <th>涨幅</th>
-              <th>{view === "broken" ? "波段高" : "还差"}</th>
+              <th>{view === "broken" ? "波段高" : "超出"}</th>
               <th>换手</th>
               <th>行业/概念</th>
             </tr>
@@ -157,7 +158,7 @@ export function BreakoutPanel({ onSelect }: { onSelect: (symbol: string) => void
                 <td>
                   {view === "broken"
                     ? `${hit.max_pct.toFixed(1)}%`
-                    : `${((buildupTarget(hit.pct) ?? hit.pct) - hit.pct).toFixed(1)}%`}
+                    : `+${(hit.pct - (buildupLine(hit.pct) ?? hit.pct)).toFixed(1)}%`}
                 </td>
                 <td>{hit.turnover != null ? `${hit.turnover.toFixed(1)}%` : "-"}</td>
                 <td className="breakout-sector" title={[hit.industry, ...(hit.concepts || [])].filter(Boolean).join(" · ")}>

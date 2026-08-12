@@ -1,6 +1,6 @@
 /// 破势：两个视角，共用八档局那一次扫描结果（BandScanController.hits）。
 /// - 主线突破：按已突破的最高主线（20/50/80/110/…）分组，每只股只归最高一组。
-/// - 蓄势待发：还没站上、但离下一条主线只差 ≤5 个点的（贴线待突破）。
+/// - 蓄势待发：刚刚站上某条主线、还没走远（超出 ≤5 个点，突破还热乎）。
 /// 卡片额外显示行业/题材（八档局不显示，走 BandHitCard 的可选参数）。
 library;
 
@@ -38,8 +38,8 @@ class _BreakoutScreenState extends State<BreakoutScreen> {
   /// 默认看「20→50」组（站上50主线的那批）
   int _stage = 2;
 
-  /// 蓄势待发默认看贴 50 线的那批
-  double _target = 50;
+  /// 蓄势待发默认看刚过 50 线的那批
+  double _line = 50;
 
   /// 行业/题材：只给当前这一屏的股票补，按天缓存，切组时增量补
   final Map<String, StockSectors> _sectors = {};
@@ -80,23 +80,23 @@ class _BreakoutScreenState extends State<BreakoutScreen> {
     return grouped;
   }
 
-  /// 蓄势待发：按"贴着哪条主线"分组，同组里差得越少排越前
-  Map<double, List<BandHit>> get _byTarget {
+  /// 蓄势待发：按"刚站上哪条主线"分组，同组里刚过线的排前面
+  Map<double, List<BandHit>> get _byLine {
     final grouped = <double, List<BandHit>>{};
     for (final hit in controller.visibleHits) {
-      final target = buildupTarget(hit.pct);
-      if (target == null) continue;
-      grouped.putIfAbsent(target, () => []).add(hit);
+      final line = buildupLine(hit.pct);
+      if (line == null) continue;
+      grouped.putIfAbsent(line, () => []).add(hit);
     }
     for (final list in grouped.values) {
-      list.sort((a, b) => b.pct.compareTo(a.pct));
+      list.sort((a, b) => a.pct.compareTo(b.pct)); // 越贴近主线越靠前
     }
     return grouped;
   }
 
   List<BandHit> get _rows => _view == BreakoutView.broken
       ? (_byStage[_stage] ?? const <BandHit>[])
-      : (_byTarget[_target] ?? const <BandHit>[]);
+      : (_byLine[_line] ?? const <BandHit>[]);
 
   /// 给当前这组里还没板块信息的股票补一次（当日缓存命中的不发请求）
   Future<void> _loadSectors(List<BandHit> rows) async {
@@ -210,7 +210,7 @@ class _BreakoutScreenState extends State<BreakoutScreen> {
                 Text(
                   broken
                       ? '与八档局共用扫描结果 · 每只股只归最高一组'
-                      : '离下一条主线 ≤${buildupMaxGap.toInt()}% 还没站上',
+                      : '刚站上主线、超出 ≤${buildupMaxOver.toInt()}%（突破还热乎）',
                   style: mono(size: FontSize.legend, color: AppColors.textDim),
                 ),
               ],
@@ -269,11 +269,11 @@ class _BreakoutScreenState extends State<BreakoutScreen> {
     );
   }
 
-  /// 组切换：主线突破按"突破到哪条线"，蓄势待发按"贴着哪条线"
+  /// 组切换：主线突破按"突破到哪条线"，蓄势待发按"刚站上哪条线"
   Widget _groupChips() {
     final broken = _view == BreakoutView.broken;
     final byStage = broken ? _byStage : const <int, List<BandHit>>{};
-    final byTarget = broken ? const <double, List<BandHit>>{} : _byTarget;
+    final byLine = broken ? const <double, List<BandHit>>{} : _byLine;
     return Padding(
       padding: const EdgeInsets.fromLTRB(16, 10, 16, 6),
       child: Wrap(
@@ -291,10 +291,10 @@ class _BreakoutScreenState extends State<BreakoutScreen> {
           else
             for (final line in breakoutMainLines)
               _StageChip(
-                label: '贴 ${line.toInt()}%',
-                count: (byTarget[line] ?? const []).length,
-                active: _target == line,
-                onTap: () => setState(() => _target = line),
+                label: '刚过 ${line.toInt()}%',
+                count: (byLine[line] ?? const []).length,
+                active: _line == line,
+                onTap: () => setState(() => _line = line),
               ),
         ],
       ),

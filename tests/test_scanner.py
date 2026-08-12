@@ -776,25 +776,27 @@ class TestBreakoutStage:
         assert row["pct"] > 50
         assert row["break_stage"] == 2  # 站上50主线 → 「20→50」组
 
-    def test_buildup_gap_targets_next_main_line(self):
-        from backend.app.breakout import buildup_gap, buildup_target
+    def test_buildup_over_marks_fresh_crossings(self):
+        from backend.app.breakout import buildup_line, buildup_over
 
-        # 还没进 20% 的不看
-        assert buildup_gap(12.0) is None
-        assert buildup_gap(None) is None
-        assert buildup_gap(19.9) is None
-        # 46.5 → 差 3.5 到 50 线
-        assert buildup_gap(46.5) == pytest.approx(3.5)
-        assert buildup_target(46.5) == 50
-        # 44 → 差 6，超阈值
-        assert buildup_gap(44.0) is None
-        assert buildup_target(44.0) is None
-        # 刚站上 50：已突破，归主线突破那边
-        assert buildup_gap(50.0) is None
-        # 贴 80 / 贴 230
-        assert buildup_gap(78.0) == pytest.approx(2.0)
-        assert buildup_target(227.5) == 230
-        # 已过最高主线，没有"下一条"
-        assert buildup_gap(240.0) is None
+        # 还没过 20% 的不看
+        assert buildup_over(12.0) is None
+        assert buildup_over(None) is None
+        assert buildup_over(19.9) is None
+        # 刚站上 20 线
+        assert buildup_over(20.0) == pytest.approx(0.0)
+        assert buildup_line(23.5) == 20
+        # 52 → 刚过 50，超出 2
+        assert buildup_over(52.0) == pytest.approx(2.0)
+        assert buildup_line(52.0) == 50
+        # 58 → 超出 8，已经走远
+        assert buildup_over(58.0) is None
+        assert buildup_line(58.0) is None
+        # 46.5 早就过了 20，超出 26.5，不算刚过
+        assert buildup_over(46.5) is None
+        # 刚过 80 / 刚过 230
+        assert buildup_over(81.0) == pytest.approx(1.0)
+        assert buildup_line(232.0) == 230
+        assert buildup_over(300.0) is None
         # 阈值可调
-        assert buildup_gap(44.0, max_gap=8) == pytest.approx(6.0)
+        assert buildup_over(58.0, max_over=10) == pytest.approx(8.0)

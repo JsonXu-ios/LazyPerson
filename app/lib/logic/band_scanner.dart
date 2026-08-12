@@ -70,30 +70,32 @@ String breakoutStageLabel(int stage) {
       '${breakoutMainLines[capped - 1].toInt()}';
 }
 
-/// 蓄势待发的"贴线"阈值：离下一条主线还差不超过这么多个百分点
-const buildupMaxGap = 5.0;
+/// 蓄势待发的"刚过线"阈值：站上主线后超出不超过这么多个百分点
+const buildupMaxOver = 5.0;
 
-/// 蓄势待发：还没站上、但已贴近下一条主线。
-/// 返回距离下一条主线还差几个百分点（0 < gap ≤ [buildupMaxGap]）；
-/// 已站上、离得远、或还没进 20% 都返回 null。
-/// 例：46.5% → 差 3.5 到 50 线；44% → null（差 6，超阈值）。
-double? buildupGap(double? pct, {double maxGap = buildupMaxGap}) {
-  if (pct == null || pct < groupLower[0]) return null;
-  for (final line in breakoutMainLines) {
-    if (pct >= line) continue;
-    final gap = line - pct;
-    return gap <= maxGap ? _roundTo(gap, 2) : null;
-  }
-  return null; // 已过最高主线，没有"下一条"了
+/// 蓄势待发：刚刚站上某条主线、还没走远。
+/// 返回超出该主线几个百分点（0 ≤ over ≤ [buildupMaxOver]）；
+/// 走太远、或还没过 20% 都返回 null。
+/// 例：52% → 刚过 50 线（超出 2）；58% → null（超出 8，已经走远了）。
+double? buildupOver(double? pct, {double maxOver = buildupMaxOver}) {
+  final line = _crossedLine(pct);
+  if (line == null) return null;
+  final over = _roundTo(pct! - line, 2);
+  return over <= maxOver ? over : null;
 }
 
-/// 蓄势待发的目标主线（贴着哪条线）；不满足条件返回 null
-double? buildupTarget(double? pct, {double maxGap = buildupMaxGap}) {
-  if (buildupGap(pct, maxGap: maxGap) == null) return null;
-  for (final line in breakoutMainLines) {
-    if (pct! < line) return line;
+/// 蓄势待发刚站上的那条主线；不满足条件返回 null
+double? buildupLine(double? pct, {double maxOver = buildupMaxOver}) =>
+    buildupOver(pct, maxOver: maxOver) == null ? null : _crossedLine(pct);
+
+/// 已站上的最高主线（没过 20% 返回 null）
+double? _crossedLine(double? pct) {
+  if (pct == null || pct < breakoutMainLines[0]) return null;
+  double? line;
+  for (final value in breakoutMainLines) {
+    if (pct >= value) line = value;
   }
-  return null;
+  return line;
 }
 
 bool isNorthBound(List<KlineBar> window, int lowIndex,

@@ -620,31 +620,32 @@ void main() {
     });
   });
 
-  group('buildupGap（蓄势待发：贴线未破）', () {
-    test('离下一条主线 ≤5 个点、且还没站上才算', () {
-      // 还没进 20% 的不看
-      expect(buildupGap(12.0), isNull);
-      expect(buildupGap(null), isNull);
-      // 贴 20 线：19.9 未进场（<20 一律不看）
-      expect(buildupGap(19.9), isNull);
-      // 46.5 → 差 3.5 到 50
-      expect(buildupGap(46.5), closeTo(3.5, 1e-9));
-      expect(buildupTarget(46.5), 50);
-      // 44 → 差 6，超阈值
-      expect(buildupGap(44.0), isNull);
-      expect(buildupTarget(44.0), isNull);
-      // 刚站上 50：已突破，归主线突破那边，不是蓄势
-      expect(buildupGap(50.0), isNull);
-      // 贴 80 / 贴 230
-      expect(buildupGap(78.0), closeTo(2.0, 1e-9));
-      expect(buildupTarget(78.0), 80);
-      expect(buildupTarget(227.5), 230);
-      // 已过最高主线，没有"下一条"
-      expect(buildupGap(240.0), isNull);
+  group('buildupOver（蓄势待发：刚过线）', () {
+    test('刚站上某条主线、还没走远才算', () {
+      // 还没过 20% 的不看
+      expect(buildupOver(12.0), isNull);
+      expect(buildupOver(null), isNull);
+      expect(buildupOver(19.9), isNull);
+      // 刚站上 20 线
+      expect(buildupOver(20.0), closeTo(0, 1e-9));
+      expect(buildupLine(23.5), 20);
+      // 52 → 刚过 50，超出 2
+      expect(buildupOver(52.0), closeTo(2.0, 1e-9));
+      expect(buildupLine(52.0), 50);
+      // 58 → 超出 8，已经走远
+      expect(buildupOver(58.0), isNull);
+      expect(buildupLine(58.0), isNull);
+      // 46.5 还没站上 50，只算刚过 20 那条？不——20 早就过了，超出 26.5
+      expect(buildupOver(46.5), isNull);
+      // 刚过 80 / 刚过 230
+      expect(buildupOver(81.0), closeTo(1.0, 1e-9));
+      expect(buildupLine(232.0), 230);
+      // 远高于最高主线
+      expect(buildupOver(300.0), isNull);
     });
 
     test('阈值可调', () {
-      expect(buildupGap(44.0, maxGap: 8), closeTo(6.0, 1e-9));
+      expect(buildupOver(58.0, maxOver: 10), closeTo(8.0, 1e-9));
     });
   });
 }

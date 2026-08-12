@@ -446,10 +446,10 @@ class HomeController extends ChangeNotifier {
 
   Future<void> _backgroundRefresh() async {
     try {
-      await Future.wait([
-        loadQuotes(refresh: true),
-        loadDetail(refresh: true, clearBeforeLoad: false),
-      ]);
+      // 同 refreshAll：行情先落成当日 bar 把图表带起来，再拉权威日K
+      await loadQuotes(refresh: true);
+      await _redrawChartFromQuote();
+      await loadDetail(refresh: true, clearBeforeLoad: false);
     } catch (exc) {
       _setNotice(normalizeError(exc));
     }
@@ -668,15 +668,33 @@ class HomeController extends ChangeNotifier {
     _notify();
     try {
       await Future.wait([
-        loadQuotes(refresh: true),
-        loadDetail(refresh: true, clearBeforeLoad: false),
+        // 行情 → 立刻把最后一根蜡烛更新掉 → 再拉权威日K覆盖。
+        // 串起来是有意的：以前两件事并行，行情几百毫秒就回来了，
+        // 图表却要等 90 天日K（腾讯超时还要东财兜底）才动，看着像卡住。
+        loadQuotes(refresh: true)
+            .then((_) => _redrawChartFromQuote())
+            .then((_) => loadDetail(refresh: true, clearBeforeLoad: false)),
         loadWatchlistSectors(refresh: true),
       ]);
-      } catch (exc) {
+    } catch (exc) {
       _setNotice(normalizeError(exc));
     } finally {
       loading = false;
       _notify();
+    }
+  }
+
+  /// 用刚拿到的实时行情把当日 bar 落库并重画（只读本地，不发网络请求）。
+  /// 只对日K有意义：周/月K的最后一根要等真正的周期数据。
+  Future<void> _redrawChartFromQuote() async {
+    if (period != 'day') return;
+    final quote = selectedQuote;
+    if (quote == null) return;
+    try {
+      await repository.absorbQuoteIntoDailyBars(quote);
+      await loadDetail(refresh: false, clearBeforeLoad: false);
+    } catch (_) {
+      // 这只是"先画个大概"，失败了等后面的正式刷新
     }
   }
 

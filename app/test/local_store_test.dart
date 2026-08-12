@@ -145,6 +145,33 @@ void main() {
     expect((await store.getSymbol('600519'))?.name, '贵州茅台');
   });
 
+  test('absorbQuoteIntoDailyBars：实时行情写成当日 bar，K线立刻能用', () async {
+    final sync = SyncService(store: store);
+    final repo = MarketRepository(store: store, sync: sync);
+    await store.upsertDailyBars(
+        '600519', const [KlineBar(time: '2026-07-23', close: 1400)]);
+
+    await repo.absorbQuoteIntoDailyBars(const Quote(
+      symbol: '600519',
+      market: 'SH',
+      name: '贵州茅台',
+      tradeTime: '2026-07-24 14:05:00',
+      price: 1460,
+      open: 1410,
+      high: 1465,
+      low: 1405,
+    ));
+
+    final bars = await store.getDailyBars('600519');
+    expect(bars.last.time, '2026-07-24');
+    expect(bars.last.close, 1460); // 最后一根蜡烛已经是最新价
+
+    // 缺 OHLC / 没有交易时间的行情不写（不能凭空造一根蜡烛）
+    await repo.absorbQuoteIntoDailyBars(const Quote(
+        symbol: '600519', market: 'SH', name: '贵州茅台', price: 1500));
+    expect((await store.getDailyBars('600519')).last.close, 1460);
+  });
+
   test('ensureSeeded 会补跑一次非 A 股清理', () async {
     final sync = SyncService(store: store);
     final repo = MarketRepository(store: store, sync: sync);

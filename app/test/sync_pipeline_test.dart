@@ -36,6 +36,11 @@ class _FakeEastmoney extends EastmoneyProvider {
 /// 假腾讯日K：initialSync 的逐只同步走它，测试里不打网络
 class _FakeTencent extends TencentProvider {
   final List<String> requested = [];
+  List<Quote> quotes = const [];
+
+  @override
+  Future<List<Quote>> realtimeQuotes(List<String> symbols) async =>
+      [for (final quote in quotes) if (symbols.contains(quote.symbol)) quote];
 
   @override
   Future<List<KlineBar>> kline(
@@ -58,6 +63,9 @@ class _FakeSync extends SyncService {
   final Set<String> failing;
   final List<String> refreshed = [];
 
+  /// 模拟"日K拉得很慢"（现实里腾讯超时后还要等东财兜底）
+  Duration refreshDelay = Duration.zero;
+
   _FakeSync({
     required super.store,
     required EastmoneyProvider eastmoney,
@@ -68,6 +76,7 @@ class _FakeSync extends SyncService {
   @override
   Future<void> refreshSymbol(String symbol) async {
     refreshed.add(symbol);
+    if (refreshDelay > Duration.zero) await Future<void>.delayed(refreshDelay);
     if (failing.contains(symbol)) throw StateError('refresh failed: $symbol');
     await store.upsertDailyBars(
         symbol, [KlineBar(time: _todayText, open: 1, high: 1, low: 1, close: 1)]);
@@ -113,7 +122,8 @@ void main() {
       tencent: tencent,
       failing: failing,
     );
-    repository = MarketRepository(store: store, sync: sync, tencent: tencent);
+    repository = MarketRepository(
+        store: store, sync: sync, tencent: tencent, now: () => _today);
   }
 
   tearDown(() => store.close());
@@ -398,6 +408,42 @@ void main() {
       await controller.refreshNow(); // 直接返回，不再跑一遍
       await first;
       expect(controller.manualRefreshing, isFalse);
+      controller.dispose();
+    });
+  });
+
+  group('刷新时 K 线不用等日K（bug：价格变了图不动）', () {
+    test('行情一到就落成当日 bar 并重画，日K慢慢来', () async {
+      await boot();
+      tencent.quotes = [
+        Quote(
+          symbol: '600001',
+          market: 'SH',
+          name: '股600001',
+          tradeTime: '$_todayText 14:05:00',
+          price: 18,
+          open: 16,
+          high: 18.5,
+          low: 15.8,
+        ),
+      ];
+      sync.refreshDelay = const Duration(milliseconds: 300); // 日K很慢
+      await store.addWatchlist('600001', 'a_share');
+      await store.upsertDailyBars(
+          '600001', const [KlineBar(time: '2026-07-23', open: 15, high: 15.5, low: 14.8, close: 15)]);
+
+      final controller = HomeController(repository);
+      await controller.loadWatchlist();
+      controller.selectSymbol('600001');
+      final future = controller.refreshAll();
+
+      // 日K还在路上，图表已经跟着行情动了
+      await Future<void>.delayed(const Duration(milliseconds: 80));
+      expect(controller.kline?.bars.last.time, _todayText);
+      expect(controller.kline?.bars.last.close, 18);
+
+      await future;
+      expect(sync.refreshed, contains('600001')); // 权威日K照样拉了
       controller.dispose();
     });
   });

@@ -30,6 +30,9 @@ class KlineResult {
   const KlineResult(this.payload, this.quality);
 }
 
+/// 单只股票日K刷新的整段上限（腾讯 15s + 东财兜底 15s 会让图表干等半分钟）
+const singleRefreshTimeout = Duration(seconds: 8);
+
 class MarketRepository {
   static const defaultIndicators = ['macd', 'lon'];
   static const _seededKey = 'watchlist_seeded';
@@ -326,7 +329,10 @@ class MarketRepository {
 
     if (refresh || lagging) {
       try {
-        await sync.refreshSymbol(symbol);
+        // 单只刷新是用户点了按钮在等：腾讯超时后还要再等东财兜底，
+        // 两段各 15s 会把图表卡住半分钟。这里整段限时，超时就用本地数据
+        // 先画（标 stale），不让界面干等。
+        await sync.refreshSymbol(symbol).timeout(singleRefreshTimeout);
         bars = await store.getDailyBars(symbol);
         source = TencentProvider.source;
       } catch (exc) {
@@ -343,6 +349,30 @@ class MarketRepository {
       _quality(source,
           fromCache: source == 'local', stale: stale, warnings: warnings),
     );
+  }
+
+  /// 把一条实时行情写成"当日 bar"落进 daily_bars（与全市场快照同一套口径）。
+  /// 行情比 90 天日K快得多，先用它把最后一根蜡烛更新掉，图表立刻动；
+  /// 随后的日K刷新会用权威数据整段覆盖。非 A 股/缺 OHLC 的直接跳过。
+  Future<void> absorbQuoteIntoDailyBars(Quote quote) async {
+    final symbol = normalizeSymbol(quote.symbol);
+    if (!isAShareSymbol(symbol)) return;
+    final tradeDate = quote.tradeTime;
+    if (tradeDate == null || tradeDate.length < 10) return;
+    if (quote.price == null || quote.open == null) return;
+    await store.upsertDailyBars(symbol, [
+      KlineBar(
+        time: tradeDate.substring(0, 10),
+        open: quote.open,
+        high: quote.high,
+        low: quote.low,
+        close: quote.price,
+        volume: quote.volume,
+        amount: quote.amount,
+        pctChg: quote.pctChg,
+        turnover: quote.turnover,
+      ),
+    ]);
   }
 
   /// 周/月 K 与分钟 K：frames 短期缓存 + 在线拉取（日 K 走 _aShareDaily）

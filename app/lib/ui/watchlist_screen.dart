@@ -216,7 +216,36 @@ class _WatchlistScreenState extends State<WatchlistScreen> {
               style: mono(size: FontSize.tableNumber, color: AppColors.textDim)),
           Text('跌 $down',
               style: mono(size: FontSize.tableNumber, color: AppColors.fall)),
+          const SizedBox(width: 6),
+          _refreshButton(),
         ],
+      ),
+    );
+  }
+
+  /// 手动刷新：重拉自选行情/板块，数据落后时再踢一次每日增量
+  Widget _refreshButton() {
+    final busy = controller.manualRefreshing;
+    return GestureDetector(
+      onTap: busy ? null : controller.refreshNow,
+      behavior: HitTestBehavior.opaque,
+      child: Container(
+        width: 30,
+        height: 26,
+        alignment: Alignment.center,
+        decoration: BoxDecoration(
+          color: AppColors.hudPanel,
+          borderRadius: BorderRadius.circular(7),
+          border: Border.all(color: AppColors.hudBorder),
+        ),
+        child: busy
+            ? const SizedBox(
+                width: 13,
+                height: 13,
+                child: CircularProgressIndicator(
+                    strokeWidth: 1.5, color: AppColors.accent),
+              )
+            : const Icon(Icons.refresh, size: 16, color: AppColors.accent),
       ),
     );
   }

@@ -366,6 +366,42 @@ void main() {
     });
   });
 
+  group('refreshNow（自选页顶部手动刷新）', () {
+    test('刷新期间置 manualRefreshing，跑完复位；数据落后时顺带踢一次增量', () async {
+      await boot();
+      await store.setState('initial_sync_done', '1');
+      final controller = HomeController(repository);
+      // 本地日K停在很久以前 → 刷新后应触发流水线
+      await store.upsertDailyBars(
+          '600001', [KlineBar(time: '2026-01-05', close: 1)]);
+      await controller.loadWatchlist();
+      controller.dataDate = '2026-01-05';
+
+      final future = controller.refreshNow();
+      expect(controller.manualRefreshing, isTrue);
+      await future;
+
+      expect(controller.manualRefreshing, isFalse);
+      expect(controller.syncBusy, isTrue); // 数据落后 → 流水线已被踢起来
+      // 等后台那段跑完再关库，否则 tearDown 会打断它
+      for (var i = 0; i < 200 && controller.syncBusy; i++) {
+        await Future<void>.delayed(const Duration(milliseconds: 5));
+      }
+      expect(controller.syncBusy, isFalse);
+      controller.dispose();
+    });
+
+    test('正在刷新时重复点击不叠加', () async {
+      await boot();
+      final controller = HomeController(repository);
+      final first = controller.refreshNow();
+      await controller.refreshNow(); // 直接返回，不再跑一遍
+      await first;
+      expect(controller.manualRefreshing, isFalse);
+      controller.dispose();
+    });
+  });
+
   group('formatSyncTime（同步时刻）', () {
     test('当天只给时分，跨天补上月日', () {
       final now = DateTime(2026, 7, 24, 15, 4);

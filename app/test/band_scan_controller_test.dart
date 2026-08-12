@@ -406,6 +406,33 @@ void main() {
       expect(controller.skippedNoData, 0);
       expect(controller.skippedSymbols, isEmpty);
     });
+
+    test('恢复当天结果后，上次没补完的接着补（重开 App 不用重新扫描）', () async {
+      // 第一轮：基本面取数全失败 → 标记留在"未知"，随结果一起持久化
+      await setUpScan(<String, FundamentalsMarks>{},
+          lonResults: <String, bool>{}, autoComplete: true);
+      await controller.startScan();
+      await Future<void>.delayed(const Duration(milliseconds: 60));
+      expect(controller.unknownMarkCount, greaterThan(0));
+
+      // 数据源恢复正常后重开 App：restore 自己把剩下的补上
+      fundamentals.marks.addAll({
+        for (final hit in controller.hits) hit.symbol: marksAllTrue,
+      });
+      lonCheck.results.addAll({
+        for (final hit in controller.hits) hit.symbol: true,
+      });
+      final restored = BandScanController(repository,
+          nowFn: () => _today,
+          fundamentals: fundamentals,
+          lonCheck: lonCheck,
+          autoComplete: true);
+      await restored.restore();
+      await Future<void>.delayed(const Duration(milliseconds: 60));
+
+      expect(restored.unknownMarkCount, 0);
+      restored.dispose();
+    });
   });
 
   group('补充数据（enrichMarks）', () {
@@ -471,7 +498,8 @@ void main() {
       final restored = BandScanController(repository,
           nowFn: () => _today,
           fundamentals: fundamentals,
-          lonCheck: lonCheck);
+          lonCheck: lonCheck,
+          autoComplete: false);
       await restored.restore();
       expect(restored.hits.single.marksKnown, isTrue);
       expect(restored.unknownMarkCount, 0);
@@ -674,7 +702,10 @@ void main() {
     expect(persisted['scan_ms'], isNotNull);
 
     final restored = BandScanController(repository,
-        nowFn: () => _today, fundamentals: fundamentals, lonCheck: lonCheck);
+        nowFn: () => _today,
+        fundamentals: fundamentals,
+        lonCheck: lonCheck,
+        autoComplete: false);
     await restored.restore();
     expect(restored.status, BandScanStatus.done);
     expect(restored.hits.any((item) => item.symbol == '600009'), isFalse);
@@ -697,7 +728,10 @@ void main() {
       expect(persisted['skipped_symbols'], ['600002', '600003']);
 
       final restored = BandScanController(repository,
-          nowFn: () => _today, fundamentals: fundamentals, lonCheck: lonCheck);
+          nowFn: () => _today,
+          fundamentals: fundamentals,
+          lonCheck: lonCheck,
+          autoComplete: false);
       await restored.restore();
       expect(restored.skippedNoData, 2);
       expect(restored.skippedSymbols, ['600002', '600003']);

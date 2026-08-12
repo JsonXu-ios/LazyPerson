@@ -455,6 +455,29 @@ class HomeController extends ChangeNotifier {
     }
   }
 
+  /// 顶部刷新按钮是否在转（只管手动那次，后台流水线有自己的状态条）
+  bool manualRefreshing = false;
+
+  /// 自选页顶部「刷新」：立刻重拉自选行情与当前标的日线；
+  /// 若全市场日K已落后且流水线闲着，顺手把每日增量也踢一脚。
+  Future<void> refreshNow() async {
+    if (manualRefreshing) return;
+    manualRefreshing = true;
+    _notify();
+    try {
+      await _backgroundRefresh();
+      await loadWatchlistSectors(refresh: true);
+    } finally {
+      manualRefreshing = false;
+      _notify();
+    }
+    if (!_busy && !isDataFresh(dataDate, DateTime.now())) {
+      unawaited(startBackgroundSync());
+    } else {
+      await refreshRepairCount();
+    }
+  }
+
   Future<void> loadWatchlist() async {
     watchlist = await repository.listWatchlist();
     _fillSelected();

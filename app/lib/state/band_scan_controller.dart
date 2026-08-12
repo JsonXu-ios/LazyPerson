@@ -319,6 +319,9 @@ class BandScanController extends ChangeNotifier {
       capFilter = minMarketCap != null;
       status = BandScanStatus.done;
       _notify();
+      // 上次那轮补数据可能没补全（取数失败/中途退出 App），恢复当天结果后接着补。
+      // 补不动的仍会剩在那儿，页面上有手动重试入口。
+      if (autoComplete && unknownMarkCount > 0) unawaited(_autoComplete());
     } catch (_) {
       // 恢复失败按无结果处理
     }

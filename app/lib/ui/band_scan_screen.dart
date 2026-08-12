@@ -197,8 +197,9 @@ class _BandScanScreenState extends State<BandScanScreen> {
         : ' · ${(millis / 1000).toStringAsFixed(1)}s';
   }
 
-  /// 数据补充状态：扫描后自动在后台补日K与基本面/LON，这里只报进度，
-  /// 不需要用户点任何按钮（补不出来的股票已进黑名单，不再提示）。
+  /// 数据补充状态：扫描后自动在后台补日K与基本面/LON，这里报进度。
+  /// 自动那轮跑完仍有剩（取数失败/中途被打断）时给一个重试入口——
+  /// 不用重新扫描，点一下只补剩下的那些。
   Widget _enrichLine() {
     final backfilling = controller.backfilling;
     final enriching = controller.enriching;
@@ -206,7 +207,44 @@ class _BandScanScreenState extends State<BandScanScreen> {
       if (controller.status != BandScanStatus.done) {
         return const SizedBox.shrink();
       }
-      if (controller.unknownMarkCount > 0) return const SizedBox.shrink();
+      final remaining = controller.unknownMarkCount;
+      if (remaining > 0) {
+        return Padding(
+          padding: const EdgeInsets.fromLTRB(16, 8, 16, 0),
+          child: GestureDetector(
+            onTap: controller.busy ? null : controller.enrichMarks,
+            behavior: HitTestBehavior.opaque,
+            child: Row(
+              children: [
+                const Icon(Icons.refresh, size: 13, color: AppColors.accent),
+                const SizedBox(width: 5),
+                Flexible(
+                  child: Text(
+                    '$remaining 只数据未补充，点这里补充',
+                    overflow: TextOverflow.ellipsis,
+                    style: mono(
+                      size: FontSize.legend,
+                      color: AppColors.accent,
+                      weight: FontWeight.w600,
+                    ),
+                  ),
+                ),
+                if (controller.enrichNote != null) ...[
+                  const SizedBox(width: 8),
+                  Flexible(
+                    child: Text(
+                      controller.enrichNote!,
+                      overflow: TextOverflow.ellipsis,
+                      style: mono(
+                          size: FontSize.legend, color: AppColors.textFaint),
+                    ),
+                  ),
+                ],
+              ],
+            ),
+          ),
+        );
+      }
       return Padding(
         padding: const EdgeInsets.fromLTRB(16, 8, 16, 0),
         child: Row(

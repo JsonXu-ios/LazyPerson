@@ -2,6 +2,8 @@ import time
 from datetime import date, timedelta
 from pathlib import Path
 
+import pytest
+
 from backend.app.scanner import (
     MoneyGrabScanner,
     classify_group,
@@ -773,3 +775,26 @@ class TestBreakoutStage:
         assert row is not None
         assert row["pct"] > 50
         assert row["break_stage"] == 2  # 站上50主线 → 「20→50」组
+
+    def test_buildup_gap_targets_next_main_line(self):
+        from backend.app.breakout import buildup_gap, buildup_target
+
+        # 还没进 20% 的不看
+        assert buildup_gap(12.0) is None
+        assert buildup_gap(None) is None
+        assert buildup_gap(19.9) is None
+        # 46.5 → 差 3.5 到 50 线
+        assert buildup_gap(46.5) == pytest.approx(3.5)
+        assert buildup_target(46.5) == 50
+        # 44 → 差 6，超阈值
+        assert buildup_gap(44.0) is None
+        assert buildup_target(44.0) is None
+        # 刚站上 50：已突破，归主线突破那边
+        assert buildup_gap(50.0) is None
+        # 贴 80 / 贴 230
+        assert buildup_gap(78.0) == pytest.approx(2.0)
+        assert buildup_target(227.5) == 230
+        # 已过最高主线，没有"下一条"
+        assert buildup_gap(240.0) is None
+        # 阈值可调
+        assert buildup_gap(44.0, max_gap=8) == pytest.approx(6.0)

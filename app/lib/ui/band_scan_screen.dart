@@ -449,7 +449,7 @@ class _BandScanScreenState extends State<BandScanScreen> {
       );
     }
     return ListView.separated(
-      padding: const EdgeInsets.fromLTRB(16, 0, 16, 12),
+      padding: const EdgeInsets.fromLTRB(16, 0, 16, bottomNavSafePadding),
       itemCount: rows.length,
       separatorBuilder: (_, _) => const SizedBox(height: 9),
       itemBuilder: (context, index) => BandHitCard(

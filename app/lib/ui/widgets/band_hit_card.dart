@@ -5,6 +5,7 @@ library;
 import 'package:flutter/material.dart';
 
 import '../../logic/band_scanner.dart';
+import '../../models/models.dart';
 import '../../theme/app_theme.dart';
 import '../../theme/hud.dart';
 
@@ -15,11 +16,15 @@ class BandHitCard extends StatelessWidget {
   final int index;
   final VoidCallback onTap;
 
+  /// 行业/题材（破势页会传；八档局不显示板块，传 null 即整行不占位）
+  final StockSectors? sectors;
+
   const BandHitCard({
     super.key,
     required this.hit,
     required this.index,
     required this.onTap,
+    this.sectors,
   });
 
   @override
@@ -90,6 +95,10 @@ class BandHitCard extends StatelessWidget {
               ),
             ],
           ),
+          if (sectors != null && !sectors!.isEmpty) ...[
+            const SizedBox(height: 7),
+            _sectorLine(sectors!),
+          ],
           const SizedBox(height: 11),
           _progress(),
           const SizedBox(height: 10),
@@ -142,6 +151,44 @@ class BandHitCard extends StatelessWidget {
           ],
         ],
       ),
+    );
+  }
+
+  /// 板块行：行业 + 前两个概念；命中今日热点的概念优先排前面并高亮
+  Widget _sectorLine(StockSectors marks) {
+    final hot = marks.hotConcepts;
+    final rest = [
+      for (final name in marks.concepts)
+        if (!hot.contains(name)) name,
+    ];
+    final themes = [...hot, ...rest].take(3).toList();
+    return Row(
+      children: [
+        if (marks.industry.isNotEmpty) ...[
+          Text(
+            marks.industry,
+            style: mono(
+              size: FontSize.legend,
+              color: AppColors.accent,
+              weight: FontWeight.w600,
+            ),
+          ),
+          if (themes.isNotEmpty)
+            Text('  ·  ',
+                style: mono(size: FontSize.legend, color: AppColors.textFaint)),
+        ],
+        Expanded(
+          child: Text(
+            themes.join(' · '),
+            maxLines: 1,
+            overflow: TextOverflow.ellipsis,
+            style: mono(
+              size: FontSize.legend,
+              color: marks.hot ? AppColors.warn : AppColors.textDim,
+            ),
+          ),
+        ),
+      ],
     );
   }
 

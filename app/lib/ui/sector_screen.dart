@@ -170,7 +170,7 @@ class _SectorScreenState extends State<SectorScreen> {
       );
     }
     return ListView.separated(
-      padding: const EdgeInsets.fromLTRB(16, 8, 16, 14),
+      padding: const EdgeInsets.fromLTRB(16, 8, 16, bottomNavSafePadding),
       itemCount: boards.length,
       separatorBuilder: (_, _) => const SizedBox(height: 8),
       itemBuilder: (context, index) {

@@ -56,6 +56,7 @@ class SyncService {
   /// 裁剪留 5 天缓冲，避免边界日在窗口切片前被删掉
   static const _pruneBufferDays = 5;
   static const _initializedKey = 'initial_sync_done';
+  static const _lastSyncKey = 'last_sync_at';
 
   final LocalStore store;
   final TencentProvider tencent;
@@ -78,6 +79,17 @@ class SyncService {
 
   /// 本地全市场日 K 的最新交易日（同步状态展示用）；null = 尚无数据
   Future<String?> latestDataDate() => store.latestDailyDateGlobal();
+
+  /// 记下"这次同步是什么时候跑完的"。数据日期只到天，看不出今天几点更新过，
+  /// 所以另存一个完成时刻给状态条用。
+  Future<void> markSynced() =>
+      store.setState(_lastSyncKey, now().toIso8601String());
+
+  /// 上次同步完成时刻；null = 从未同步过（或旧版本装完还没跑过一次）
+  Future<DateTime?> lastSyncAt() async {
+    final raw = await store.getState(_lastSyncKey);
+    return raw == null ? null : DateTime.tryParse(raw);
+  }
 
   /// 数据新鲜度：以本地最新交易日为准，已更新到该日的股票数 / 清单总数
   Future<({int fresh, int total})> freshness() async {

@@ -88,7 +88,8 @@ class _PopularScreenState extends State<PopularScreen> {
                         backgroundColor: AppColors.hudPanel,
                         onRefresh: () => _load(refresh: true),
                         child: ListView.builder(
-                          padding: const EdgeInsets.fromLTRB(16, 4, 16, 90),
+                          padding: const EdgeInsets.fromLTRB(
+                              16, 4, 16, bottomNavSafePadding),
                           itemCount: _rows.length,
                           itemBuilder: (context, index) => PopularRow(
                             row: _rows[index],

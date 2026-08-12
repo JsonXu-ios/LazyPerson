@@ -620,4 +620,31 @@ void main() {
     });
   });
 
+  group('buildupGap（蓄势待发：贴线未破）', () {
+    test('离下一条主线 ≤5 个点、且还没站上才算', () {
+      // 还没进 20% 的不看
+      expect(buildupGap(12.0), isNull);
+      expect(buildupGap(null), isNull);
+      // 贴 20 线：19.9 未进场（<20 一律不看）
+      expect(buildupGap(19.9), isNull);
+      // 46.5 → 差 3.5 到 50
+      expect(buildupGap(46.5), closeTo(3.5, 1e-9));
+      expect(buildupTarget(46.5), 50);
+      // 44 → 差 6，超阈值
+      expect(buildupGap(44.0), isNull);
+      expect(buildupTarget(44.0), isNull);
+      // 刚站上 50：已突破，归主线突破那边，不是蓄势
+      expect(buildupGap(50.0), isNull);
+      // 贴 80 / 贴 230
+      expect(buildupGap(78.0), closeTo(2.0, 1e-9));
+      expect(buildupTarget(78.0), 80);
+      expect(buildupTarget(227.5), 230);
+      // 已过最高主线，没有"下一条"
+      expect(buildupGap(240.0), isNull);
+    });
+
+    test('阈值可调', () {
+      expect(buildupGap(44.0, maxGap: 8), closeTo(6.0, 1e-9));
+    });
+  });
 }

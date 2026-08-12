@@ -91,6 +91,30 @@ void main() {
         );
       });
 
+      testWidgets('命中卡带板块行（破势页）：长题材串不溢出', (tester) async {
+        await _pumpAt(
+          tester,
+          size,
+          Scaffold(
+            body: Padding(
+              padding: const EdgeInsets.all(16),
+              child: BandHitCard(
+                hit: _hit(),
+                index: 0,
+                sectors: const StockSectors(
+                  symbol: '600001',
+                  industry: '半导体',
+                  concepts: ['先进封装', '存储芯片', '国产替代', 'AI算力'],
+                  hotConcepts: ['先进封装'],
+                ),
+                onTap: () {},
+              ),
+            ),
+          ),
+        );
+        expect(find.text('半导体'), findsOneWidget);
+      });
+
       testWidgets('命中卡：名称很短时涨幅仍然贴右', (tester) async {
         // 曾经写成 Flexible(名称) + Spacer，两者都是 flex 1、空间五五分，
         // 名称短的时候 Flexible 用不完的那截留在中间，涨幅就浮在半路上

@@ -70,6 +70,32 @@ String breakoutStageLabel(int stage) {
       '${breakoutMainLines[capped - 1].toInt()}';
 }
 
+/// 蓄势待发的"贴线"阈值：离下一条主线还差不超过这么多个百分点
+const buildupMaxGap = 5.0;
+
+/// 蓄势待发：还没站上、但已贴近下一条主线。
+/// 返回距离下一条主线还差几个百分点（0 < gap ≤ [buildupMaxGap]）；
+/// 已站上、离得远、或还没进 20% 都返回 null。
+/// 例：46.5% → 差 3.5 到 50 线；44% → null（差 6，超阈值）。
+double? buildupGap(double? pct, {double maxGap = buildupMaxGap}) {
+  if (pct == null || pct < groupLower[0]) return null;
+  for (final line in breakoutMainLines) {
+    if (pct >= line) continue;
+    final gap = line - pct;
+    return gap <= maxGap ? _roundTo(gap, 2) : null;
+  }
+  return null; // 已过最高主线，没有"下一条"了
+}
+
+/// 蓄势待发的目标主线（贴着哪条线）；不满足条件返回 null
+double? buildupTarget(double? pct, {double maxGap = buildupMaxGap}) {
+  if (buildupGap(pct, maxGap: maxGap) == null) return null;
+  for (final line in breakoutMainLines) {
+    if (pct! < line) return line;
+  }
+  return null;
+}
+
 bool isNorthBound(List<KlineBar> window, int lowIndex,
     {double maxDrawdown = northMaxDrawdown}) {
   final n = window.length;

@@ -254,6 +254,11 @@ void main() {
       // 直接 ready，否则会走增量——两条路都不该失败
       expect(controller.syncStage,
           anyOf(SyncStage.ready, SyncStage.incrementing, SyncStage.failed));
+      if (controller.syncStage == SyncStage.ready) {
+        // ready 时状态条要能说清"几点更新的"，只有日期不够
+        expect(controller.lastSyncAt, isNotNull);
+        expect(controller.syncText, contains('更新'));
+      }
       controller.dispose();
     });
 
@@ -358,6 +363,15 @@ void main() {
       expect(isDataFresh('2026-07-24', DateTime(2026, 7, 25)), isTrue);
       expect(isDataFresh('2026-07-23', DateTime(2026, 7, 24)), isFalse);
       expect(isDataFresh(null, DateTime(2026, 7, 24)), isFalse);
+    });
+  });
+
+  group('formatSyncTime（同步时刻）', () {
+    test('当天只给时分，跨天补上月日', () {
+      final now = DateTime(2026, 7, 24, 15, 4);
+      expect(formatSyncTime(DateTime(2026, 7, 24, 9, 5), now: now), '09:05');
+      expect(
+          formatSyncTime(DateTime(2026, 7, 23, 21, 30), now: now), '07-23 21:30');
     });
   });
 }

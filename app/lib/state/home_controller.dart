@@ -48,6 +48,16 @@ const syncStageLabels = <SyncStage, String>{
 
 /// 本地日K是否已同步到最近一个工作日（周末取上周五）。
 /// 不考虑法定节假日，判定从宽——只有比最近工作日还早才算不新。
+/// 同步时刻文案：当天只显示 HH:mm，跨天带上 MM-DD
+String formatSyncTime(DateTime at, {DateTime? now}) {
+  final today = now ?? DateTime.now();
+  String two(int v) => v.toString().padLeft(2, '0');
+  final clock = '${two(at.hour)}:${two(at.minute)}';
+  final sameDay =
+      at.year == today.year && at.month == today.month && at.day == today.day;
+  return sameDay ? clock : '${two(at.month)}-${two(at.day)} $clock';
+}
+
 bool isDataFresh(String? dataDate, DateTime now) {
   if (dataDate == null) return false;
   final parsed = DateTime.tryParse(dataDate);
@@ -93,6 +103,9 @@ class HomeController extends ChangeNotifier {
   /// 本地全市场日K最新交易日（YYYY-MM-DD，null = 尚无数据/未加载）
   String? dataDate;
 
+  /// 上次同步完成时刻（数据日期只到天，这里补出具体几点几分）
+  DateTime? lastSyncAt;
+
   /// 待补齐的股票数（初始同步失败的 + 一根日K都没有的），ready 后统计
   int pendingRepairCount = 0;
 
@@ -135,7 +148,11 @@ class HomeController extends ChangeNotifier {
       case SyncStage.failed:
         return syncError.isEmpty ? '数据更新失败，点按重试' : syncError;
       case SyncStage.ready:
-        return dataDate == null ? '本地暂无数据' : '数据已同步至 $dataDate';
+        if (dataDate == null) return '本地暂无数据';
+        final at = lastSyncAt;
+        return at == null
+            ? '数据已同步至 $dataDate'
+            : '数据已同步至 $dataDate · ${formatSyncTime(at)}更新';
       case SyncStage.repairing:
         return '正在补齐缺失数据 $repairDone/$repairTotal';
       case SyncStage.initializing:
@@ -214,6 +231,7 @@ class HomeController extends ChangeNotifier {
   }
 
   Future<void> bootstrap() async {
+    lastSyncAt = await repository.sync.lastSyncAt();
     await loadWatchlist();
     await Future.wait([
       loadQuotes(refresh: false),
@@ -268,7 +286,9 @@ class HomeController extends ChangeNotifier {
 
   /// 流水线收尾：记录数据日期、统计待补齐数量并置 ready
   Future<void> _markReady() async {
+    await repository.sync.markSynced();
     dataDate = await repository.sync.latestDataDate();
+    lastSyncAt = await repository.sync.lastSyncAt();
     syncStage = SyncStage.ready;
     syncError = '';
     _busy = false;

@@ -92,7 +92,11 @@ class _RootScreenState extends State<RootScreen> {
         return BandScanScreen(controller: band, onSelect: _openDetail);
       case breakoutTab:
         final band = _bandScan ??= BandScanController(controller.repository);
-        return BreakoutScreen(controller: band, onSelect: _openDetail);
+        return BreakoutScreen(
+          controller: band,
+          sectors: controller.repository.sectors,
+          onSelect: _openDetail,
+        );
       case popularTab:
         final service = _popularity ??= PopularityService(
           store: controller.repository.store,

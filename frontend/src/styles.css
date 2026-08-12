@@ -1632,6 +1632,30 @@ button:disabled {
   font-size: 12px;
 }
 
+/* 破势的两个视角：主线突破 / 蓄势待发 */
+.breakout-views {
+  display: flex;
+  gap: 0;
+  margin: 4px 0 8px;
+}
+
+.breakout-views button {
+  flex: 1;
+  padding: 7px 0;
+  font-size: 12px;
+  font-weight: 600;
+  color: var(--muted);
+  background: transparent;
+  border: 0;
+  border-bottom: 1px solid var(--line);
+  cursor: pointer;
+}
+
+.breakout-views button.active {
+  color: var(--blue);
+  border-bottom: 2px solid var(--blue);
+}
+
 .breakout-tabs {
   display: flex;
   flex-wrap: wrap;

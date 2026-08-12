@@ -56,6 +56,10 @@ const hudBackgroundGradient = RadialGradient(
 
 /// 字号标度：按“用途”命名的上限值，411dp 宽下实测舒适。
 /// widget 里不要再写裸数字，否则各屏字号会再次跑偏、密到看不清。
+/// 列表底部留白：底部导航栏(58) + 凸起圆钮溢出的一半(约16) + 余量。
+/// 各页列表的 padding.bottom 用它，避免最后一项被导航挡住。
+const bottomNavSafePadding = 96.0;
+
 abstract final class FontSize {
   /// 主屏标的名
   static const symbolName = 21.0;

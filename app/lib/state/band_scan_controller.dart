@@ -36,9 +36,9 @@ class BandScanController extends ChangeNotifier {
   /// 总市值下限（亿元），勾选“总市值>40亿”时生效
   static const marketCapMin = 40.0;
 
-  /// v10: 扫描改纯本地、标记变三态、命中行新增 turnover/chg3/chg5/market_cap，
-  /// 旧结果作废
-  static const _stateKey = 'band_scan:last:v11';
+  /// v10: 扫描改纯本地、标记变三态、命中行新增 turnover/chg3/chg5/market_cap；
+  /// v12: 增加零帧起手（zero_base）名单——旧结果没这批数据，作废重扫
+  static const _stateKey = 'band_scan:last:v12';
 
   final MarketRepository repository;
   final DateTime Function() now;
@@ -113,6 +113,11 @@ class BandScanController extends ChangeNotifier {
 
   /// 补充数据结果提示，重新扫描时清空
   String? enrichNote;
+
+  /// 零帧起手命中：从高处一路下来、现在贴着 90 日低点的（group=0）。
+  /// 与 hits 是互斥的两批——八档局只收 pct≥20%，这批正是被它筛掉的地板股，
+  /// 所以单独存一份，破势第三个 tab 用。
+  List<BandHit> zeroBaseHits = [];
 
   /// 同步状态：本地全市场日K的最新交易日（null = 尚无数据/未加载）
   String? dataDate;
@@ -304,6 +309,10 @@ class BandScanController extends ChangeNotifier {
         for (final row in (data['hits'] as List? ?? const []))
           BandHit.fromJson((row as Map).cast<String, Object?>()),
       ];
+      zeroBaseHits = [
+        for (final row in (data['zero_base'] as List? ?? const []))
+          BandHit.fromJson((row as Map).cast<String, Object?>()),
+      ];
       total = (data['total'] as num?)?.toInt() ?? hits.length;
       skippedSymbols = [
         for (final item in (data['skipped_symbols'] as List? ?? const []))
@@ -345,6 +354,7 @@ class BandScanController extends ChangeNotifier {
     total = 0;
     done = 0;
     hits = [];
+    zeroBaseHits = [];
     error = null;
     skippedNoData = 0;
     skippedSymbols = [];
@@ -404,6 +414,7 @@ class BandScanController extends ChangeNotifier {
 
     final today = now();
     final collected = <BandHit>[];
+    final zeroBase = <BandHit>[];
     final missing = <String>[];
 
     for (var offset = 0; offset < candidates.length; offset += bandBarsChunkSize) {
@@ -425,6 +436,16 @@ class BandScanController extends ChangeNotifier {
             skippedNoData += 1;
           }
         } else {
+          // 零帧起手与八档局互斥：pct≥20% 的进 hits，贴着低点的进 zeroBase
+          final floor = evaluateZeroBase(
+              quote.symbol, quote.name, quote.price, bars,
+              today: today);
+          if (floor != null) {
+            zeroBase.add(floor.copyWith(
+              turnover: quote.turnover,
+              marketCap: quote.marketCap,
+            ));
+          }
           final row = evaluateStock(quote.symbol, quote.name, quote.price, bars,
               today: today);
           if (row != null) {
@@ -448,6 +469,9 @@ class BandScanController extends ChangeNotifier {
     }
 
     skippedSymbols = missing;
+    // 摔得最狠的排前面（高点越高，跌回原地的落差越大）
+    zeroBase.sort((a, b) => b.maxPct.compareTo(a.maxPct));
+    zeroBaseHits = zeroBase;
     collected.sort((a, b) {
       final byGroup = a.group.compareTo(b.group);
       if (byGroup != 0) return byGroup;
@@ -586,6 +610,7 @@ class BandScanController extends ChangeNotifier {
         'skipped_symbols': skippedSymbols,
         'finished_at': now().toIso8601String(),
         'hits': [for (final hit in hits) hit.toJson()],
+        'zero_base': [for (final hit in zeroBaseHits) hit.toJson()],
       }),
     );
   }

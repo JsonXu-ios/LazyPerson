@@ -7,6 +7,9 @@ const POLL_MS = 2000;
 // K线主线：破势按"已突破的最高主线"分组，与八档局的档位分界(20/40/70/100)是两套口径
 const MAIN_LINES = [20, 50, 80, 110, 140, 170, 200, 230];
 
+// 零帧起手：从高处下来、现在贴着 90 日低点的（后端 evaluate_zero_base 单独收的一批）
+const ZERO_BASE_LABEL = "零帧起手";
+
 // 蓄势待发：刚站上某条主线、还没走远（对齐 breakout.py::buildup_over）
 const BUILDUP_MAX_OVER = 5;
 
@@ -28,7 +31,9 @@ export function BreakoutPanel({ onSelect }: { onSelect: (symbol: string) => void
   const [status, setStatus] = useState<MoneyGrabStatus | null>(null);
   const [error, setError] = useState("");
   const [activeStage, setActiveStage] = useState(2);
-  const [view, setView] = useState<"broken" | "buildup">("broken");
+  const [view, setView] = useState<"broken" | "buildup" | "zero">("broken");
+  // 零帧起手按"曾站上过的最高主线"分组（从多高摔下来的）
+  const [activePeak, setActivePeak] = useState(2);
   const [activeLine, setActiveLine] = useState(50);
   const timerRef = useRef<number | null>(null);
 
@@ -78,14 +83,28 @@ export function BreakoutPanel({ onSelect }: { onSelect: (symbol: string) => void
     list.push(hit);
     byLine.set(line, list);
   });
+  // 零帧起手：数据源是后端单独收的 zero_base（八档局的 hits 里没有这批）
+  const byPeak = new Map<number, MoneyGrabHit[]>();
+  (status?.zero_base || []).forEach((hit) => {
+    const stage = MAIN_LINES.filter((line) => hit.max_pct >= line).length;
+    if (stage < 1) return;
+    const list = byPeak.get(stage) || [];
+    list.push(hit);
+    byPeak.set(stage, list);
+  });
+
   const rows =
     view === "broken"
       ? (byStage.get(activeStage) || []).slice().sort((a, b) => b.pct - a.pct)
-      : (byLine.get(activeLine) || []).slice().sort((a, b) => a.pct - b.pct);
+      : view === "buildup"
+        ? (byLine.get(activeLine) || []).slice().sort((a, b) => a.pct - b.pct)
+        : (byPeak.get(activePeak) || []).slice().sort((a, b) => b.max_pct - a.max_pct);
 
   return (
     <div className="breakout-panel">
-      <h3>破势 · {view === "broken" ? "主线突破" : "蓄势待发"}</h3>
+      <h3>
+        破势 · {view === "broken" ? "主线突破" : view === "buildup" ? "蓄势待发" : ZERO_BASE_LABEL}
+      </h3>
       <div className="breakout-views">
         <button className={view === "broken" ? "active" : ""} onClick={() => setView("broken")}>
           主线突破
@@ -93,17 +112,22 @@ export function BreakoutPanel({ onSelect }: { onSelect: (symbol: string) => void
         <button className={view === "buildup" ? "active" : ""} onClick={() => setView("buildup")}>
           蓄势待发
         </button>
+        <button className={view === "zero" ? "active" : ""} onClick={() => setView("zero")}>
+          {ZERO_BASE_LABEL}
+        </button>
       </div>
       <div className="breakout-actions">
         <span className="breakout-meta">
           {view === "broken"
             ? "与八档局共用同一次扫描结果；按已突破的最高主线分组，每只股只出现在最高那组。"
-            : `与八档局共用同一次扫描结果；刚站上主线、超出 ≤${BUILDUP_MAX_OVER}% 的，按刚站上哪条线分组。`}
+            : view === "buildup"
+              ? `与八档局共用同一次扫描结果；刚站上主线、超出 ≤${BUILDUP_MAX_OVER}% 的，按刚站上哪条线分组。`
+              : "从高处一路下来、现价贴着 90 日低点的（八档局的档位规则筛掉的那批，扫描时单独收）；按曾站上过哪条主线分组。"}
           {status?.status === "done" && ` · ${status.trade_date} 命中 ${status.hits.length}`}
         </span>
       </div>
       {error && <p className="breakout-error">{error}</p>}
-      {status?.status !== "done" && !status?.hits.length && (
+      {status?.status !== "done" && !status?.hits.length && !status?.zero_base?.length && (
         <p className="breakout-meta">请先到「八档局」执行一次扫描</p>
       )}
       <div className="breakout-tabs">
@@ -123,17 +147,29 @@ export function BreakoutPanel({ onSelect }: { onSelect: (symbol: string) => void
                 </button>
               );
             })
-          : MAIN_LINES.map((line) => (
-              <button
-                key={line}
-                className={activeLine === line ? "active" : ""}
-                onClick={() => setActiveLine(line)}
-                title={`刚站上 ${line}% 主线，超出不到 ${BUILDUP_MAX_OVER}%`}
-              >
-                刚过 {line}%
-                <em>{(byLine.get(line) || []).length}</em>
-              </button>
-            ))}
+          : view === "buildup"
+            ? MAIN_LINES.map((line) => (
+                <button
+                  key={line}
+                  className={activeLine === line ? "active" : ""}
+                  onClick={() => setActiveLine(line)}
+                  title={`刚站上 ${line}% 主线，超出不到 ${BUILDUP_MAX_OVER}%`}
+                >
+                  刚过 {line}%
+                  <em>{(byLine.get(line) || []).length}</em>
+                </button>
+              ))
+            : MAIN_LINES.map((line, index) => (
+                <button
+                  key={line}
+                  className={activePeak === index + 1 ? "active" : ""}
+                  onClick={() => setActivePeak(index + 1)}
+                  title={`曾站上 ${line}% 主线后跌回 90 日低点`}
+                >
+                  曾过 {line}%
+                  <em>{(byPeak.get(index + 1) || []).length}</em>
+                </button>
+              ))}
       </div>
       <div className="breakout-table-wrap">
         <table className="breakout-table">
@@ -143,7 +179,7 @@ export function BreakoutPanel({ onSelect }: { onSelect: (symbol: string) => void
               <th>名称</th>
               <th>现价</th>
               <th>涨幅</th>
-              <th>{view === "broken" ? "波段高" : "超出"}</th>
+              <th>{view === "broken" ? "波段高" : view === "buildup" ? "超出" : "自高点"}</th>
               <th>换手</th>
               <th>行业/概念</th>
             </tr>
@@ -158,7 +194,9 @@ export function BreakoutPanel({ onSelect }: { onSelect: (symbol: string) => void
                 <td>
                   {view === "broken"
                     ? `${hit.max_pct.toFixed(1)}%`
-                    : `+${(hit.pct - (buildupLine(hit.pct) ?? hit.pct)).toFixed(1)}%`}
+                    : view === "buildup"
+                      ? `+${(hit.pct - (buildupLine(hit.pct) ?? hit.pct)).toFixed(1)}%`
+                      : `-${((1 - (1 + hit.pct / 100) / (1 + hit.max_pct / 100)) * 100).toFixed(1)}%`}
                 </td>
                 <td>{hit.turnover != null ? `${hit.turnover.toFixed(1)}%` : "-"}</td>
                 <td className="breakout-sector" title={[hit.industry, ...(hit.concepts || [])].filter(Boolean).join(" · ")}>

@@ -187,6 +187,8 @@ export type MoneyGrabStatus = {
   total: number;
   done: number;
   hits: MoneyGrabHit[];
+  /** 零帧起手：从高处下来、现价贴着 90 日低点的地板股（与 hits 互斥，group=0） */
+  zero_base?: MoneyGrabHit[];
   started_at: string | null;
   finished_at: string | null;
   error: string | null;

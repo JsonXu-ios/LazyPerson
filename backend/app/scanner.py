@@ -212,6 +212,80 @@ def evaluate_stock(
     }
 
 
+#: 零帧起手：现价离 90 日低点不超过这么多个百分点（"停留在 0 点"）
+ZERO_BASE_MAX_PCT = 3.0
+
+#: 零帧起手：低点之前的高点至少要有这么高（确实是"从高处下来"）
+ZERO_BASE_MIN_PEAK = 20.0
+
+
+def evaluate_zero_base(
+    symbol: str,
+    name: str,
+    price: float | None,
+    bars: list[dict],
+    today: date | None = None,
+    turnover: float | None = None,
+    max_pct: float = ZERO_BASE_MAX_PCT,
+    min_peak: float = ZERO_BASE_MIN_PEAK,
+) -> dict | None:
+    """零帧起手：90日窗口里先在高处、随后一路下来，现在贴着 90 日低点。
+
+    与 evaluate_stock 互斥——那边只收 pct ≥ 20%，这里要的正是被它筛掉的地板股。
+    三条判定：高点在低点之前；该高点相对低点 ≥ min_peak；现价相对低点 ≤ max_pct。
+    命中返回 group=0 的行（threshold/over 为 0，cross_date 复用成高点日期）。
+    """
+    if price is None:
+        return None
+    today = today or date.today()
+    valid = _valid_bars(bars)
+    if len(valid) < MIN_BARS:
+        return None
+    if _bar_date(valid[0]) > today - timedelta(days=WINDOW_DAYS):
+        return None
+    window = slice_calendar_window(valid, WINDOW_DAYS)
+    if not window:
+        return None
+
+    low_index = min(range(len(window)), key=lambda i: float(window[i]["low"]))
+    low90 = float(window[low_index]["low"])
+    if low90 <= 0 or low_index == 0:
+        return None  # 低点在最左边，谈不上"从高处下来"
+
+    # 高点只看低点之前那段：先高后低才是"从高处下降到 0 点"
+    before = [(i, bar) for i, bar in enumerate(window[: low_index + 1]) if bar.get("close") is not None]
+    if not before:
+        return None
+    peak_index, peak_bar = max(before, key=lambda item: float(item[1]["close"]))
+    peak_pct = (float(peak_bar["close"]) / low90 - 1) * 100
+    if peak_pct < min_peak:
+        return None
+
+    pct = (float(price) / low90 - 1) * 100
+    if pct > max_pct:
+        return None  # 已经反弹走了
+
+    return {
+        "symbol": symbol,
+        "name": name,
+        "price": float(price),
+        "low90": round(low90, 3),
+        "pct": round(pct, 2),
+        "group": 0,  # 0 = 零帧起手，不属于八档任何一档
+        "threshold": 0.0,
+        "over": 0.0,
+        "max_pct": round(peak_pct, 2),
+        "low_date": str(window[low_index]["time"])[:10],
+        "cross_date": str(window[peak_index]["time"])[:10],  # 高点日期
+        "from_top": False,
+        "north_ok": False,
+        "break_stage": None,
+        "turnover": turnover,
+        "chg3": _round_or_none(recent_change(float(price), window, 3, today)),
+        "chg5": _round_or_none(recent_change(float(price), window, 5, today)),
+    }
+
+
 def _round_or_none(value: float | None) -> float | None:
     return None if value is None else round(value, 2)
 
@@ -223,7 +297,7 @@ def _breakout_stage(pct: float) -> int | None:
     return breakout_stage(pct)
 
 
-STATE_KEY = "moneygrab:last_scan:v14"  # v14: 命中行含 break_stage（破势分组）
+STATE_KEY = "moneygrab:last_scan:v15"  # v15: 增加 zero_base（零帧起手）名单
 
 
 def _default_fundamentals_enricher(cache: CacheStore, hits: list[dict], caps: dict) -> None:
@@ -267,6 +341,9 @@ class ScanState:
     total: int = 0
     done: int = 0
     hits: list[dict] = field(default_factory=list)
+    #: 零帧起手（从高处下来、现在贴着 90 日低点的地板股）。与 hits 互斥：
+    #: hits 只收 pct≥20%，这批正是被档位规则筛掉的那些。
+    zero_base: list[dict] = field(default_factory=list)
     started_at: str | None = None
     finished_at: str | None = None
     error: str | None = None
@@ -496,7 +573,8 @@ class MoneyGrabScanner:
                 self._state.total = len(candidates)
                 self._state.stage = "kline"
 
-            def work(quote: dict) -> dict | None:
+            def work(quote: dict) -> tuple[dict | None, dict | None]:
+                """一次日K读取算两套口径：(八档命中, 零帧起手)，两者互斥。"""
                 for _ in range(2):  # 缓存写锁等瞬时失败重试一次
                     try:
                         bars = fetch_bars(str(quote["symbol"]))
@@ -509,17 +587,26 @@ class MoneyGrabScanner:
                         )
                         if row is not None:
                             row["limit_up"] = is_limit_up(quote.get("price"), quote.get("pre_close"))
-                        return row
+                        floor = evaluate_zero_base(
+                            str(quote["symbol"]),
+                            str(quote.get("name", "")),
+                            quote.get("price"),
+                            bars,
+                            turnover=quote.get("turnover"),
+                        )
+                        return row, floor
                     except Exception:
                         continue
-                return None
+                return None, None
 
             with ThreadPoolExecutor(max_workers=self.max_workers) as pool:
-                for row in pool.map(work, candidates):
+                for row, floor in pool.map(work, candidates):
                     with self._lock:
                         self._state.done += 1
                         if row is not None:
                             self._state.hits.append(row)
+                        if floor is not None:
+                            self._state.zero_base.append(floor)
 
             # 基本面标记（分红/净利润）：只查命中股，缓存3天；失败不影响扫描结果
             with self._lock:
@@ -561,6 +648,8 @@ class MoneyGrabScanner:
 
             with self._lock:
                 self._state.hits.sort(key=lambda item: (item["group"], -item["over"]))
+                # 摔得最狠的排前面（高点越高，跌回原地的落差越大）
+                self._state.zero_base.sort(key=lambda item: -item["max_pct"])
                 self._state.status = "done"
                 self._state.stage = ""
                 self._state.finished_at = now_utc().isoformat()

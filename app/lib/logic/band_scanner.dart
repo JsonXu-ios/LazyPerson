@@ -98,6 +98,12 @@ double? _crossedLine(double? pct) {
   return line;
 }
 
+/// 零帧起手：现价离 90 日低点不超过这么多个百分点（"停留在 0 点"）
+const zeroBaseMaxPct = 3.0;
+
+/// 零帧起手：低点之前的高点至少要有这么高（"从高处下来"，不是一路阴跌的平地）
+const zeroBaseMinPeak = 20.0;
+
 bool isNorthBound(List<KlineBar> window, int lowIndex,
     {double maxDrawdown = northMaxDrawdown}) {
   final n = window.length;
@@ -482,3 +488,90 @@ BandHit? evaluateStock(
     breakStage: breakoutStage(pct),
   );
 }
+
+/// 零帧起手：90 日窗口里先在高处、随后一路下来，现在贴着 90 日低点。
+///
+/// 与 [evaluateStock] 是两套互斥的口径——八档局只收 pct ≥ 20% 的（站在半山腰
+/// 往上），这里要的正是被它筛掉的那批：pct ≈ 0，趴在地板上。
+/// 判定三条：
+///   1. 高点在低点**之前**（先高后低，是"下来"不是"起来"）；
+///   2. 该高点相对低点涨幅 ≥ [zeroBaseMinPeak]（确实是从高处摔的）；
+///   3. 现价相对低点 ≤ [zeroBaseMaxPct]（最终停在 0 点，没反弹走）。
+/// 命中返回 group=0 的 BandHit（threshold/over 均为 0，破势单独一组用）；
+/// [crossDate] 复用为**高点日期**，卡片按 group==0 换一套标签显示。
+BandHit? evaluateZeroBase(
+  String symbol,
+  String name,
+  double? price,
+  List<KlineBar> bars, {
+  DateTime? today,
+  double maxPct = zeroBaseMaxPct,
+  double minPeak = zeroBaseMinPeak,
+}) {
+  if (price == null) return null;
+  final now = today ?? DateTime.now();
+  final valid = validScanBars(bars);
+  if (valid.length < scanMinBars) return null;
+  final firstDay = _barDate(valid.first)!;
+  if (firstDay.isAfter(now.subtract(const Duration(days: scanWindowDays)))) {
+    return null; // 上市不足 90 天
+  }
+  final window = sliceScanWindow(valid);
+  if (window.isEmpty) return null;
+
+  var lowIndex = 0;
+  for (var i = 1; i < window.length; i++) {
+    if (window[i].low! < window[lowIndex].low!) lowIndex = i;
+  }
+  final low90 = window[lowIndex].low!;
+  if (low90 <= 0) return null;
+  if (lowIndex == 0) return null; // 低点在最左边，高点无从谈起
+
+  // 高点只看低点**之前**那段：先高后低才是"从高处下降到 0 点"
+  var peakIndex = 0;
+  for (var i = 1; i <= lowIndex; i++) {
+    final close = window[i].close;
+    if (close != null &&
+        (window[peakIndex].close == null || close > window[peakIndex].close!)) {
+      peakIndex = i;
+    }
+  }
+  final peakClose = window[peakIndex].close;
+  if (peakClose == null) return null;
+  final peakPct = (peakClose / low90 - 1) * 100;
+  if (peakPct < minPeak) return null;
+
+  final pct = (price / low90 - 1) * 100;
+  if (pct > maxPct) return null; // 已经反弹走了，不算"停留在 0 点"
+
+  return BandHit(
+    symbol: symbol,
+    name: name,
+    price: price,
+    low90: _roundTo(low90, 3),
+    pct: _roundTo(pct, 2),
+    group: 0, // 0 = 零帧起手，不属于八档任何一档
+    threshold: 0,
+    over: 0,
+    maxPct: _roundTo(peakPct, 2),
+    lowDate: window[lowIndex]
+        .time
+        .substring(0, math.min(10, window[lowIndex].time.length)),
+    // 这一组没有"过线"，位置复用成高点日期（卡片按 group==0 换标签）
+    crossDate: window[peakIndex]
+        .time
+        .substring(0, math.min(10, window[peakIndex].time.length)),
+    chg3: () {
+      final value = changeOverDays(window, price, 3, today: now);
+      return value == null ? null : _roundTo(value, 2);
+    }(),
+    chg5: () {
+      final value = changeOverDays(window, price, 5, today: now);
+      return value == null ? null : _roundTo(value, 2);
+    }(),
+  );
+}
+
+/// 零帧起手的分组：按"曾经站上过的最高主线"归组（每只只归最高一组），
+/// 与主线突破同一套主线口径，看的是"从多高摔下来的"。
+int? zeroBaseStage(double? peakPct) => breakoutStage(peakPct);

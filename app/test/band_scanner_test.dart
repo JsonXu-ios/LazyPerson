@@ -68,6 +68,39 @@ List<_Bar> _makeWaveBars(DateTime today,
   return bars;
 }
 
+/// 构造"先高后低"的日线：平台在 low×1.2，中途一根冲到 low×(1+peakPct/100)，
+/// 尾部第 [lowFromEnd] 根探到 low（窗口最低价），之后贴着低点横着。
+List<_Bar> _makeFallBars(DateTime today,
+    {double low = 10.0, double peakPct = 60, int lowFromEnd = 4}) {
+  final bars = _makeBars(200, low * 1.2, today);
+  for (final bar in bars) {
+    bar.open = low * 1.2;
+    bar.close = low * 1.2;
+    bar.high = low * 1.22;
+    bar.low = low * 1.18;
+  }
+  // 高点：低点之前 15 根
+  final peakIndex = bars.length - lowFromEnd - 15;
+  final peak = low * (1 + peakPct / 100);
+  bars[peakIndex].close = peak;
+  bars[peakIndex].high = peak * 1.01;
+  bars[peakIndex].open = peak * 0.99;
+  bars[peakIndex].low = peak * 0.98;
+  // 低点及其后：贴着地板
+  final lowIndex = bars.length - lowFromEnd - 1;
+  bars[lowIndex].low = low;
+  bars[lowIndex].close = low * 1.005;
+  bars[lowIndex].open = low * 1.01;
+  bars[lowIndex].high = low * 1.02;
+  for (var i = lowIndex + 1; i < bars.length; i++) {
+    bars[i].low = low * 1.002;
+    bars[i].close = low * 1.008;
+    bars[i].open = low * 1.006;
+    bars[i].high = low * 1.015;
+  }
+  return bars;
+}
+
 void main() {
   group('classifyGroup（分界 20/40/70/100/130/160/190/220）', () {
     test('低于 20 不入档', () {
@@ -646,6 +679,51 @@ void main() {
 
     test('阈值可调', () {
       expect(buildupOver(58.0, maxOver: 10), closeTo(8.0, 1e-9));
+    });
+  });
+
+  group('evaluateZeroBase（零帧起手：从高处下来、停在 0 点）', () {
+    final today = _defaultToday;
+
+    test('先高后低、现价贴着 90 日低点 → 命中，group=0', () {
+      final bars = _seal(_makeFallBars(today, peakPct: 60));
+      final row = evaluateZeroBase('600001', '摔下来的', 10.1, bars, today: today);
+      expect(row, isNotNull);
+      expect(row!.group, 0); // 不属于八档任何一档
+      expect(row.low90, closeTo(10.0, 1e-6));
+      expect(row.pct, closeTo(1.0, 0.05)); // 停在 0 点附近
+      expect(row.maxPct, closeTo(60.0, 0.5)); // 从 +60% 处下来的
+      expect(row.crossDate.compareTo(row.lowDate), lessThan(0)); // 高点在低点之前
+      // 同一只在八档局里是不命中的（pct < 20%），两边互斥
+      expect(evaluateStock('600001', '摔下来的', 10.1, bars, today: today), isNull);
+    });
+
+    test('已经反弹走了（现价离低点 >3%）不算"停留在 0 点"', () {
+      final bars = _seal(_makeFallBars(today, peakPct: 60));
+      expect(evaluateZeroBase('600001', '反弹了', 10.5, bars, today: today), isNull);
+      // 阈值可调
+      expect(
+          evaluateZeroBase('600001', '反弹了', 10.5, bars,
+              today: today, maxPct: 8),
+          isNotNull);
+    });
+
+    test('没从高处下来（高点不足 20%）不算', () {
+      final bars = _seal(_makeFallBars(today, peakPct: 12));
+      expect(evaluateZeroBase('600001', '平地股', 10.1, bars, today: today), isNull);
+    });
+
+    test('先低后高（一路北上）不算：高点必须在低点之前', () {
+      // _makeWaveBars 是低点在前、之后一路涨 → 零帧起手不该命中
+      final bars = _seal(_makeWaveBars(today, closesPct: [20, 42, 52]));
+      expect(evaluateZeroBase('600001', '往上走', 10.1, bars, today: today), isNull);
+    });
+
+    test('按曾站上的最高主线分组（从多高摔下来）', () {
+      expect(zeroBaseStage(60.0), 2); // 曾过 50
+      expect(zeroBaseStage(25.0), 1); // 曾过 20
+      expect(zeroBaseStage(115.0), 4); // 曾过 110
+      expect(zeroBaseStage(15.0), isNull);
     });
   });
 }

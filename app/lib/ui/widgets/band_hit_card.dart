@@ -27,6 +27,16 @@ class BandHitCard extends StatelessWidget {
     this.sectors,
   });
 
+  /// 零帧起手：group 0（贴着 90 日低点那批），标签与配色都另一套
+  bool get zeroBase => hit.group == 0;
+
+  /// 从波段高点回到现价的跌幅%（零帧起手用）：高点 100 → 现价 pct
+  double get _dropFromPeak {
+    final peak = 1 + hit.maxPct / 100;
+    if (peak <= 0) return 0;
+    return (1 - (1 + hit.pct / 100) / peak) * 100;
+  }
+
   @override
   Widget build(BuildContext context) {
     return HudPanel(
@@ -88,9 +98,11 @@ class BandHitCard extends StatelessWidget {
               ),
               const SizedBox(width: 8),
               GlowText(
-                '+${hit.pct.toStringAsFixed(1)}%',
+                zeroBase
+                    ? '-${_dropFromPeak.toStringAsFixed(1)}%'
+                    : '+${hit.pct.toStringAsFixed(1)}%',
                 size: 24,
-                color: AppColors.rise,
+                color: zeroBase ? AppColors.fall : AppColors.rise,
                 blur: 16,
               ),
             ],
@@ -102,22 +114,36 @@ class BandHitCard extends StatelessWidget {
           const SizedBox(height: 11),
           _progress(),
           const SizedBox(height: 10),
+          // 零帧起手（group 0）没有"过线/超出"，crossDate 复用成高点日期
           Wrap(
             spacing: 14,
             runSpacing: 5,
-            children: [
-              _meta('波段高 ${hit.maxPct.toStringAsFixed(1)}%'),
-              _meta('低点 ${_shortDate(hit.lowDate)}'),
-              _meta('过线 ${_shortDate(hit.crossDate)}'),
-              Text(
-                '超出 +${hit.over.toStringAsFixed(1)}%',
-                style: mono(
-                  size: FontSize.secondaryNumber,
-                  color: AppColors.warn,
-                  weight: FontWeight.w600,
-                ),
-              ),
-            ],
+            children: zeroBase
+                ? [
+                    _meta('高点 ${_shortDate(hit.crossDate)}'),
+                    _meta('低点 ${_shortDate(hit.lowDate)}'),
+                    Text(
+                      '自高点 -${_dropFromPeak.toStringAsFixed(1)}%',
+                      style: mono(
+                        size: FontSize.secondaryNumber,
+                        color: AppColors.fall,
+                        weight: FontWeight.w600,
+                      ),
+                    ),
+                  ]
+                : [
+                    _meta('波段高 ${hit.maxPct.toStringAsFixed(1)}%'),
+                    _meta('低点 ${_shortDate(hit.lowDate)}'),
+                    _meta('过线 ${_shortDate(hit.crossDate)}'),
+                    Text(
+                      '超出 +${hit.over.toStringAsFixed(1)}%',
+                      style: mono(
+                        size: FontSize.secondaryNumber,
+                        color: AppColors.warn,
+                        weight: FontWeight.w600,
+                      ),
+                    ),
+                  ],
           ),
           const SizedBox(height: 6),
           Wrap(
@@ -203,7 +229,8 @@ class BandHitCard extends StatelessWidget {
   Widget _progress() {
     final span = hit.maxPct <= 0 ? 1.0 : hit.maxPct;
     double at(double pct) => (pct / span).clamp(0.0, 1.0);
-    final threshold = groupThreshold(hit.group);
+    // 零帧起手没有入档线，针指到波段高点（看它是从多高摔下来的）
+    final threshold = zeroBase ? hit.maxPct : groupThreshold(hit.group);
     return Column(
       crossAxisAlignment: CrossAxisAlignment.stretch,
       children: [

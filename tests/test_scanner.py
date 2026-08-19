@@ -181,6 +181,33 @@ def make_wave_bars(today: date, low: float = 10.0, closes_pct: list[float] | Non
     return bars
 
 
+def make_fall_bars(today: date, low: float = 10.0, peak_pct: float = 60.0) -> list[dict]:
+    """构造"先高后低"的日线：平台 low*1.2，中途一根冲到 low*(1+peak_pct/100)，
+    尾部第 5 根探到 low（窗口最低价），之后贴着低点横盘。零帧起手用。"""
+    bars = make_bars(200, low * 1.2, today)
+    for bar in bars:
+        bar["open"] = low * 1.2
+        bar["close"] = low * 1.2
+        bar["high"] = low * 1.22
+        bar["low"] = low * 1.18
+    low_index = len(bars) - 5
+    peak_index = low_index - 15
+    peak = low * (1 + peak_pct / 100)
+    bars[peak_index].update(
+        {"open": peak * 0.99, "high": peak * 1.01, "low": peak * 0.98, "close": peak}
+    )
+    for i in range(low_index, len(bars)):
+        bars[i].update(
+            {
+                "open": low * 1.01,
+                "high": low * 1.02,
+                "low": low if i == low_index else low * 1.002,
+                "close": low * 1.005,
+            }
+        )
+    return bars
+
+
 class TestEvaluateStock:
     today = date(2026, 7, 24)
 
@@ -800,3 +827,40 @@ class TestBreakoutStage:
         assert buildup_over(300.0) is None
         # 阈值可调
         assert buildup_over(58.0, max_over=10) == pytest.approx(8.0)
+
+
+class TestEvaluateZeroBase:
+    """零帧起手：从高处一路下来、现在停在 90 日低点上"""
+
+    today = date(2026, 7, 24)
+
+    def test_hits_when_price_sits_on_the_floor(self):
+        from backend.app.scanner import evaluate_zero_base
+
+        bars = make_fall_bars(self.today, 10.0, 60.0)
+        row = evaluate_zero_base("600001", "摔下来的", 10.1, bars, today=self.today)
+        assert row is not None
+        assert row["group"] == 0  # 不属于八档任何一档
+        assert row["low90"] == pytest.approx(10.0, abs=1e-6)
+        assert row["pct"] == pytest.approx(1.0, abs=0.05)
+        assert row["max_pct"] == pytest.approx(60.0, abs=0.5)
+        assert row["cross_date"] < row["low_date"]  # 高点在低点之前
+        # 同一只在八档局里不命中，两套口径互斥
+        assert evaluate_stock("600001", "摔下来的", 10.1, bars, today=self.today) is None
+
+    def test_rejects_rebound_and_flat_and_upward(self):
+        from backend.app.scanner import evaluate_zero_base
+
+        bars = make_fall_bars(self.today, 10.0, 60.0)
+        # 已经反弹走了（离低点 >3%）
+        assert evaluate_zero_base("600001", "反弹了", 10.5, bars, today=self.today) is None
+        assert (
+            evaluate_zero_base("600001", "反弹了", 10.5, bars, today=self.today, max_pct=8)
+            is not None
+        )
+        # 没从高处下来（高点不足 20%）
+        flat = make_fall_bars(self.today, 10.0, 12.0)
+        assert evaluate_zero_base("600001", "平地股", 10.1, flat, today=self.today) is None
+        # 先低后高（一路北上）不算
+        up = make_wave_bars(self.today, 10.0, [20, 42, 52])
+        assert evaluate_zero_base("600001", "往上走", 10.1, up, today=self.today) is None

@@ -1,6 +1,8 @@
 /// 破势：两个视角，共用八档局那一次扫描结果（BandScanController.hits）。
 /// - 主线突破：按已突破的最高主线（20/50/80/110/…）分组，每只股只归最高一组。
 /// - 蓄势待发：刚刚站上某条主线、还没走远（超出 ≤5 个点，突破还热乎）。
+/// - 零帧起手：从高处一路下来、现在贴着 90 日低点的（走 zeroBaseHits，
+///   与前两个视角的数据源不同——八档局只收 pct≥20%，这批是它筛掉的地板股）。
 /// 卡片额外显示行业/题材（八档局不显示，走 BandHitCard 的可选参数）。
 library;
 
@@ -13,8 +15,14 @@ import '../state/band_scan_controller.dart';
 import '../theme/app_theme.dart';
 import 'widgets/band_hit_card.dart';
 
-/// 破势的两个视角
-enum BreakoutView { broken, buildup }
+/// 破势的三个视角
+enum BreakoutView { broken, buildup, zeroBase }
+
+String breakoutViewLabel(BreakoutView view) => switch (view) {
+      BreakoutView.broken => '主线突破',
+      BreakoutView.buildup => '蓄势待发',
+      BreakoutView.zeroBase => '零帧起手',
+    };
 
 class BreakoutScreen extends StatefulWidget {
   final BandScanController controller;
@@ -40,6 +48,9 @@ class _BreakoutScreenState extends State<BreakoutScreen> {
 
   /// 蓄势待发默认看刚过 50 线的那批
   double _line = 50;
+
+  /// 零帧起手默认看"曾站上 50 主线"再摔回来的那批
+  int _peakStage = 2;
 
   /// 行业/题材：只给当前这一屏的股票补，按天缓存，切组时增量补
   final Map<String, StockSectors> _sectors = {};
@@ -94,9 +105,30 @@ class _BreakoutScreenState extends State<BreakoutScreen> {
     return grouped;
   }
 
-  List<BandHit> get _rows => _view == BreakoutView.broken
-      ? (_byStage[_stage] ?? const <BandHit>[])
-      : (_byLine[_line] ?? const <BandHit>[]);
+  /// 零帧起手：按"曾经站上过的最高主线"分组（从多高摔下来的）
+  Map<int, List<BandHit>> get _byPeak {
+    final grouped = <int, List<BandHit>>{};
+    for (final hit in controller.zeroBaseHits) {
+      final stage = zeroBaseStage(hit.maxPct);
+      if (stage == null) continue;
+      grouped.putIfAbsent(stage, () => []).add(hit);
+    }
+    for (final list in grouped.values) {
+      list.sort((a, b) => b.maxPct.compareTo(a.maxPct)); // 摔得最狠的在前
+    }
+    return grouped;
+  }
+
+  List<BandHit> get _rows => switch (_view) {
+        BreakoutView.broken => _byStage[_stage] ?? const <BandHit>[],
+        BreakoutView.buildup => _byLine[_line] ?? const <BandHit>[],
+        BreakoutView.zeroBase => _byPeak[_peakStage] ?? const <BandHit>[],
+      };
+
+  /// 空列表时的提示：零帧起手要求重扫一次（旧结果里没有这批数据）
+  bool get _needsScan => _view == BreakoutView.zeroBase
+      ? controller.zeroBaseHits.isEmpty && controller.hits.isEmpty
+      : controller.hits.isEmpty;
 
   /// 给当前这组里还没板块信息的股票补一次（当日缓存命中的不发请求）
   Future<void> _loadSectors(List<BandHit> rows) async {
@@ -142,7 +174,7 @@ class _BreakoutScreenState extends State<BreakoutScreen> {
               _header(),
               _viewTabs(),
               _groupChips(),
-              if (controller.hits.isEmpty)
+              if (_needsScan)
                 const Expanded(
                   child: Center(
                     child: Text(
@@ -189,7 +221,6 @@ class _BreakoutScreenState extends State<BreakoutScreen> {
   }
 
   Widget _header() {
-    final broken = _view == BreakoutView.broken;
     return Padding(
       padding: const EdgeInsets.fromLTRB(16, 10, 16, 0),
       child: Row(
@@ -199,7 +230,7 @@ class _BreakoutScreenState extends State<BreakoutScreen> {
               crossAxisAlignment: CrossAxisAlignment.start,
               children: [
                 Text(
-                  broken ? '破势 · 主线突破' : '破势 · 蓄势待发',
+                  '破势 · ${breakoutViewLabel(_view)}',
                   style: const TextStyle(
                     fontSize: FontSize.screenTitle,
                     fontWeight: FontWeight.w700,
@@ -208,9 +239,13 @@ class _BreakoutScreenState extends State<BreakoutScreen> {
                 ),
                 const SizedBox(height: 2),
                 Text(
-                  broken
-                      ? '与八档局共用扫描结果 · 每只股只归最高一组'
-                      : '刚站上主线、超出 ≤${buildupMaxOver.toInt()}%（突破还热乎）',
+                  switch (_view) {
+                    BreakoutView.broken => '与八档局共用扫描结果 · 每只股只归最高一组',
+                    BreakoutView.buildup =>
+                      '刚站上主线、超出 ≤${buildupMaxOver.toInt()}%（突破还热乎）',
+                    BreakoutView.zeroBase =>
+                      '从高处一路下来 · 现价贴着 90 日低点 ≤${zeroBaseMaxPct.toInt()}%',
+                  },
                   style: mono(size: FontSize.legend, color: AppColors.textDim),
                 ),
               ],
@@ -252,7 +287,7 @@ class _BreakoutScreenState extends State<BreakoutScreen> {
                     ),
                   ),
                   child: Text(
-                    view == BreakoutView.broken ? '主线突破' : '蓄势待发',
+                    breakoutViewLabel(view),
                     textAlign: TextAlign.center,
                     style: TextStyle(
                       fontSize: FontSize.secondaryNumber,
@@ -269,32 +304,47 @@ class _BreakoutScreenState extends State<BreakoutScreen> {
     );
   }
 
-  /// 组切换：主线突破按"突破到哪条线"，蓄势待发按"刚站上哪条线"
+  /// 组切换：主线突破按"突破到哪条线"，蓄势待发按"刚站上哪条线"，
+  /// 零帧起手按"曾站上过哪条线"（从多高摔下来的）
   Widget _groupChips() {
-    final broken = _view == BreakoutView.broken;
-    final byStage = broken ? _byStage : const <int, List<BandHit>>{};
-    final byLine = broken ? const <double, List<BandHit>>{} : _byLine;
+    final byStage = _view == BreakoutView.broken
+        ? _byStage
+        : const <int, List<BandHit>>{};
+    final byLine = _view == BreakoutView.buildup
+        ? _byLine
+        : const <double, List<BandHit>>{};
+    final byPeak = _view == BreakoutView.zeroBase
+        ? _byPeak
+        : const <int, List<BandHit>>{};
     return Padding(
       padding: const EdgeInsets.fromLTRB(16, 10, 16, 6),
       child: Wrap(
         spacing: 8,
         runSpacing: 8,
         children: [
-          if (broken)
+          if (_view == BreakoutView.broken)
             for (var stage = 2; stage <= breakoutMainLines.length; stage++)
               _StageChip(
                 label: '${breakoutStageLabel(stage)}%',
                 count: (byStage[stage] ?? const []).length,
                 active: _stage == stage,
                 onTap: () => setState(() => _stage = stage),
-              )
-          else
+              ),
+          if (_view == BreakoutView.buildup)
             for (final line in breakoutMainLines)
               _StageChip(
                 label: '刚过 ${line.toInt()}%',
                 count: (byLine[line] ?? const []).length,
                 active: _line == line,
                 onTap: () => setState(() => _line = line),
+              ),
+          if (_view == BreakoutView.zeroBase)
+            for (var stage = 1; stage <= breakoutMainLines.length; stage++)
+              _StageChip(
+                label: '曾过 ${breakoutMainLines[stage - 1].toInt()}%',
+                count: (byPeak[stage] ?? const []).length,
+                active: _peakStage == stage,
+                onTap: () => setState(() => _peakStage = stage),
               ),
         ],
       ),

@@ -122,7 +122,7 @@ export function BreakoutPanel({ onSelect }: { onSelect: (symbol: string) => void
             ? "与八档局共用同一次扫描结果；按已突破的最高主线分组，每只股只出现在最高那组。"
             : view === "buildup"
               ? `与八档局共用同一次扫描结果；刚站上主线、超出 ≤${BUILDUP_MAX_OVER}% 的，按刚站上哪条线分组。`
-              : "从高处一路下来、现价贴着 90 日低点的（八档局的档位规则筛掉的那批，扫描时单独收）；按曾站上过哪条主线分组。"}
+              : "至少从 +50% 一路摔回 90 日低点的（八档局的档位规则筛掉的那批，扫描时单独收）；按曾站上过哪条主线分组。App 端已拆成独立扫描。"}
           {status?.status === "done" && ` · ${status.trade_date} 命中 ${status.hits.length}`}
         </span>
       </div>

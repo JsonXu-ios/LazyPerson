@@ -708,9 +708,17 @@ void main() {
           isNotNull);
     });
 
-    test('没从高处下来（高点不足 20%）不算', () {
-      final bars = _seal(_makeFallBars(today, peakPct: 12));
-      expect(evaluateZeroBase('600001', '平地股', 10.1, bars, today: today), isNull);
+    test('没从高处下来（高点不足 50%）不算', () {
+      for (final peak in [12.0, 30.0, 49.0]) {
+        final bars = _seal(_makeFallBars(today, peakPct: peak));
+        expect(evaluateZeroBase('600001', '平地股', 10.1, bars, today: today),
+            isNull,
+            reason: '高点 +$peak% 够不上 ${zeroBaseMinPeak.toInt()}%');
+      }
+      // 刚好 50% 就算
+      final bars = _seal(_makeFallBars(today, peakPct: 52));
+      expect(evaluateZeroBase('600001', '摔下来的', 10.1, bars, today: today),
+          isNotNull);
     });
 
     test('先低后高（一路北上）不算：高点必须在低点之前', () {

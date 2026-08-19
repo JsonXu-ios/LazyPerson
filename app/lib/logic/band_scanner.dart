@@ -102,7 +102,7 @@ double? _crossedLine(double? pct) {
 const zeroBaseMaxPct = 3.0;
 
 /// 零帧起手：低点之前的高点至少要有这么高（"从高处下来"，不是一路阴跌的平地）
-const zeroBaseMinPeak = 20.0;
+const zeroBaseMinPeak = 50.0;
 
 bool isNorthBound(List<KlineBar> window, int lowIndex,
     {double maxDrawdown = northMaxDrawdown}) {
@@ -495,7 +495,7 @@ BandHit? evaluateStock(
 /// 往上），这里要的正是被它筛掉的那批：pct ≈ 0，趴在地板上。
 /// 判定三条：
 ///   1. 高点在低点**之前**（先高后低，是"下来"不是"起来"）；
-///   2. 该高点相对低点涨幅 ≥ [zeroBaseMinPeak]（确实是从高处摔的）；
+///   2. 该高点相对低点涨幅 ≥ [zeroBaseMinPeak]（至少从 +50% 处摔下来）；
 ///   3. 现价相对低点 ≤ [zeroBaseMaxPct]（最终停在 0 点，没反弹走）。
 /// 命中返回 group=0 的 BandHit（threshold/over 均为 0，破势单独一组用）；
 /// [crossDate] 复用为**高点日期**，卡片按 group==0 换一套标签显示。

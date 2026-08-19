@@ -188,45 +188,6 @@ Quote _quote(String symbol, String name,
       turnover: turnover,
     );
 
-/// 先高后低：平台 low×1.2，中途冲高到 low×(1+peakPct/100)，尾部探到 low 后横盘。
-/// 零帧起手用（八档局对这种形态不命中）。
-List<KlineBar> _fallBars({double low = 10.0, double peakPct = 60}) {
-  final bars = <KlineBar>[];
-  for (var offset = 200; offset >= 0; offset--) {
-    final day = _today.subtract(Duration(days: offset));
-    if (day.weekday == DateTime.saturday || day.weekday == DateTime.sunday) {
-      continue;
-    }
-    bars.add(KlineBar(
-      time: day.toIso8601String().substring(0, 10),
-      open: low * 1.2,
-      high: low * 1.22,
-      low: low * 1.18,
-      close: low * 1.2,
-    ));
-  }
-  final lowIndex = bars.length - 5;
-  final peakIndex = lowIndex - 15;
-  final peak = low * (1 + peakPct / 100);
-  bars[peakIndex] = KlineBar(
-    time: bars[peakIndex].time,
-    open: peak * 0.99,
-    high: peak * 1.01,
-    low: peak * 0.98,
-    close: peak,
-  );
-  for (var i = lowIndex; i < bars.length; i++) {
-    bars[i] = KlineBar(
-      time: bars[i].time,
-      open: low * 1.01,
-      high: low * 1.02,
-      low: i == lowIndex ? low : low * 1.002,
-      close: low * 1.005,
-    );
-  }
-  return bars;
-}
-
 void main() {
   TestWidgetsFlutterBinding.ensureInitialized();
   sqfliteFfiInit();
@@ -900,43 +861,5 @@ void main() {
     expect(hit.marksKnown, isFalse);
     expect(hit.turnover, isNull);
     expect(hit.chg3, isNull);
-  });
-
-  group('零帧起手（从高处下来、停在 0 点）', () {
-    test('扫描单独收一份地板股，与八档局命中互斥，并随结果持久化/恢复', () async {
-      await setUpScan(
-        const {},
-        quoteOverride: [
-          _quote('600001', '甲股'),
-          _quote('600002', '地板股', price: 10.1), // 贴着 90 日低点 10
-        ],
-      );
-      // 600002 换成"先高后低"的形态，现价贴着低点
-      await store.upsertDailyBars('600002', _fallBars());
-
-      await controller.startScan();
-
-      // 八档局那边只有 600001（600002 的 pct≈0，被档位规则筛掉）
-      expect(controller.hits.map((hit) => hit.symbol), ['600001']);
-      // 零帧起手这边正好是它
-      expect(controller.zeroBaseHits.map((hit) => hit.symbol), ['600002']);
-      final floor = controller.zeroBaseHits.single;
-      expect(floor.group, 0);
-      expect(floor.maxPct, closeTo(60, 1)); // 从 +60% 处摔下来
-      expect(floor.pct, lessThanOrEqualTo(zeroBaseMaxPct));
-
-      final raw = await store.getState('band_scan:last:v12');
-      final persisted = (jsonDecode(raw!) as Map).cast<String, Object?>();
-      expect((persisted['zero_base'] as List), hasLength(1));
-
-      final restored = BandScanController(repository,
-          nowFn: () => _today,
-          fundamentals: fundamentals,
-          lonCheck: lonCheck,
-          autoComplete: false);
-      await restored.restore();
-      expect(restored.zeroBaseHits.single.symbol, '600002');
-      restored.dispose();
-    });
   });
 }

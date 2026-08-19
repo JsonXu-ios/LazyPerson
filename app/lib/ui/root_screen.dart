@@ -10,6 +10,7 @@ import '../data/popularity_service.dart';
 import '../state/band_scan_controller.dart';
 import '../state/home_controller.dart';
 import '../state/sector_controller.dart';
+import '../state/zero_base_controller.dart';
 import '../theme/app_theme.dart';
 import 'band_scan_screen.dart';
 import 'sector_screen.dart';
@@ -42,6 +43,7 @@ class _RootScreenState extends State<RootScreen> {
   final Set<int> _visited = {watchlistTab};
 
   BandScanController? _bandScan;
+  ZeroBaseController? _zeroBase;
   SectorController? _sectors;
   PopularityService? _popularity;
 
@@ -58,6 +60,7 @@ class _RootScreenState extends State<RootScreen> {
   void dispose() {
     controller.removeListener(_onChanged);
     _bandScan?.dispose();
+    _zeroBase?.dispose();
     _sectors?.dispose();
     super.dispose();
   }
@@ -92,8 +95,10 @@ class _RootScreenState extends State<RootScreen> {
         return BandScanScreen(controller: band, onSelect: _openDetail);
       case breakoutTab:
         final band = _bandScan ??= BandScanController(controller.repository);
+        final floor = _zeroBase ??= ZeroBaseController(controller.repository);
         return BreakoutScreen(
           controller: band,
+          zeroBase: floor,
           sectors: controller.repository.sectors,
           onSelect: _openDetail,
         );

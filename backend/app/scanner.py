@@ -215,8 +215,8 @@ def evaluate_stock(
 #: 零帧起手：现价离 90 日低点不超过这么多个百分点（"停留在 0 点"）
 ZERO_BASE_MAX_PCT = 3.0
 
-#: 零帧起手：低点之前的高点至少要有这么高（确实是"从高处下来"）
-ZERO_BASE_MIN_PEAK = 20.0
+#: 零帧起手：低点之前的高点至少要有这么高（"至少从 +50% 摔下来"）
+ZERO_BASE_MIN_PEAK = 50.0
 
 
 def evaluate_zero_base(

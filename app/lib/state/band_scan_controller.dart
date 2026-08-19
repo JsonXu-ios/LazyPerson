@@ -36,8 +36,8 @@ class BandScanController extends ChangeNotifier {
   /// 总市值下限（亿元），勾选“总市值>40亿”时生效
   static const marketCapMin = 40.0;
 
-  /// v10: 扫描改纯本地、标记变三态、命中行新增 turnover/chg3/chg5/market_cap；
-  /// v12: 增加零帧起手（zero_base）名单——旧结果没这批数据，作废重扫
+  /// v10: 扫描改纯本地、标记变三态、命中行新增 turnover/chg3/chg5/market_cap
+  /// （零帧起手已拆成独立扫描，见 ZeroBaseController）
   static const _stateKey = 'band_scan:last:v12';
 
   final MarketRepository repository;
@@ -113,11 +113,6 @@ class BandScanController extends ChangeNotifier {
 
   /// 补充数据结果提示，重新扫描时清空
   String? enrichNote;
-
-  /// 零帧起手命中：从高处一路下来、现在贴着 90 日低点的（group=0）。
-  /// 与 hits 是互斥的两批——八档局只收 pct≥20%，这批正是被它筛掉的地板股，
-  /// 所以单独存一份，破势第三个 tab 用。
-  List<BandHit> zeroBaseHits = [];
 
   /// 同步状态：本地全市场日K的最新交易日（null = 尚无数据/未加载）
   String? dataDate;
@@ -309,10 +304,6 @@ class BandScanController extends ChangeNotifier {
         for (final row in (data['hits'] as List? ?? const []))
           BandHit.fromJson((row as Map).cast<String, Object?>()),
       ];
-      zeroBaseHits = [
-        for (final row in (data['zero_base'] as List? ?? const []))
-          BandHit.fromJson((row as Map).cast<String, Object?>()),
-      ];
       total = (data['total'] as num?)?.toInt() ?? hits.length;
       skippedSymbols = [
         for (final item in (data['skipped_symbols'] as List? ?? const []))
@@ -354,7 +345,6 @@ class BandScanController extends ChangeNotifier {
     total = 0;
     done = 0;
     hits = [];
-    zeroBaseHits = [];
     error = null;
     skippedNoData = 0;
     skippedSymbols = [];
@@ -414,7 +404,6 @@ class BandScanController extends ChangeNotifier {
 
     final today = now();
     final collected = <BandHit>[];
-    final zeroBase = <BandHit>[];
     final missing = <String>[];
 
     for (var offset = 0; offset < candidates.length; offset += bandBarsChunkSize) {
@@ -436,16 +425,6 @@ class BandScanController extends ChangeNotifier {
             skippedNoData += 1;
           }
         } else {
-          // 零帧起手与八档局互斥：pct≥20% 的进 hits，贴着低点的进 zeroBase
-          final floor = evaluateZeroBase(
-              quote.symbol, quote.name, quote.price, bars,
-              today: today);
-          if (floor != null) {
-            zeroBase.add(floor.copyWith(
-              turnover: quote.turnover,
-              marketCap: quote.marketCap,
-            ));
-          }
           final row = evaluateStock(quote.symbol, quote.name, quote.price, bars,
               today: today);
           if (row != null) {
@@ -469,9 +448,6 @@ class BandScanController extends ChangeNotifier {
     }
 
     skippedSymbols = missing;
-    // 摔得最狠的排前面（高点越高，跌回原地的落差越大）
-    zeroBase.sort((a, b) => b.maxPct.compareTo(a.maxPct));
-    zeroBaseHits = zeroBase;
     collected.sort((a, b) {
       final byGroup = a.group.compareTo(b.group);
       if (byGroup != 0) return byGroup;
@@ -610,7 +586,6 @@ class BandScanController extends ChangeNotifier {
         'skipped_symbols': skippedSymbols,
         'finished_at': now().toIso8601String(),
         'hits': [for (final hit in hits) hit.toJson()],
-        'zero_base': [for (final hit in zeroBaseHits) hit.toJson()],
       }),
     );
   }
@@ -693,42 +668,7 @@ class BandScanController extends ChangeNotifier {
     if (status == BandScanStatus.done) await _persist();
   }
 
-  /// 全市场A股快照：东财 clist（内置主备域名）优先，失败或残缺时
-  /// 用本地清单分批走腾讯行情兜底（对齐 scanner.py::_fetch_all_a_quotes）。
-  /// 这是整个扫描流程里唯一的网络请求。
-  Future<List<Quote>> _fetchAllAQuotes() async {
-    final errors = <String>[];
-    try {
-      final snapshot = await repository.sync.eastmoney.fullMarketSnapshot();
-      if (snapshot.isNotEmpty) return snapshot;
-      errors.add('eastmoney:empty');
-    } catch (exc) {
-      errors.add('eastmoney:$exc');
-    }
-
-    final symbols = await repository.store.mainBoardASymbols();
-    if (symbols.isEmpty) {
-      throw StateError(
-          '行情快照拉取失败且本地清单为空（${errors.join('; ')}），请等待全市场同步完成后重试');
-    }
-    final quotes = <Quote>[];
-    for (var offset = 0; offset < symbols.length; offset += 80) {
-      final batch = symbols.sublist(
-          offset, offset + 80 > symbols.length ? symbols.length : offset + 80);
-      for (var attempt = 0; attempt < 2; attempt++) {
-        try {
-          quotes.addAll(await repository.tencent.realtimeQuotes(batch));
-          break;
-        } catch (_) {
-          if (attempt == 1) break; // 静默丢批，最后统一校验完整度
-          await Future<void>.delayed(const Duration(milliseconds: 300));
-        }
-      }
-    }
-    if (quotes.length < symbols.length * 0.5) {
-      throw StateError(
-          '腾讯行情兜底不完整：${quotes.length}/${symbols.length}（${errors.join('; ')}）');
-    }
-    return quotes;
-  }
+  /// 全市场A股快照（东财 clist 优先、腾讯兜底）。实现在 MarketRepository，
+  /// 零帧起手那套扫描也用同一份。
+  Future<List<Quote>> _fetchAllAQuotes() => repository.fullMarketQuotes();
 }

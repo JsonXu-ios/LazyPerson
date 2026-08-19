@@ -351,6 +351,45 @@ class MarketRepository {
     );
   }
 
+  /// 全市场A股快照：东财 clist（内置主备域名）优先，失败或残缺时
+  /// 用本地清单分批走腾讯行情兜底（对齐 scanner.py::_fetch_all_a_quotes）。
+  /// 八档局与零帧起手两套扫描共用它——各自流程里唯一的网络请求。
+  Future<List<Quote>> fullMarketQuotes() async {
+    final errors = <String>[];
+    try {
+      final snapshot = await sync.eastmoney.fullMarketSnapshot();
+      if (snapshot.isNotEmpty) return snapshot;
+      errors.add('eastmoney:empty');
+    } catch (exc) {
+      errors.add('eastmoney:$exc');
+    }
+
+    final symbols = await store.mainBoardASymbols();
+    if (symbols.isEmpty) {
+      throw StateError(
+          '行情快照拉取失败且本地清单为空（${errors.join('; ')}），请等待全市场同步完成后重试');
+    }
+    final quotes = <Quote>[];
+    for (var offset = 0; offset < symbols.length; offset += 80) {
+      final batch = symbols.sublist(
+          offset, offset + 80 > symbols.length ? symbols.length : offset + 80);
+      for (var attempt = 0; attempt < 2; attempt++) {
+        try {
+          quotes.addAll(await tencent.realtimeQuotes(batch));
+          break;
+        } catch (_) {
+          if (attempt == 1) break; // 静默丢批，最后统一校验完整度
+          await Future<void>.delayed(const Duration(milliseconds: 300));
+        }
+      }
+    }
+    if (quotes.length < symbols.length * 0.5) {
+      throw StateError(
+          '腾讯行情兜底不完整：${quotes.length}/${symbols.length}（${errors.join('; ')}）');
+    }
+    return quotes;
+  }
+
   /// 把一条实时行情写成"当日 bar"落进 daily_bars（与全市场快照同一套口径）。
   /// 行情比 90 天日K快得多，先用它把最后一根蜡烛更新掉，图表立刻动；
   /// 随后的日K刷新会用权威数据整段覆盖。非 A 股/缺 OHLC 的直接跳过。

@@ -1,8 +1,9 @@
 /// 破势：两个视角，共用八档局那一次扫描结果（BandScanController.hits）。
 /// - 主线突破：按已突破的最高主线（20/50/80/110/…）分组，每只股只归最高一组。
 /// - 蓄势待发：刚刚站上某条主线、还没走远（超出 ≤5 个点，突破还热乎）。
-/// - 零帧起手：从高处一路下来、现在贴着 90 日低点的（走 zeroBaseHits，
-///   与前两个视角的数据源不同——八档局只收 pct≥20%，这批是它筛掉的地板股）。
+/// - 零帧起手：从高处（至少 +50%）一路摔回 90 日低点的。**它有自己的一次扫描**
+///   （ZeroBaseController），与八档局完全无关——八档局只收 pct≥20%，这批地板股
+///   永远进不去它的结果。
 /// 卡片额外显示行业/题材（八档局不显示，走 BandHitCard 的可选参数）。
 library;
 
@@ -12,7 +13,9 @@ import '../data/sector_service.dart';
 import '../logic/band_scanner.dart';
 import '../models/models.dart';
 import '../state/band_scan_controller.dart';
+import '../state/zero_base_controller.dart';
 import '../theme/app_theme.dart';
+import '../theme/hud.dart';
 import 'widgets/band_hit_card.dart';
 
 /// 破势的三个视角
@@ -26,12 +29,16 @@ String breakoutViewLabel(BreakoutView view) => switch (view) {
 
 class BreakoutScreen extends StatefulWidget {
   final BandScanController controller;
+
+  /// 零帧起手自己的扫描（与八档局互不相干）
+  final ZeroBaseController zeroBase;
   final SectorService sectors;
   final ValueChanged<String> onSelect;
 
   const BreakoutScreen({
     super.key,
     required this.controller,
+    required this.zeroBase,
     required this.sectors,
     required this.onSelect,
   });
@@ -59,17 +66,22 @@ class _BreakoutScreenState extends State<BreakoutScreen> {
 
   BandScanController get controller => widget.controller;
 
+  ZeroBaseController get zeroBase => widget.zeroBase;
+
   @override
   void initState() {
     super.initState();
     controller.addListener(_onChanged);
+    zeroBase.addListener(_onChanged);
     controller.restore();
+    zeroBase.restore();
   }
 
   @override
   void dispose() {
     _sectorRunId++; // 页面走了，在跑的补板块别再回写
     controller.removeListener(_onChanged);
+    zeroBase.removeListener(_onChanged);
     super.dispose();
   }
 
@@ -105,19 +117,8 @@ class _BreakoutScreenState extends State<BreakoutScreen> {
     return grouped;
   }
 
-  /// 零帧起手：按"曾经站上过的最高主线"分组（从多高摔下来的）
-  Map<int, List<BandHit>> get _byPeak {
-    final grouped = <int, List<BandHit>>{};
-    for (final hit in controller.zeroBaseHits) {
-      final stage = zeroBaseStage(hit.maxPct);
-      if (stage == null) continue;
-      grouped.putIfAbsent(stage, () => []).add(hit);
-    }
-    for (final list in grouped.values) {
-      list.sort((a, b) => b.maxPct.compareTo(a.maxPct)); // 摔得最狠的在前
-    }
-    return grouped;
-  }
+  /// 零帧起手：分组在 ZeroBaseController 里（走它自己那份扫描结果）
+  Map<int, List<BandHit>> get _byPeak => zeroBase.byPeak;
 
   List<BandHit> get _rows => switch (_view) {
         BreakoutView.broken => _byStage[_stage] ?? const <BandHit>[],
@@ -125,9 +126,9 @@ class _BreakoutScreenState extends State<BreakoutScreen> {
         BreakoutView.zeroBase => _byPeak[_peakStage] ?? const <BandHit>[],
       };
 
-  /// 空列表时的提示：零帧起手要求重扫一次（旧结果里没有这批数据）
+  /// 还没有结果可看（各自的扫描都没跑过）
   bool get _needsScan => _view == BreakoutView.zeroBase
-      ? controller.zeroBaseHits.isEmpty && controller.hits.isEmpty
+      ? zeroBase.hits.isEmpty && zeroBase.status != ZeroBaseStatus.running
       : controller.hits.isEmpty;
 
   /// 给当前这组里还没板块信息的股票补一次（当日缓存命中的不发请求）
@@ -173,13 +174,19 @@ class _BreakoutScreenState extends State<BreakoutScreen> {
             children: [
               _header(),
               _viewTabs(),
+              if (_view == BreakoutView.zeroBase) ...[
+                _zeroBaseActions(),
+                _zeroBaseFilters(),
+              ],
               _groupChips(),
               if (_needsScan)
-                const Expanded(
+                Expanded(
                   child: Center(
                     child: Text(
-                      '请先到「八档局」执行一次扫描',
-                      style: TextStyle(
+                      _view == BreakoutView.zeroBase
+                          ? '点上面的「开始扫描」找地板股'
+                          : '请先到「八档局」执行一次扫描',
+                      style: const TextStyle(
                         fontSize: FontSize.secondaryNumber,
                         color: AppColors.textFaint,
                       ),
@@ -244,14 +251,15 @@ class _BreakoutScreenState extends State<BreakoutScreen> {
                     BreakoutView.buildup =>
                       '刚站上主线、超出 ≤${buildupMaxOver.toInt()}%（突破还热乎）',
                     BreakoutView.zeroBase =>
-                      '从高处一路下来 · 现价贴着 90 日低点 ≤${zeroBaseMaxPct.toInt()}%',
+                      '独立扫描 · 至少从 +${zeroBaseMinPeak.toInt()}% 摔回 90 日低点'
+                          '（≤${zeroBaseMaxPct.toInt()}%）',
                   },
                   style: mono(size: FontSize.legend, color: AppColors.textDim),
                 ),
               ],
             ),
           ),
-          if (_loadingSectors)
+          if (_loadingSectors || zeroBase.running || zeroBase.enriching)
             const SizedBox(
               width: 14,
               height: 14,
@@ -263,7 +271,7 @@ class _BreakoutScreenState extends State<BreakoutScreen> {
     );
   }
 
-  /// 顶部两个视角的 tab
+  /// 顶部三个视角的 tab
   Widget _viewTabs() {
     return Padding(
       padding: const EdgeInsets.fromLTRB(16, 12, 16, 0),
@@ -299,6 +307,150 @@ class _BreakoutScreenState extends State<BreakoutScreen> {
                 ),
               ),
             ),
+        ],
+      ),
+    );
+  }
+
+  /// 零帧起手自己的扫描入口：进度、耗时、命中数都在这一行里
+  Widget _zeroBaseActions() {
+    final running = zeroBase.running;
+    final label = running
+        ? (zeroBase.stage == 'snapshot'
+            ? '拉行情快照…'
+            : '扫描中 ${zeroBase.done}/${zeroBase.total}')
+        : zeroBase.enriching
+            ? '补基本面 ${zeroBase.enrichDone}/${zeroBase.enrichTotal}'
+            : zeroBase.status == ZeroBaseStatus.done
+                ? '重新扫描'
+                : '开始扫描';
+    return Padding(
+      padding: const EdgeInsets.fromLTRB(16, 12, 16, 0),
+      child: Column(
+        crossAxisAlignment: CrossAxisAlignment.stretch,
+        children: [
+          Row(
+            children: [
+              GestureDetector(
+                onTap: zeroBase.busy ? null : zeroBase.startScan,
+                behavior: HitTestBehavior.opaque,
+                child: Container(
+                  padding:
+                      const EdgeInsets.symmetric(horizontal: 14, vertical: 8),
+                  decoration: BoxDecoration(
+                    borderRadius: BorderRadius.circular(7),
+                    color: zeroBase.busy ? AppColors.hudPanel : AppColors.accent,
+                    border: Border.all(
+                      color:
+                          zeroBase.busy ? AppColors.hudBorder : AppColors.accent,
+                    ),
+                  ),
+                  child: Text(
+                    label,
+                    style: mono(
+                      size: FontSize.secondaryNumber,
+                      color: zeroBase.busy
+                          ? AppColors.textMuted
+                          : const Color(0xFF050914),
+                      weight: FontWeight.w700,
+                    ),
+                  ),
+                ),
+              ),
+              const Spacer(),
+              Flexible(
+                child: Text(
+                  zeroBase.status == ZeroBaseStatus.done
+                      ? '命中 ${zeroBase.hits.length}$_zeroBaseCost'
+                      : zeroBase.tradeDate ?? '',
+                  overflow: TextOverflow.ellipsis,
+                  style:
+                      mono(size: FontSize.legend, color: AppColors.textFaint),
+                ),
+              ),
+            ],
+          ),
+          if (running) ...[
+            const SizedBox(height: 6),
+            HudSegmentBar(
+              ratio: zeroBase.total > 0 ? zeroBase.done / zeroBase.total : null,
+            ),
+          ],
+          if (zeroBase.status == ZeroBaseStatus.failed) ...[
+            const SizedBox(height: 6),
+            Text(
+              zeroBase.error ?? '扫描失败',
+              style: mono(size: FontSize.legend, color: AppColors.warn),
+            ),
+          ],
+          // 基本面没补全时给个手动重试入口（与八档局一致）
+          if (!zeroBase.busy &&
+              zeroBase.status == ZeroBaseStatus.done &&
+              zeroBase.unknownMarkCount > 0) ...[
+            const SizedBox(height: 6),
+            GestureDetector(
+              onTap: zeroBase.enrichMarks,
+              behavior: HitTestBehavior.opaque,
+              child: Row(
+                children: [
+                  const Icon(Icons.refresh, size: 13, color: AppColors.accent),
+                  const SizedBox(width: 5),
+                  Flexible(
+                    child: Text(
+                      '${zeroBase.unknownMarkCount} 只基本面未补充，点这里补充',
+                      overflow: TextOverflow.ellipsis,
+                      style: mono(
+                        size: FontSize.legend,
+                        color: AppColors.accent,
+                        weight: FontWeight.w600,
+                      ),
+                    ),
+                  ),
+                ],
+              ),
+            ),
+          ],
+        ],
+      ),
+    );
+  }
+
+  String get _zeroBaseCost {
+    final millis = zeroBase.scanMillis;
+    if (millis == null) return '';
+    return millis < 1000
+        ? ' · ${millis}ms'
+        : ' · ${(millis / 1000).toStringAsFixed(1)}s';
+  }
+
+  /// 零帧起手的筛选：分红 / 净利润 / 估市值 / 换手（切换即时生效）
+  Widget _zeroBaseFilters() {
+    return Padding(
+      padding: const EdgeInsets.fromLTRB(16, 10, 16, 0),
+      child: Wrap(
+        spacing: 8,
+        runSpacing: 8,
+        children: [
+          _FilterChip(
+            label: '分红',
+            active: zeroBase.dividendFilter,
+            onTap: () => zeroBase.setDividendFilter(!zeroBase.dividendFilter),
+          ),
+          _FilterChip(
+            label: '净利润',
+            active: zeroBase.profitFilter,
+            onTap: () => zeroBase.setProfitFilter(!zeroBase.profitFilter),
+          ),
+          _FilterChip(
+            label: '估市值',
+            active: zeroBase.revenueFilter,
+            onTap: () => zeroBase.setRevenueFilter(!zeroBase.revenueFilter),
+          ),
+          _FilterChip(
+            label: '换手>${turnoverFilterMin.toInt()}%',
+            active: zeroBase.turnoverFilter,
+            onTap: () => zeroBase.setTurnoverFilter(!zeroBase.turnoverFilter),
+          ),
         ],
       ),
     );
@@ -398,6 +550,45 @@ class _StageChip extends StatelessWidget {
               ),
             ),
           ],
+        ),
+      ),
+    );
+  }
+}
+
+
+/// 筛选开关 chip（零帧起手用）
+class _FilterChip extends StatelessWidget {
+  final String label;
+  final bool active;
+  final VoidCallback onTap;
+
+  const _FilterChip({
+    required this.label,
+    required this.active,
+    required this.onTap,
+  });
+
+  @override
+  Widget build(BuildContext context) {
+    return GestureDetector(
+      onTap: onTap,
+      child: Container(
+        padding: const EdgeInsets.symmetric(horizontal: 10, vertical: 6),
+        decoration: BoxDecoration(
+          borderRadius: BorderRadius.circular(6),
+          color: active ? AppColors.accent : AppColors.hudPanel,
+          border: Border.all(
+            color: active ? AppColors.accent : AppColors.hudBorder,
+          ),
+        ),
+        child: Text(
+          label,
+          style: mono(
+            size: FontSize.legend,
+            color: active ? const Color(0xFF050914) : AppColors.textMuted,
+            weight: FontWeight.w600,
+          ),
         ),
       ),
     );

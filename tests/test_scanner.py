@@ -858,9 +858,13 @@ class TestEvaluateZeroBase:
             evaluate_zero_base("600001", "反弹了", 10.5, bars, today=self.today, max_pct=8)
             is not None
         )
-        # 没从高处下来（高点不足 20%）
-        flat = make_fall_bars(self.today, 10.0, 12.0)
-        assert evaluate_zero_base("600001", "平地股", 10.1, flat, today=self.today) is None
+        # 没从高处下来（高点不足 50%）
+        for peak in (12.0, 30.0, 49.0):
+            flat = make_fall_bars(self.today, 10.0, peak)
+            assert evaluate_zero_base("600001", "平地股", 10.1, flat, today=self.today) is None
+        # 刚好过 50% 就算
+        just = make_fall_bars(self.today, 10.0, 52.0)
+        assert evaluate_zero_base("600001", "摔下来的", 10.1, just, today=self.today) is not None
         # 先低后高（一路北上）不算
         up = make_wave_bars(self.today, 10.0, [20, 42, 52])
         assert evaluate_zero_base("600001", "往上走", 10.1, up, today=self.today) is None

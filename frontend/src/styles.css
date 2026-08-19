@@ -1632,6 +1632,36 @@ button:disabled {
   font-size: 12px;
 }
 
+/* 零帧起手：自己的扫描条（按钮 + 状态 + 四个筛选开关） */
+.zero-base-bar {
+  display: flex;
+  align-items: center;
+  flex-wrap: wrap;
+  gap: 8px;
+}
+
+.zero-base-scan {
+  padding: 5px 12px;
+  font-size: 12px;
+  font-weight: 600;
+  color: #061016;
+  background: var(--blue);
+  border: 1px solid var(--blue);
+  border-radius: 4px;
+  cursor: pointer;
+}
+
+.zero-base-scan:disabled {
+  color: var(--muted);
+  background: var(--panel-soft);
+  border-color: var(--line);
+  cursor: default;
+}
+
+.zero-base-filters {
+  margin-left: auto;
+}
+
 /* 破势的两个视角：主线突破 / 蓄势待发 */
 .breakout-views {
   display: flex;

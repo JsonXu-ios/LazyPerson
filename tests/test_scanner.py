@@ -868,3 +868,79 @@ class TestEvaluateZeroBase:
         # 先低后高（一路北上）不算
         up = make_wave_bars(self.today, 10.0, [20, 42, 52])
         assert evaluate_zero_base("600001", "往上走", 10.1, up, today=self.today) is None
+
+
+class TestZeroBaseScanner:
+    """零帧起手：独立于八档局的一次扫描"""
+
+    today = date(2026, 7, 24)
+
+    def _fetchers(self):
+        quotes = [
+            {"symbol": "600001", "name": "摔下来的", "price": 10.1, "market_cap": 120.0, "turnover": 5.0},
+            {"symbol": "600002", "name": "小市值也要", "price": 10.1, "market_cap": 8.0, "turnover": 1.0},
+            {"symbol": "600003", "name": "ST某某", "price": 10.1, "market_cap": 100.0},
+            {"symbol": "430047", "name": "北交所", "price": 10.1, "market_cap": 100.0},
+        ]
+        fall = make_fall_bars(self.today, 10.0, 60.0)
+        flat = make_fall_bars(self.today, 10.0, 20.0)  # 只有 +20%，够不上 50%
+        bars = {"600001": fall, "600002": fall, "600003": fall, "430047": fall}
+
+        def kline(symbol: str):
+            return bars.get(symbol, flat)
+
+        return (lambda: quotes), kline
+
+    def _wait_done(self, scanner, timeout=5.0):
+        deadline = time.time() + timeout
+        while time.time() < deadline:
+            state = scanner.status()
+            if state["status"] in ("done", "failed"):
+                return state
+            time.sleep(0.05)
+        raise AssertionError("scan did not finish in time")
+
+    def test_scan_is_independent_and_ignores_market_cap(self, tmp_path):
+        from backend.app.scanner import ZeroBaseScanner
+
+        quote_fetcher, kline_fetcher = self._fetchers()
+        scanner = ZeroBaseScanner(
+            DummySettings(tmp_path),
+            quote_fetcher=quote_fetcher,
+            kline_fetcher=kline_fetcher,
+            max_workers=2,
+            fundamentals_enricher=_noop_fundamentals,
+        )
+        state = scanner.start()
+        assert state["status"] in ("running", "done")
+        state = self._wait_done(scanner)
+
+        assert state["status"] == "done"
+        assert state["total"] == 2  # 北交所与 ST 在候选阶段就排除了
+        # 小市值那只照样进（地板股不套市值参数）
+        assert sorted(hit["symbol"] for hit in state["hits"]) == ["600001", "600002"]
+        hit = {row["symbol"]: row for row in state["hits"]}["600001"]
+        assert hit["group"] == 0
+        assert hit["max_pct"] == pytest.approx(60.0, abs=0.5)
+        assert hit["turnover"] == 5.0  # 换手率直接取当日快照
+        assert "dividend_recent" in hit and "profit_ok" in hit and "revenue_ok" in hit
+
+    def test_start_is_idempotent_while_running(self, tmp_path):
+        from backend.app.scanner import ZeroBaseScanner
+
+        quote_fetcher, kline_fetcher = self._fetchers()
+
+        def slow_kline(symbol):
+            time.sleep(0.3)
+            return kline_fetcher(symbol)
+
+        scanner = ZeroBaseScanner(
+            DummySettings(tmp_path),
+            quote_fetcher=quote_fetcher,
+            kline_fetcher=slow_kline,
+            max_workers=1,
+            fundamentals_enricher=_noop_fundamentals,
+        )
+        scanner.start()
+        assert scanner.start()["status"] == "running"
+        self._wait_done(scanner)

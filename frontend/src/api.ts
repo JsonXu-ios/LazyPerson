@@ -11,6 +11,7 @@ import type {
   Quote,
   SymbolItem,
   WatchlistItem,
+  ZeroBaseStatus,
 } from "./types";
 
 async function request<T>(url: string, init?: RequestInit): Promise<ApiResponse<T>> {
@@ -63,6 +64,10 @@ export const api = {
       { method: "POST" },
     ),
   getMoneyGrabScanStatus: () => request<MoneyGrabStatus>("/api/moneygrab/scan/status"),
+  // 零帧起手：独立于八档局的一次扫描（不套市值/涨停参数）
+  startZeroBaseScan: (refresh = false) =>
+    request<ZeroBaseStatus>(`/api/zero-base/scan?refresh=${refresh}`, { method: "POST" }),
+  getZeroBaseScanStatus: () => request<ZeroBaseStatus>("/api/zero-base/scan/status"),
   popularStocks: (limit = 100, refresh = false) =>
     request<PopularStock[]>(`/api/popularity?limit=${limit}&refresh=${refresh}`),
   hotSectors: (limit = 20, refresh = false) =>

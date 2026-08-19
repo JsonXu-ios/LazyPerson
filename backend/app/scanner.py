@@ -297,7 +297,7 @@ def _breakout_stage(pct: float) -> int | None:
     return breakout_stage(pct)
 
 
-STATE_KEY = "moneygrab:last_scan:v15"  # v15: 增加 zero_base（零帧起手）名单
+STATE_KEY = "moneygrab:last_scan:v15"  # v15: 零帧起手已拆成独立扫描（ZeroBaseScanner）
 
 
 def _default_fundamentals_enricher(cache: CacheStore, hits: list[dict], caps: dict) -> None:
@@ -341,9 +341,6 @@ class ScanState:
     total: int = 0
     done: int = 0
     hits: list[dict] = field(default_factory=list)
-    #: 零帧起手（从高处下来、现在贴着 90 日低点的地板股）。与 hits 互斥：
-    #: hits 只收 pct≥20%，这批正是被档位规则筛掉的那些。
-    zero_base: list[dict] = field(default_factory=list)
     started_at: str | None = None
     finished_at: str | None = None
     error: str | None = None
@@ -573,8 +570,7 @@ class MoneyGrabScanner:
                 self._state.total = len(candidates)
                 self._state.stage = "kline"
 
-            def work(quote: dict) -> tuple[dict | None, dict | None]:
-                """一次日K读取算两套口径：(八档命中, 零帧起手)，两者互斥。"""
+            def work(quote: dict) -> dict | None:
                 for _ in range(2):  # 缓存写锁等瞬时失败重试一次
                     try:
                         bars = fetch_bars(str(quote["symbol"]))
@@ -587,26 +583,17 @@ class MoneyGrabScanner:
                         )
                         if row is not None:
                             row["limit_up"] = is_limit_up(quote.get("price"), quote.get("pre_close"))
-                        floor = evaluate_zero_base(
-                            str(quote["symbol"]),
-                            str(quote.get("name", "")),
-                            quote.get("price"),
-                            bars,
-                            turnover=quote.get("turnover"),
-                        )
-                        return row, floor
+                        return row
                     except Exception:
                         continue
-                return None, None
+                return None
 
             with ThreadPoolExecutor(max_workers=self.max_workers) as pool:
-                for row, floor in pool.map(work, candidates):
+                for row in pool.map(work, candidates):
                     with self._lock:
                         self._state.done += 1
                         if row is not None:
                             self._state.hits.append(row)
-                        if floor is not None:
-                            self._state.zero_base.append(floor)
 
             # 基本面标记（分红/净利润）：只查命中股，缓存3天；失败不影响扫描结果
             with self._lock:
@@ -648,8 +635,6 @@ class MoneyGrabScanner:
 
             with self._lock:
                 self._state.hits.sort(key=lambda item: (item["group"], -item["over"]))
-                # 摔得最狠的排前面（高点越高，跌回原地的落差越大）
-                self._state.zero_base.sort(key=lambda item: -item["max_pct"])
                 self._state.status = "done"
                 self._state.stage = ""
                 self._state.finished_at = now_utc().isoformat()
@@ -683,3 +668,166 @@ def get_scanner() -> MoneyGrabScanner:
         if _scanner is None:
             _scanner = MoneyGrabScanner(get_settings())
         return _scanner
+
+
+# ---------------- 零帧起手：独立扫描 ----------------
+
+ZERO_BASE_STATE_KEY = "zerobase:last_scan:v1"
+
+
+@dataclass
+class ZeroBaseState:
+    """零帧起手扫描状态。字段与 ScanState 同构，前端可以复用同一套渲染。"""
+
+    status: str = "idle"  # idle | running | done | failed
+    stage: str = ""  # snapshot | kline | fundamentals | ""
+    total: int = 0
+    done: int = 0
+    hits: list[dict] = field(default_factory=list)
+    started_at: str | None = None
+    finished_at: str | None = None
+    error: str | None = None
+    trade_date: str | None = None
+
+
+class ZeroBaseScanner:
+    """从高处（至少 +ZERO_BASE_MIN_PEAK%）一路摔回 90 日低点的地板股。
+
+    和八档局是**两次独立的扫描**：八档局只收 pct ≥ 20%，这批永远进不了它的
+    结果，而且它的市值/涨停参数会连带缩小候选池，所以这里自己跑一遍全市场。
+    命中后只补基本面（分红/净利润/估市值），换手率直接取当日快照。
+    """
+
+    def __init__(
+        self,
+        settings: Settings,
+        quote_fetcher=None,
+        kline_fetcher=None,
+        max_workers: int = 16,
+        fundamentals_enricher=None,
+    ):
+        self.settings = settings
+        self.max_workers = max_workers
+        self._quote_fetcher = quote_fetcher or (lambda: _fetch_all_a_quotes(self.settings))
+        self._kline_fetcher = kline_fetcher
+        self._fundamentals_enricher = fundamentals_enricher or _default_fundamentals_enricher
+        self._lock = threading.Lock()
+        self._state = ZeroBaseState()
+        self._thread: threading.Thread | None = None
+
+    def status(self) -> dict:
+        with self._lock:
+            if self._state.status == "idle":
+                restored = self._load_persisted()
+                if restored is not None:
+                    self._state = restored
+            return asdict(self._state)
+
+    def start(self, refresh: bool = False) -> dict:
+        with self._lock:
+            if self._state.status == "running":
+                return asdict(self._state)
+            self._state = ZeroBaseState(
+                status="running",
+                stage="snapshot",
+                started_at=now_utc().isoformat(),
+                trade_date=now_utc().date().isoformat(),
+            )
+            self._thread = threading.Thread(target=self._run, args=(refresh,), daemon=True)
+            self._thread.start()
+            return asdict(self._state)
+
+    def _run(self, refresh: bool) -> None:
+        try:
+            cache = CacheStore(self.settings)
+            fetch_bars = self._kline_fetcher
+            if fetch_bars is None:
+                fetch_bars = MoneyGrabScanner(self.settings)._default_kline_fetcher(cache, refresh)
+
+            quotes = self._quote_fetcher()
+            # 不套市值/涨停参数：地板股本来就该看全市场
+            candidates = [
+                quote
+                for quote in quotes
+                if eligible_symbol(str(quote.get("symbol", "")), str(quote.get("name", "")))
+                and quote.get("price") is not None
+            ]
+            with self._lock:
+                self._state.total = len(candidates)
+                self._state.stage = "kline"
+
+            def work(quote: dict) -> dict | None:
+                for _ in range(2):  # 缓存写锁等瞬时失败重试一次
+                    try:
+                        bars = fetch_bars(str(quote["symbol"]))
+                        return evaluate_zero_base(
+                            str(quote["symbol"]),
+                            str(quote.get("name", "")),
+                            quote.get("price"),
+                            bars,
+                            turnover=quote.get("turnover"),
+                        )
+                    except Exception:
+                        continue
+                return None
+
+            with ThreadPoolExecutor(max_workers=self.max_workers) as pool:
+                for row in pool.map(work, candidates):
+                    with self._lock:
+                        self._state.done += 1
+                        if row is not None:
+                            self._state.hits.append(row)
+
+            # 基本面：分红/净利润/估市值（换手率快照里已有），失败不影响结果
+            with self._lock:
+                self._state.stage = "fundamentals"
+                hits_snapshot = list(self._state.hits)
+            try:
+                caps = {str(quote.get("symbol", "")): quote.get("market_cap") for quote in candidates}
+                self._fundamentals_enricher(cache, hits_snapshot, caps)
+            except Exception:
+                pass
+            for row in hits_snapshot:
+                row.setdefault("dividend_recent", False)
+                row.setdefault("profit_ok", False)
+                row.setdefault("revenue_ok", False)
+                row.setdefault("revenue_ratio", None)
+
+            with self._lock:
+                # 摔得最狠的排前面（高点越高，跌回原地的落差越大）
+                self._state.hits.sort(key=lambda item: -item["max_pct"])
+                self._state.status = "done"
+                self._state.stage = ""
+                self._state.finished_at = now_utc().isoformat()
+                cache.set_state(
+                    ZERO_BASE_STATE_KEY, json.dumps(asdict(self._state), ensure_ascii=False)
+                )
+        except Exception as exc:
+            with self._lock:
+                self._state.status = "failed"
+                self._state.error = str(exc)
+                self._state.finished_at = now_utc().isoformat()
+
+    def _load_persisted(self) -> ZeroBaseState | None:
+        try:
+            raw = CacheStore(self.settings).get_state(ZERO_BASE_STATE_KEY)
+            if not raw:
+                return None
+            data = json.loads(raw)
+            if data.get("trade_date") != now_utc().date().isoformat():
+                return None
+            return ZeroBaseState(**data)
+        except Exception:
+            return None
+
+
+_zero_base_scanner: ZeroBaseScanner | None = None
+_zero_base_guard = threading.Lock()
+
+
+def get_zero_base_scanner() -> ZeroBaseScanner:
+    global _zero_base_scanner
+    with _zero_base_guard:
+        if _zero_base_scanner is None:
+            _zero_base_scanner = ZeroBaseScanner(get_settings())
+        return _zero_base_scanner

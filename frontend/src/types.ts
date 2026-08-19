@@ -187,8 +187,6 @@ export type MoneyGrabStatus = {
   total: number;
   done: number;
   hits: MoneyGrabHit[];
-  /** 零帧起手：从高处下来、现价贴着 90 日低点的地板股（与 hits 互斥，group=0） */
-  zero_base?: MoneyGrabHit[];
   started_at: string | null;
   finished_at: string | null;
   error: string | null;
@@ -241,4 +239,17 @@ export type PopularStock = {
   market_cap: number | null;
   industry: string;
   concepts: string[];
+};
+
+/** 零帧起手扫描状态（独立于八档局那次扫描，命中行 group=0） */
+export type ZeroBaseStatus = {
+  status: "idle" | "running" | "done" | "failed";
+  stage?: "snapshot" | "kline" | "fundamentals" | "";
+  total: number;
+  done: number;
+  hits: MoneyGrabHit[];
+  started_at: string | null;
+  finished_at: string | null;
+  error: string | null;
+  trade_date: string | null;
 };

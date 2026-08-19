@@ -1,14 +1,18 @@
 import { useCallback, useEffect, useRef, useState } from "react";
 import { api } from "../api";
-import type { MoneyGrabHit, MoneyGrabStatus } from "../types";
+import type { MoneyGrabHit, MoneyGrabStatus, ZeroBaseStatus } from "../types";
 import { normalizeError } from "../utils/format";
 
 const POLL_MS = 2000;
 // K线主线：破势按"已突破的最高主线"分组，与八档局的档位分界(20/40/70/100)是两套口径
 const MAIN_LINES = [20, 50, 80, 110, 140, 170, 200, 230];
 
-// 零帧起手：从高处下来、现在贴着 90 日低点的（后端 evaluate_zero_base 单独收的一批）
+// 零帧起手：至少从 +50% 摔回 90 日低点的。它有**自己的一次扫描**
+// （后端 ZeroBaseScanner），与八档局那次互不相干。
 const ZERO_BASE_LABEL = "零帧起手";
+const ZERO_BASE_MIN_PEAK = 50;
+const ZERO_BASE_MAX_PCT = 3;
+const TURNOVER_MIN = 3;
 
 // 蓄势待发：刚站上某条主线、还没走远（对齐 breakout.py::buildup_over）
 const BUILDUP_MAX_OVER = 5;
@@ -37,6 +41,17 @@ export function BreakoutPanel({ onSelect }: { onSelect: (symbol: string) => void
   const [activeLine, setActiveLine] = useState(50);
   const timerRef = useRef<number | null>(null);
 
+  // 零帧起手：自己的扫描状态 + 自己的轮询 + 自己的筛选
+  const [zero, setZero] = useState<ZeroBaseStatus | null>(null);
+  const [zeroError, setZeroError] = useState("");
+  const [zeroFilters, setZeroFilters] = useState({
+    dividend: false,
+    profit: false,
+    revenue: false,
+    turnover: false,
+  });
+  const zeroTimerRef = useRef<number | null>(null);
+
   const loadStatus = useCallback(async () => {
     try {
       const response = await api.getMoneyGrabScanStatus();
@@ -47,12 +62,47 @@ export function BreakoutPanel({ onSelect }: { onSelect: (symbol: string) => void
     }
   }, []);
 
+  const loadZeroStatus = useCallback(async () => {
+    try {
+      const response = await api.getZeroBaseScanStatus();
+      setZero(response.data);
+      setZeroError("");
+    } catch (exc) {
+      setZeroError(normalizeError(exc));
+    }
+  }, []);
+
+  const startZeroScan = useCallback(async () => {
+    try {
+      const response = await api.startZeroBaseScan();
+      setZero(response.data);
+      setZeroError("");
+    } catch (exc) {
+      setZeroError(normalizeError(exc));
+    }
+  }, []);
+
   useEffect(() => {
     loadStatus();
+    loadZeroStatus();
     return () => {
       if (timerRef.current !== null) window.clearInterval(timerRef.current);
+      if (zeroTimerRef.current !== null) window.clearInterval(zeroTimerRef.current);
     };
-  }, [loadStatus]);
+  }, [loadStatus, loadZeroStatus]);
+
+  useEffect(() => {
+    if (zero?.status !== "running") {
+      if (zeroTimerRef.current !== null) {
+        window.clearInterval(zeroTimerRef.current);
+        zeroTimerRef.current = null;
+      }
+      return;
+    }
+    if (zeroTimerRef.current === null) {
+      zeroTimerRef.current = window.setInterval(loadZeroStatus, POLL_MS);
+    }
+  }, [zero?.status, loadZeroStatus]);
 
   useEffect(() => {
     if (status?.status !== "running") {
@@ -83,9 +133,16 @@ export function BreakoutPanel({ onSelect }: { onSelect: (symbol: string) => void
     list.push(hit);
     byLine.set(line, list);
   });
-  // 零帧起手：数据源是后端单独收的 zero_base（八档局的 hits 里没有这批）
+  // 零帧起手：数据来自它自己那次扫描；筛选是展示层的（未知标记一律不显示）
+  const zeroRows = (zero?.hits || []).filter(
+    (hit) =>
+      (!zeroFilters.dividend || hit.dividend_recent) &&
+      (!zeroFilters.profit || hit.profit_ok) &&
+      (!zeroFilters.revenue || hit.revenue_ok) &&
+      (!zeroFilters.turnover || (hit.turnover != null && hit.turnover > TURNOVER_MIN)),
+  );
   const byPeak = new Map<number, MoneyGrabHit[]>();
-  (status?.zero_base || []).forEach((hit) => {
+  zeroRows.forEach((hit) => {
     const stage = MAIN_LINES.filter((line) => hit.max_pct >= line).length;
     if (stage < 1) return;
     const list = byPeak.get(stage) || [];
@@ -122,14 +179,21 @@ export function BreakoutPanel({ onSelect }: { onSelect: (symbol: string) => void
             ? "与八档局共用同一次扫描结果；按已突破的最高主线分组，每只股只出现在最高那组。"
             : view === "buildup"
               ? `与八档局共用同一次扫描结果；刚站上主线、超出 ≤${BUILDUP_MAX_OVER}% 的，按刚站上哪条线分组。`
-              : "至少从 +50% 一路摔回 90 日低点的（八档局的档位规则筛掉的那批，扫描时单独收）；按曾站上过哪条主线分组。App 端已拆成独立扫描。"}
+              : `独立的一次全市场扫描（不套市值/涨停参数）：至少从 +${ZERO_BASE_MIN_PEAK}% 一路摔回 90 日低点（≤${ZERO_BASE_MAX_PCT}%），按曾站上过哪条主线分组。`}
           {status?.status === "done" && ` · ${status.trade_date} 命中 ${status.hits.length}`}
         </span>
       </div>
-      {error && <p className="breakout-error">{error}</p>}
-      {status?.status !== "done" && !status?.hits.length && !status?.zero_base?.length && (
+      {view !== "zero" && error && <p className="breakout-error">{error}</p>}
+      {view === "zero" && zeroError && <p className="breakout-error">{zeroError}</p>}
+      {view !== "zero" && status?.status !== "done" && !status?.hits.length && (
         <p className="breakout-meta">请先到「八档局」执行一次扫描</p>
       )}
+      {view === "zero" && <ZeroBaseBar
+        zero={zero}
+        filters={zeroFilters}
+        onToggle={(key) => setZeroFilters((prev) => ({ ...prev, [key]: !prev[key] }))}
+        onScan={startZeroScan}
+      />}
       <div className="breakout-tabs">
         {view === "broken"
           ? MAIN_LINES.slice(1).map((_, index) => {
@@ -211,6 +275,64 @@ export function BreakoutPanel({ onSelect }: { onSelect: (symbol: string) => void
             )}
           </tbody>
         </table>
+      </div>
+    </div>
+  );
+}
+
+type ZeroFilterKey = "dividend" | "profit" | "revenue" | "turnover";
+
+const ZERO_FILTERS: { key: ZeroFilterKey; label: string }[] = [
+  { key: "dividend", label: "分红" },
+  { key: "profit", label: "净利润" },
+  { key: "revenue", label: "估市值" },
+  { key: "turnover", label: `换手>${TURNOVER_MIN}%` },
+];
+
+/** 零帧起手自己的扫描条：开始扫描 + 进度 + 四个筛选开关 */
+function ZeroBaseBar({
+  zero,
+  filters,
+  onToggle,
+  onScan,
+}: {
+  zero: ZeroBaseStatus | null;
+  filters: Record<ZeroFilterKey, boolean>;
+  onToggle: (key: ZeroFilterKey) => void;
+  onScan: () => void;
+}) {
+  const running = zero?.status === "running";
+  const label = running
+    ? zero?.stage === "snapshot"
+      ? "拉行情快照…"
+      : zero?.stage === "fundamentals"
+        ? "补基本面…"
+        : `扫描中 ${zero?.done ?? 0}/${zero?.total ?? 0}`
+    : zero?.status === "done"
+      ? "重新扫描"
+      : "开始扫描";
+  return (
+    <div className="breakout-actions zero-base-bar">
+      <button className="zero-base-scan" disabled={running} onClick={onScan}>
+        {label}
+      </button>
+      <span className="breakout-meta">
+        {zero?.status === "done"
+          ? `${zero.trade_date ?? ""} 命中 ${zero.hits.length}`
+          : zero?.status === "failed"
+            ? zero.error || "扫描失败"
+            : "与八档局各扫各的"}
+      </span>
+      <div className="breakout-tabs zero-base-filters">
+        {ZERO_FILTERS.map((item) => (
+          <button
+            key={item.key}
+            className={filters[item.key] ? "active" : ""}
+            onClick={() => onToggle(item.key)}
+          >
+            {item.label}
+          </button>
+        ))}
       </div>
     </div>
   );

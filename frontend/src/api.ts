@@ -68,6 +68,8 @@ export const api = {
   startZeroBaseScan: (refresh = false) =>
     request<ZeroBaseStatus>(`/api/zero-base/scan?refresh=${refresh}`, { method: "POST" }),
   getZeroBaseScanStatus: () => request<ZeroBaseStatus>("/api/zero-base/scan/status"),
+  // 只补基本面标记（分红/净利润/估市值），不重扫
+  enrichZeroBase: () => request<ZeroBaseStatus>("/api/zero-base/enrich", { method: "POST" }),
   popularStocks: (limit = 100, refresh = false) =>
     request<PopularStock[]>(`/api/popularity?limit=${limit}&refresh=${refresh}`),
   hotSectors: (limit = 20, refresh = false) =>

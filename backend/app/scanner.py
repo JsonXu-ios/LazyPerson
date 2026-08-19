@@ -675,6 +675,36 @@ def get_scanner() -> MoneyGrabScanner:
 ZERO_BASE_STATE_KEY = "zerobase:last_scan:v1"
 
 
+#: 基本面补充的时间上限。baostock 是阻塞式 socket，服务端慢下来时
+#: login/query 会一直挂着——之前零帧起手就卡在 fundamentals 阶段几分钟不动，
+#: 标记全是 null，界面上四个筛选看着就像"没工作"。
+FUNDAMENTALS_STAGE_TIMEOUT = 60.0
+
+
+def run_with_timeout(func, *args, timeout: float) -> str | None:
+    """限时跑一段可能阻塞的取数。返回 None = 正常跑完，否则返回一句提示。
+
+    用 daemon 线程而不是 ThreadPoolExecutor：后者退出时会 join 工作线程，
+    卡住的任务照样把调用方拖死，等于没限时。超时后那条线程继续跑完并写缓存，
+    下次扫描直接命中，不算白费。
+    """
+    box: dict = {}
+
+    def runner() -> None:
+        try:
+            func(*args)
+            box["ok"] = True
+        except Exception as exc:  # 取数失败不该让整轮扫描失败
+            box["error"] = str(exc)
+
+    worker = threading.Thread(target=runner, daemon=True)
+    worker.start()
+    worker.join(timeout)
+    if worker.is_alive():
+        return f"基本面补充超时（>{int(timeout)}s），标记留作未补充，可以稍后重试"
+    return f"基本面补充失败：{box['error']}" if "error" in box else None
+
+
 @dataclass
 class ZeroBaseState:
     """零帧起手扫描状态。字段与 ScanState 同构，前端可以复用同一套渲染。"""
@@ -688,6 +718,8 @@ class ZeroBaseState:
     finished_at: str | None = None
     error: str | None = None
     trade_date: str | None = None
+    #: 基本面阶段的提示（超时/失败时非空；正常跑完是 None）
+    enrich_note: str | None = None
 
 
 class ZeroBaseScanner:
@@ -705,9 +737,11 @@ class ZeroBaseScanner:
         kline_fetcher=None,
         max_workers: int = 16,
         fundamentals_enricher=None,
+        enrich_timeout: float = FUNDAMENTALS_STAGE_TIMEOUT,
     ):
         self.settings = settings
         self.max_workers = max_workers
+        self.enrich_timeout = enrich_timeout
         self._quote_fetcher = quote_fetcher or (lambda: _fetch_all_a_quotes(self.settings))
         self._kline_fetcher = kline_fetcher
         self._fundamentals_enricher = fundamentals_enricher or _default_fundamentals_enricher
@@ -760,13 +794,17 @@ class ZeroBaseScanner:
                 for _ in range(2):  # 缓存写锁等瞬时失败重试一次
                     try:
                         bars = fetch_bars(str(quote["symbol"]))
-                        return evaluate_zero_base(
+                        row = evaluate_zero_base(
                             str(quote["symbol"]),
                             str(quote.get("name", "")),
                             quote.get("price"),
                             bars,
                             turnover=quote.get("turnover"),
                         )
+                        if row is not None:
+                            # 估市值判定要用总市值，重试补标记时没有快照可查
+                            row["market_cap"] = quote.get("market_cap")
+                        return row
                     except Exception:
                         continue
                 return None
@@ -778,24 +816,72 @@ class ZeroBaseScanner:
                         if row is not None:
                             self._state.hits.append(row)
 
-            # 基本面：分红/净利润/估市值（换手率快照里已有），失败不影响结果
+            # 基本面：分红/净利润/估市值（换手率快照里已有）。限时跑，
+            # 超时/失败都不影响扫描收尾——标记保持"未补充"，界面可以重试。
             with self._lock:
                 self._state.stage = "fundamentals"
                 hits_snapshot = list(self._state.hits)
-            try:
-                caps = {str(quote.get("symbol", "")): quote.get("market_cap") for quote in candidates}
-                self._fundamentals_enricher(cache, hits_snapshot, caps)
-            except Exception:
-                pass
-            for row in hits_snapshot:
-                row.setdefault("dividend_recent", False)
-                row.setdefault("profit_ok", False)
-                row.setdefault("revenue_ok", False)
-                row.setdefault("revenue_ratio", None)
+            caps = {str(quote.get("symbol", "")): quote.get("market_cap") for quote in candidates}
+            note = run_with_timeout(
+                self._fundamentals_enricher,
+                cache,
+                hits_snapshot,
+                caps,
+                timeout=self.enrich_timeout,
+            )
+            if note is None:
+                for row in hits_snapshot:
+                    row.setdefault("dividend_recent", False)
+                    row.setdefault("profit_ok", False)
+                    row.setdefault("revenue_ok", False)
+                    row.setdefault("revenue_ratio", None)
 
             with self._lock:
+                self._state.enrich_note = note
                 # 摔得最狠的排前面（高点越高，跌回原地的落差越大）
                 self._state.hits.sort(key=lambda item: -item["max_pct"])
+                self._state.status = "done"
+                self._state.stage = ""
+                self._state.finished_at = now_utc().isoformat()
+                cache.set_state(
+                    ZERO_BASE_STATE_KEY, json.dumps(asdict(self._state), ensure_ascii=False)
+                )
+        except Exception as exc:
+            with self._lock:
+                self._state.status = "failed"
+                self._state.error = str(exc)
+                self._state.finished_at = now_utc().isoformat()
+
+    def enrich(self) -> dict:
+        """只补基本面标记（不重扫）。扫描时超时/失败留下的"未补充"用它收尾。"""
+        with self._lock:
+            if self._state.status == "running":
+                return asdict(self._state)
+            if self._state.status == "idle":
+                restored = self._load_persisted()
+                if restored is not None:
+                    self._state = restored
+            if not self._state.hits:
+                return asdict(self._state)
+            self._state.status = "running"
+            self._state.stage = "fundamentals"
+            self._state.enrich_note = None
+            self._thread = threading.Thread(target=self._run_enrich, daemon=True)
+            self._thread.start()
+            return asdict(self._state)
+
+    def _run_enrich(self) -> None:
+        try:
+            cache = CacheStore(self.settings)
+            with self._lock:
+                hits_snapshot = list(self._state.hits)
+            pending = [row for row in hits_snapshot if row.get("profit_ok") is None]
+            caps = {str(row["symbol"]): row.get("market_cap") for row in pending}
+            note = run_with_timeout(
+                self._fundamentals_enricher, cache, pending, caps, timeout=self.enrich_timeout
+            )
+            with self._lock:
+                self._state.enrich_note = note
                 self._state.status = "done"
                 self._state.stage = ""
                 self._state.finished_at = now_utc().isoformat()

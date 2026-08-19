@@ -252,4 +252,6 @@ export type ZeroBaseStatus = {
   finished_at: string | null;
   error: string | null;
   trade_date: string | null;
+  /** 基本面阶段的提示（超时/失败时非空） */
+  enrich_note?: string | null;
 };

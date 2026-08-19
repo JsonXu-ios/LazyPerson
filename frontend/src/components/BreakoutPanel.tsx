@@ -80,6 +80,16 @@ export function BreakoutPanel({ onSelect }: { onSelect: (symbol: string) => void
     }
   }, []);
 
+  const enrichZero = useCallback(async () => {
+    try {
+      const response = await api.enrichZeroBase();
+      setZero(response.data);
+      setZeroError("");
+    } catch (exc) {
+      setZeroError(zeroBaseError(exc));
+    }
+  }, []);
+
   const startZeroScan = useCallback(async () => {
     try {
       const response = await api.startZeroBaseScan();
@@ -196,12 +206,15 @@ export function BreakoutPanel({ onSelect }: { onSelect: (symbol: string) => void
       {view !== "zero" && status?.status !== "done" && !status?.hits.length && (
         <p className="breakout-meta">请先到「八档局」执行一次扫描</p>
       )}
-      {view === "zero" && <ZeroBaseBar
-        zero={zero}
-        filters={zeroFilters}
-        onToggle={(key) => setZeroFilters((prev) => ({ ...prev, [key]: !prev[key] }))}
-        onScan={startZeroScan}
-      />}
+      {view === "zero" && (
+        <ZeroBaseBar
+          zero={zero}
+          filters={zeroFilters}
+          onToggle={(key) => setZeroFilters((prev) => ({ ...prev, [key]: !prev[key] }))}
+          onScan={startZeroScan}
+          onEnrich={enrichZero}
+        />
+      )}
       <div className="breakout-tabs">
         {view === "broken"
           ? MAIN_LINES.slice(1).map((_, index) => {
@@ -303,13 +316,17 @@ function ZeroBaseBar({
   filters,
   onToggle,
   onScan,
+  onEnrich,
 }: {
   zero: ZeroBaseStatus | null;
   filters: Record<ZeroFilterKey, boolean>;
   onToggle: (key: ZeroFilterKey) => void;
   onScan: () => void;
+  onEnrich: () => void;
 }) {
   const running = zero?.status === "running";
+  // 基本面没补上的（三态：null = 未补充）。筛选依赖它们，缺了就等于筛不出东西
+  const unknown = (zero?.hits || []).filter((hit) => hit.profit_ok == null).length;
   const label = running
     ? zero?.stage === "snapshot"
       ? "拉行情快照…"
@@ -337,11 +354,23 @@ function ZeroBaseBar({
             key={item.key}
             className={filters[item.key] ? "active" : ""}
             onClick={() => onToggle(item.key)}
+            disabled={item.key !== "turnover" && unknown > 0 && unknown === (zero?.hits.length || 0)}
+            title={
+              item.key !== "turnover" && unknown > 0
+                ? `还有 ${unknown} 只基本面未补充，补完才筛得准`
+                : undefined
+            }
           >
             {item.label}
           </button>
         ))}
       </div>
+      {!running && unknown > 0 && (
+        <button className="zero-base-enrich" onClick={onEnrich}>
+          ↻ {unknown} 只基本面未补充，点这里补充
+          {zero?.enrich_note ? `（${zero.enrich_note}）` : ""}
+        </button>
+      )}
     </div>
   );
 }

@@ -215,6 +215,11 @@ def create_app() -> FastAPI:
         """零帧起手：独立于八档局的一次全市场扫描（不套市值/涨停参数）。"""
         return ApiResponse(data=get_zero_base_scanner().start(refresh=refresh))
 
+    @app.post("/api/zero-base/enrich", response_model=ApiResponse)
+    def enrich_zero_base() -> ApiResponse:
+        """只补基本面标记（分红/净利润/估市值），不重扫。"""
+        return ApiResponse(data=get_zero_base_scanner().enrich())
+
     @app.get("/api/zero-base/scan/status", response_model=ApiResponse)
     def zero_base_scan_status() -> ApiResponse:
         return ApiResponse(data=get_zero_base_scanner().status())

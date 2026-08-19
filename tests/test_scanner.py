@@ -944,3 +944,65 @@ class TestZeroBaseScanner:
         scanner.start()
         assert scanner.start()["status"] == "running"
         self._wait_done(scanner)
+
+    def test_fundamentals_stage_is_time_bounded(self, tmp_path):
+        """baostock 卡住时不能让整轮扫描永远 running：超时放行，标记留作未补充"""
+        from backend.app.scanner import ZeroBaseScanner
+
+        quote_fetcher, kline_fetcher = self._fetchers()
+
+        def hung_enricher(cache, hits, caps):
+            time.sleep(5)  # 模拟 baostock 挂住
+
+        scanner = ZeroBaseScanner(
+            DummySettings(tmp_path),
+            quote_fetcher=quote_fetcher,
+            kline_fetcher=kline_fetcher,
+            max_workers=2,
+            fundamentals_enricher=hung_enricher,
+            enrich_timeout=0.2,
+        )
+        scanner.start()
+        state = self._wait_done(scanner)
+
+        assert state["status"] == "done"
+        assert "超时" in (state["enrich_note"] or "")
+        # 超时不谎报成"不达标"：保持未补充，界面可以重试
+        assert all(hit.get("profit_ok") is None for hit in state["hits"])
+
+    def test_enrich_retries_only_missing_marks(self, tmp_path):
+        from backend.app.scanner import ZeroBaseScanner
+
+        quote_fetcher, kline_fetcher = self._fetchers()
+        calls: list[list[str]] = []
+
+        def enricher(cache, hits, caps):
+            calls.append([row["symbol"] for row in hits])
+            for row in hits:
+                row["dividend_recent"] = True
+                row["profit_ok"] = True
+                row["revenue_ok"] = False
+                row["revenue_ratio"] = 0.5
+
+        def hung(cache, hits, caps):
+            time.sleep(5)
+
+        scanner = ZeroBaseScanner(
+            DummySettings(tmp_path),
+            quote_fetcher=quote_fetcher,
+            kline_fetcher=kline_fetcher,
+            max_workers=2,
+            fundamentals_enricher=hung,
+            enrich_timeout=0.2,
+        )
+        scanner.start()
+        self._wait_done(scanner)
+
+        # 换成正常的取数，重试一次就补齐了（不用重扫）
+        scanner._fundamentals_enricher = enricher
+        scanner.enrich()
+        state = self._wait_done(scanner)
+
+        assert state["enrich_note"] is None
+        assert all(hit["profit_ok"] is True for hit in state["hits"])
+        assert sorted(calls[0]) == ["600001", "600002"]  # 只补未补充的那些

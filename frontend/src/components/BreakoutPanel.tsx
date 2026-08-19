@@ -31,6 +31,14 @@ function stageLabel(stage: number) {
   return `${lower}→${upper}%`;
 }
 
+/** 零帧起手的接口是新加的：后端没重启时会 404，直接说清楚该干什么 */
+function zeroBaseError(exc: unknown) {
+  const message = normalizeError(exc);
+  return /not found|404/i.test(message)
+    ? "后端还是旧进程，没有 /api/zero-base 接口：重启一次 uvicorn 就好"
+    : message;
+}
+
 export function BreakoutPanel({ onSelect }: { onSelect: (symbol: string) => void }) {
   const [status, setStatus] = useState<MoneyGrabStatus | null>(null);
   const [error, setError] = useState("");
@@ -68,7 +76,7 @@ export function BreakoutPanel({ onSelect }: { onSelect: (symbol: string) => void
       setZero(response.data);
       setZeroError("");
     } catch (exc) {
-      setZeroError(normalizeError(exc));
+      setZeroError(zeroBaseError(exc));
     }
   }, []);
 
@@ -78,7 +86,7 @@ export function BreakoutPanel({ onSelect }: { onSelect: (symbol: string) => void
       setZero(response.data);
       setZeroError("");
     } catch (exc) {
-      setZeroError(normalizeError(exc));
+      setZeroError(zeroBaseError(exc));
     }
   }, []);
 

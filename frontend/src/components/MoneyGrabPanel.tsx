@@ -9,6 +9,7 @@ const MARKET_CAP_MIN = 40; // 亿元
 const TURNOVER_MIN = 3;   // 当日换手率%
 const CHG3_MIN = 7;       // 近3日涨幅%
 const CHG5_MIN = 14;      // 近5日涨幅%
+const SWING_MIN = 40;     // 90日内低点后最高涨幅%（不到就是没动过）
 
 // 档位分界 20/40/70/100/130/160/190/220：一档[20,40)、二档[40,70)、三档[70,100)…
 const GROUP_LOWER = [20, 40, 70, 100, 130, 160, 190, 220];
@@ -41,9 +42,13 @@ export function MoneyGrabPanel({ onSelect }: { onSelect: (symbol: string) => voi
   const [lonFilter, setLonFilter] = useState(false);             // 日/周/月 LON 多头
   const [northFilter, setNorthFilter] = useState(false);         // 一路北上：低点在前高点在后
   const [hotFilter, setHotFilter] = useState(false);             // 只看今日热点概念板块内的
+  const [popularFilter, setPopularFilter] = useState(false);     // 只看东财人气榜 TOP100
+  const [popularSet, setPopularSet] = useState<Set<string> | null>(null); // 榜单代码（打开时才拉）
+  const [popularLoading, setPopularLoading] = useState(false);
   const [turnoverFilter, setTurnoverFilter] = useState(false);   // 当日换手率>3%
   const [chg3Filter, setChg3Filter] = useState(false);           // 近3日涨幅>7%
   const [chg5Filter, setChg5Filter] = useState(false);           // 近5日涨幅>14%
+  const [swingFilter, setSwingFilter] = useState(true);          // 90日波动≥40%，默认开
   const timerRef = useRef<number | null>(null);
 
   const loadStatus = useCallback(async () => {
@@ -102,9 +107,11 @@ export function MoneyGrabPanel({ onSelect }: { onSelect: (symbol: string) => voi
       (!lonFilter || hit.lon_ok === true) &&
       (!northFilter || hit.north_ok === true) &&
       (!hotFilter || hit.hot_sector === true) &&
+      (!popularFilter || (popularSet?.has(hit.symbol) ?? false)) &&
       (!turnoverFilter || (hit.turnover ?? -1) > TURNOVER_MIN) &&
       (!chg3Filter || (hit.chg3 ?? -999) > CHG3_MIN) &&
-      (!chg5Filter || (hit.chg5 ?? -999) > CHG5_MIN),
+      (!chg5Filter || (hit.chg5 ?? -999) > CHG5_MIN) &&
+      (!swingFilter || hit.max_pct >= SWING_MIN),
   );
   const groupCounts = new Map<number, number>();
   const groupHits = new Map<number, MoneyGrabHit[]>();
@@ -216,6 +223,38 @@ export function MoneyGrabPanel({ onSelect }: { onSelect: (symbol: string) => voi
             onChange={(event) => setChg5Filter(event.target.checked)}
           />
           5日&gt;{CHG5_MIN}%
+        </label>
+        <label className="moneygrab-filter" title={`90 日内低点之后收盘最高涨幅 ≥ ${SWING_MIN}%；从 0% 起一直没涨到过 ${SWING_MIN}% 的去掉`}>
+          <input
+            type="checkbox"
+            checked={swingFilter}
+            onChange={(event) => setSwingFilter(event.target.checked)}
+          />
+          波动≥{SWING_MIN}%
+        </label>
+        <label
+          className="moneygrab-filter"
+          title={`东方财富人气榜 TOP100 里的${popularSet ? `（当前 ${popularSet.size} 只）` : ""}`}
+        >
+          <input
+            type="checkbox"
+            checked={popularFilter}
+            onChange={async (event) => {
+              const on = event.target.checked;
+              setPopularFilter(on);
+              if (!on || popularSet || popularLoading) return;
+              setPopularLoading(true);
+              try {
+                const response = await api.popularStocks(100);
+                setPopularSet(new Set(response.data.map((row) => row.symbol)));
+              } catch {
+                // 拿不到榜单：开关保持打开但一只都不显示，和 app 端一致
+              } finally {
+                setPopularLoading(false);
+              }
+            }}
+          />
+          人气股{popularLoading ? "…" : ""}
         </label>
         <label className="moneygrab-filter" title="所属概念板块中有今日涨幅前列的热点板块">
           <input

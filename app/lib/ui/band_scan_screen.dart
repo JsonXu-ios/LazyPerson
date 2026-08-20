@@ -414,6 +414,22 @@ class _BandScanScreenState extends State<BandScanScreen> {
             value: controller.chg5Filter,
             onChanged: controller.setChg5Filter,
           ),
+          // 90 日内从 0% 起没涨到过 40% 的去掉（默认开）
+          _FilterChip(
+            label: '波动≥${swingFilterMin.toInt()}%',
+            value: controller.swingFilter,
+            onChanged: controller.setSwingFilter,
+          ),
+          // 东财人气榜 TOP100（打开时才拉榜单）
+          _FilterChip(
+            label: controller.popularLoading
+                ? '人气股…'
+                : controller.popularSymbols == null
+                    ? '人气股'
+                    : '人气股 ${controller.popularSymbols!.length}',
+            value: controller.popularFilter,
+            onChanged: controller.setPopularFilter,
+          ),
         ];
 
   Widget _failure() {

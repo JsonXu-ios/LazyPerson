@@ -16,6 +16,7 @@ import 'package:lazyperson/data/fundamentals_service.dart';
 import 'package:lazyperson/data/local_store.dart';
 import 'package:lazyperson/data/lon_check_service.dart';
 import 'package:lazyperson/data/market_repository.dart';
+import 'package:lazyperson/data/popularity_service.dart';
 import 'package:lazyperson/data/providers/eastmoney_provider.dart';
 import 'package:lazyperson/data/sync_service.dart';
 import 'package:lazyperson/logic/band_scanner.dart';
@@ -187,6 +188,24 @@ Quote _quote(String symbol, String name,
       marketCap: 100.0,
       turnover: turnover,
     );
+
+/// 假人气榜：不打网络，直接给代码集合；[failing] 时抛错（模拟榜单拿不到）
+class _FakePopularity extends PopularityService {
+  final Set<String> symbols;
+  final bool failing;
+  int calls = 0;
+
+  _FakePopularity(LocalStore store, MarketRepository repository, this.symbols,
+      {this.failing = false})
+      : super(store: store, sectors: repository.sectors);
+
+  @override
+  Future<Set<String>> topSymbols({int limit = 100}) async {
+    calls += 1;
+    if (failing) throw StateError('rank down');
+    return symbols;
+  }
+}
 
 void main() {
   TestWidgetsFlutterBinding.ensureInitialized();
@@ -563,6 +582,7 @@ void main() {
       // 600003 什么缓存都没有 → 全未知
       await controller.startScan();
       controller.setLimitUpFilter(false); // 测试数据无涨停，先放开
+      controller.setSwingFilter(false); // fixture 波段高 35%，先放开
 
       expect(controller.dividendFilter, isFalse);
       expect(controller.profitFilter, isFalse);
@@ -594,6 +614,7 @@ void main() {
       ]);
       await controller.startScan();
       controller.setLimitUpFilter(false);
+      controller.setSwingFilter(false);
 
       expect(controller.turnoverFilter, isFalse);
       expect(controller.chg3Filter, isFalse);
@@ -622,6 +643,7 @@ void main() {
           '600001', _waveBars(closesPct: [25, 26, 27, 28, 29]));
       await controller.startScan();
       controller.setLimitUpFilter(false);
+      controller.setSwingFilter(false);
 
       final hit = controller.hits.single;
       expect(hit.chg3, closeTo(3.17, 0.01));
@@ -633,12 +655,84 @@ void main() {
       expect(controller.visibleHits, isEmpty); // 3 日不达标被过滤
     });
 
+    test('波动≥40% 默认开：90 日内从 0% 起没涨到过 40% 的去掉', () async {
+      await setUpScan(const {}, quoteOverride: [
+        _quote('600001', '没动过', price: 13.5), // 波段高 35%，现价 35%
+        _quote('600002', '动过的', price: 13.5), // 曾冲到 45% 再回到 35%
+      ]);
+      await store.upsertDailyBars('600002', _waveBars(closesPct: [20, 45, 35]));
+      await controller.startScan();
+      controller.setLimitUpFilter(false);
+      controller.setShowFromTop(true); // 600002 是回落形态，先并进来
+
+      expect(controller.swingFilter, isTrue);
+      final peaks = {for (final hit in controller.hits) hit.symbol: hit.maxPct};
+      expect(peaks['600001'], lessThan(40));
+      expect(peaks['600002'], greaterThanOrEqualTo(40));
+      // 默认开：只剩真正动过的那只
+      expect(controller.visibleHits.map((hit) => hit.symbol), ['600002']);
+
+      controller.setSwingFilter(false);
+      expect(controller.visibleHits, hasLength(2));
+    });
+
+    test('人气股开关：打开时才拉榜单，只留榜上的；榜单拿不到一只都不显示', () async {
+      await setUpScan(const {}, quoteOverride: [
+        _quote('600001', '甲股'),
+        _quote('600002', '乙股'),
+        _quote('600003', '丙股'),
+      ]);
+      final popularity = _FakePopularity(store, repository, {'600002', '000999'});
+      final scan = BandScanController(repository,
+          nowFn: () => _today,
+          fundamentals: fundamentals,
+          lonCheck: lonCheck,
+          popularity: popularity,
+          autoComplete: false);
+      await scan.startScan();
+      scan.setLimitUpFilter(false);
+      scan.setSwingFilter(false);
+
+      expect(scan.popularFilter, isFalse);
+      expect(popularity.calls, 0); // 没打开就不拉榜单
+      expect(scan.visibleHits, hasLength(3));
+
+      scan.setPopularFilter(true);
+      await Future<void>.delayed(Duration.zero); // 等榜单回来
+      expect(popularity.calls, 1);
+      expect(scan.popularSymbols, {'600002', '000999'});
+      expect(scan.visibleHits.map((hit) => hit.symbol), ['600002']);
+
+      // 关了再开：榜单已有，不重拉
+      scan.setPopularFilter(false);
+      scan.setPopularFilter(true);
+      expect(popularity.calls, 1);
+      scan.dispose();
+
+      // 榜单拿不到：开关开着但一只都不显示（宁可漏也不乱给）
+      final broken = BandScanController(repository,
+          nowFn: () => _today,
+          fundamentals: fundamentals,
+          lonCheck: lonCheck,
+          popularity: _FakePopularity(store, repository, {}, failing: true),
+          autoComplete: false);
+      await broken.startScan();
+      broken.setLimitUpFilter(false);
+      broken.setSwingFilter(false);
+      broken.setPopularFilter(true);
+      await Future<void>.delayed(Duration.zero);
+      expect(broken.popularSymbols, isNull);
+      expect(broken.visibleHits, isEmpty);
+      broken.dispose();
+    });
+
     test('回落（fromTop）默认隐藏，「含回落」开关打开后并入列表', () async {
       // 收盘冲到 45%（二档）后现价 35%（一档区间）→ fromTop
       await setUpScan(const {}, quoteOverride: [_quote('600001', '甲股')]);
       await store.upsertDailyBars('600001', _waveBars(closesPct: [20, 45, 45]));
       await controller.startScan();
       controller.setLimitUpFilter(false);
+      controller.setSwingFilter(false);
 
       final hit = controller.hits.single;
       expect(hit.group, 1);
@@ -659,6 +753,7 @@ void main() {
       await setUpScan(const {}, quoteOverride: quotes);
       await controller.startScan();
       controller.setLimitUpFilter(false);
+      controller.setSwingFilter(false);
 
       final bySymbol = {for (final hit in controller.hits) hit.symbol: hit};
       expect(bySymbol['600001']!.group, 1);

@@ -186,6 +186,11 @@ const chg3FilterMin = 7.0;
 /// 近 5 日涨幅筛选阈值（%），开关“5日>14%”
 const chg5FilterMin = 14.0;
 
+/// 90 日波动筛选阈值（%），开关“波动≥40%”：
+/// 低点之后收盘最高涨幅（maxPct）不到这个数的，说明这 90 天从 0% 起就没
+/// 真正动过，去掉。只影响一档里那批（二档起 pct 本身就 ≥40）。
+const swingFilterMin = 40.0;
+
 /// 近 [days] 日涨幅%（对齐 backend/app/scanner.py 的 chg3/chg5）：
 /// 基准取本地日 K 窗口的收盘序列——窗口最后一根就是今天则取
 /// closes[-(days+1)]（今天那根是“现在”，不能当基准），否则取 closes[-days]；

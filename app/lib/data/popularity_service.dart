@@ -143,6 +143,24 @@ class PopularityService {
     }
   }
 
+  /// 人气榜 TOP N 的代码集合（八档局「人气股」筛选用）。
+  /// 优先吃 5 分钟缓存里的完整榜单；没有缓存就只拉榜单接口，不补行情/板块——
+  /// 筛选只需要"谁在榜上"。失败回落过期缓存，再没有就空集（等于筛不出东西）。
+  Future<Set<String>> topSymbols({int limit = 100}) async {
+    final cached = await store.readFrame(popularityCacheKey);
+    if (cached != null && !cached.stale) {
+      return {for (final row in _decode(cached.payloadJson).take(limit)) row.symbol};
+    }
+    try {
+      final ranks = await _fetchRank(limit);
+      return {for (final row in ranks) row.symbol};
+    } catch (_) {
+      final stale = await store.readFrame(popularityCacheKey, allowStale: true);
+      if (stale == null) return {};
+      return {for (final row in _decode(stale.payloadJson).take(limit)) row.symbol};
+    }
+  }
+
   List<PopularStock> _decode(String payloadJson) => [
         for (final row in jsonDecode(payloadJson) as List)
           PopularStock.fromJson((row as Map).cast<String, Object?>()),

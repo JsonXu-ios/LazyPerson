@@ -16,6 +16,7 @@ import 'package:flutter/foundation.dart';
 import '../data/fundamentals_service.dart';
 import '../data/lon_check_service.dart';
 import '../data/market_repository.dart';
+import '../data/popularity_service.dart';
 import '../logic/band_scanner.dart';
 import '../models/models.dart';
 
@@ -49,6 +50,9 @@ class BandScanController extends ChangeNotifier {
   /// LON 多头标记（日/周/月三周期），测试可注入假实现
   late final LonCheckService lonCheck;
 
+  /// 东财人气榜（「人气股」筛选用），测试可注入假实现
+  late final PopularityService popularity;
+
   /// 扫描完成后是否自动在后台补数据（日K + 基本面/LON）。
   /// 关掉可以只验证"扫描主流程不联网"这件事（测试用）。
   final bool autoComplete;
@@ -57,8 +61,15 @@ class BandScanController extends ChangeNotifier {
       {DateTime Function()? nowFn,
       FundamentalsService? fundamentals,
       LonCheckService? lonCheck,
+      PopularityService? popularity,
       this.autoComplete = true})
       : now = nowFn ?? DateTime.now {
+    this.popularity = popularity ??
+        PopularityService(
+          store: repository.store,
+          sectors: repository.sectors,
+          tencent: repository.tencent,
+        );
     this.fundamentals = fundamentals ??
         FundamentalsService(
           store: repository.store,
@@ -158,6 +169,20 @@ class BandScanController extends ChangeNotifier {
   /// 展示层过滤：近 5 日涨幅 > 14%，默认关
   bool chg5Filter = false;
 
+  /// 展示层过滤：90 日内波动 ≥ 40%（低点后收盘最高涨幅），默认开——
+  /// 从 0% 起一直没涨到过 40% 的，这 90 天基本没动，去掉
+  bool swingFilter = true;
+
+  /// 展示层过滤：只看东财人气榜 TOP100 里的，默认关。
+  /// 榜单打开开关时才拉（5 分钟缓存），没拉到之前等于一只都不显示。
+  bool popularFilter = false;
+
+  /// 人气榜代码集合（null = 还没拉过）
+  Set<String>? popularSymbols;
+
+  /// 榜单拉取中
+  bool popularLoading = false;
+
   int activeGroup = 1;
 
   bool _disposed = false;
@@ -188,7 +213,9 @@ class BandScanController extends ChangeNotifier {
           (!turnoverFilter ||
               (hit.turnover != null && hit.turnover! > turnoverFilterMin)) &&
           (!chg3Filter || (hit.chg3 != null && hit.chg3! > chg3FilterMin)) &&
-          (!chg5Filter || (hit.chg5 != null && hit.chg5! > chg5FilterMin)))
+          (!chg5Filter || (hit.chg5 != null && hit.chg5! > chg5FilterMin)) &&
+          (!swingFilter || hit.maxPct >= swingFilterMin) &&
+          (!popularFilter || (popularSymbols?.contains(hit.symbol) ?? false)))
       .toList();
 
   /// 基本面/LON 标记还没补充的命中代码（「补充数据 N 只」按钮用）
@@ -265,6 +292,31 @@ class BandScanController extends ChangeNotifier {
 
   void setChg5Filter(bool value) =>
       _setFlag(value, chg5Filter, (v) => chg5Filter = v);
+
+  void setSwingFilter(bool value) =>
+      _setFlag(value, swingFilter, (v) => swingFilter = v);
+
+  /// 人气股开关：打开时顺手把榜单拉一次（已有就不重拉）
+  void setPopularFilter(bool value) {
+    _setFlag(value, popularFilter, (v) => popularFilter = v);
+    if (value && popularSymbols == null) unawaited(loadPopular());
+  }
+
+  /// 拉人气榜代码集合（5 分钟缓存，失败保持 null → 开关下一只都不显示）
+  Future<void> loadPopular({bool refresh = false}) async {
+    if (popularLoading) return;
+    popularLoading = true;
+    _notify();
+    try {
+      final symbols = await popularity.topSymbols();
+      if (symbols.isNotEmpty || refresh) popularSymbols = symbols;
+    } catch (_) {
+      // 拿不到就保持原样
+    } finally {
+      popularLoading = false;
+      _notify();
+    }
+  }
 
   void _setFlag(bool value, bool current, void Function(bool) assign) {
     if (value == current) return;
